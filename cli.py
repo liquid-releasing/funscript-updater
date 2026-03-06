@@ -112,7 +112,7 @@ def cmd_transform(args):
 def cmd_visualize(args):
     import json as _json
 
-    from assessment.visualizer import FunscriptVisualizer, HAS_MATPLOTLIB
+    from visualizations.motion import MotionVisualizer, HAS_MATPLOTLIB
     from models import AssessmentResult
 
     if not HAS_MATPLOTLIB:
@@ -126,7 +126,7 @@ def cmd_visualize(args):
     assessment = AssessmentResult.load(args.assessment)
     output = args.output or _default_path(args.funscript, "_visualization.png")
 
-    viz = FunscriptVisualizer(assessment, actions)
+    viz = MotionVisualizer(assessment, actions)
     viz.plot(output)
     print(f"Visualization saved: {output}")
 
