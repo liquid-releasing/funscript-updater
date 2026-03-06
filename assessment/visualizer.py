@@ -4,9 +4,11 @@ Requires matplotlib. Install with: pip install matplotlib
 """
 
 from models import AssessmentResult
+from utils import ms_to_timestamp
 
 try:
     import matplotlib.pyplot as plt
+    import matplotlib.ticker as ticker
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -37,44 +39,32 @@ class FunscriptVisualizer:
         positions = [a["pos"] for a in self.actions]
         a = self.assessment
 
-        fig, ax = plt.subplots(figsize=(16, 5))
-        ax.plot(times, positions, color="steelblue", linewidth=0.8, label="motion")
+        fig, ax = plt.subplots(figsize=(20, 5))
 
+        # --- Phase boundary tick marks ---
         for phase in a.phases:
-            ax.axvline(phase.start_ms, color="gray", linewidth=0.4, alpha=0.4)
+            ax.axvline(phase.start_ms, color="gray", linewidth=0.3, alpha=0.3, zorder=1)
 
-        for cycle in a.cycles:
-            ax.axvspan(cycle.start_ms, cycle.end_ms, alpha=0.05, color="green")
+        # --- Motion curve on top ---
+        ax.plot(times, positions, color="steelblue", linewidth=0.7, zorder=2, label="motion")
 
-        for phrase in a.phrases:
-            ax.axvspan(phrase.start_ms, phrase.end_ms, alpha=0.08, color="orange")
-            ax.text(
-                (phrase.start_ms + phrase.end_ms) / 2, 96,
-                phrase.pattern_label[:14],
-                ha="center", fontsize=6, color="darkorange",
-            )
+        # --- X-axis: format ms as MM:SS ---
+        def _fmt_ms(x, _):
+            ms = int(x)
+            minutes = ms // 60_000
+            seconds = (ms % 60_000) // 1_000
+            return f"{minutes}:{seconds:02d}"
 
-        perf = a.auto_mode_windows.get("performance", [])
-        brk = a.auto_mode_windows.get("break", [])
-        for w in perf:
-            ax.axvspan(w.start_ms, w.end_ms, alpha=0.12, color="red")
-        for w in brk:
-            ax.axvspan(w.start_ms, w.end_ms, alpha=0.12, color="blue")
+        ax.xaxis.set_major_formatter(ticker.FuncFormatter(_fmt_ms))
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=20, integer=True))
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=7)
 
-        ax.set_title(f"Funscript Analysis — {a.source_file}")
-        ax.set_xlabel("Time (ms)")
+        ax.set_title(f"Funscript Analysis — {a.source_file}  |  {a.bpm:.1f} BPM avg")
+        ax.set_xlabel("Time (MM:SS)")
         ax.set_ylabel("Position (0-100)")
-        ax.set_ylim(-5, 110)
+        ax.set_ylim(-5, 112)
 
-        from matplotlib.patches import Patch
-        legend_items = [
-            Patch(color="steelblue", label="motion"),
-            Patch(color="green", alpha=0.3, label="cycles"),
-            Patch(color="orange", alpha=0.4, label="phrases"),
-            Patch(color="red", alpha=0.5, label="performance"),
-            Patch(color="blue", alpha=0.5, label="break"),
-        ]
-        ax.legend(handles=legend_items, loc="upper right", fontsize=7)
+        ax.legend(loc="upper right", fontsize=7)
 
         plt.tight_layout()
         plt.savefig(output_path, dpi=150)
