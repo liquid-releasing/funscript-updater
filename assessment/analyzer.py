@@ -151,13 +151,19 @@ class FunscriptAnalyzer:
                 current_dir = ph_dir
             else:
                 label = " → ".join(self._phase_direction(p.label) for p in current)
-                cycles.append(Cycle(current[0].start_ms, current[-1].end_ms, label))
+                cycles.append(Cycle(
+                    current[0].start_ms, current[-1].end_ms, label,
+                    self._oscillation_count(current),
+                ))
                 current = [ph]
                 current_dir = ph_dir
 
         if current:
             label = " → ".join(self._phase_direction(p.label) for p in current)
-            cycles.append(Cycle(current[0].start_ms, current[-1].end_ms, label))
+            cycles.append(Cycle(
+                current[0].start_ms, current[-1].end_ms, label,
+                self._oscillation_count(current),
+            ))
 
         return cycles
 
@@ -189,28 +195,35 @@ class FunscriptAnalyzer:
 
     def _detect_phrases(self, patterns: List[Pattern]) -> List[Phrase]:
         all_cycles = sorted(
-            [(c.start_ms, c.end_ms, p.pattern_label) for p in patterns for c in p.cycles],
+            [
+                (c.start_ms, c.end_ms, p.pattern_label, c.oscillation_count)
+                for p in patterns for c in p.cycles
+            ],
             key=lambda x: x[0],
         )
 
         phrases: List[Phrase] = []
         current: List[tuple] = []
         current_label: Optional[str] = None
+        current_oscillations: int = 0
 
-        for start, end, label in all_cycles:
+        for start, end, label, osc in all_cycles:
             if not current:
                 current.append((start, end))
                 current_label = label
+                current_oscillations = osc
                 continue
             if label == current_label:
                 current.append((start, end))
+                current_oscillations += osc
             else:
-                phrases.append(self._make_phrase(current, current_label))
+                phrases.append(self._make_phrase(current, current_label, current_oscillations))
                 current = [(start, end)]
                 current_label = label
+                current_oscillations = osc
 
         if current:
-            phrases.append(self._make_phrase(current, current_label))
+            phrases.append(self._make_phrase(current, current_label, current_oscillations))
 
         return phrases
 
@@ -294,10 +307,16 @@ class FunscriptAnalyzer:
         return True
 
     @staticmethod
-    def _make_phrase(current: list, label: str) -> Phrase:
+    def _make_phrase(current: list, label: str, oscillation_count: int = 0) -> Phrase:
         n = len(current)
         return Phrase(
             current[0][0], current[-1][1],
             label, n,
             f"{n} cycles of pattern '{label}'",
+            oscillation_count,
         )
+
+    def _oscillation_count(self, phases: List[Phase]) -> int:
+        """Count up-down pairs (oscillations) in a list of phases."""
+        active = sum(1 for p in phases if self._phase_direction(p.label) != "flat")
+        return active // 2

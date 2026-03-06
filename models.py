@@ -40,6 +40,7 @@ class Cycle:
     start_ms: int
     end_ms: int
     label: str
+    oscillation_count: int = 0  # actual up-down pairs within this structural cycle
 
     @property
     def start_ts(self) -> str:
@@ -49,18 +50,27 @@ class Cycle:
     def end_ts(self) -> str:
         return ms_to_timestamp(self.end_ms)
 
+    @property
+    def bpm(self) -> float:
+        duration = self.end_ms - self.start_ms
+        if duration <= 0 or self.oscillation_count == 0:
+            return 0.0
+        return round(self.oscillation_count * 60_000 / duration, 2)
+
     def to_dict(self) -> dict:
         return {
             "start_ms": self.start_ms,
             "start_ts": self.start_ts,
             "end_ms": self.end_ms,
             "end_ts": self.end_ts,
+            "oscillation_count": self.oscillation_count,
+            "bpm": self.bpm,
             "label": self.label,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "Cycle":
-        return cls(d["start_ms"], d["end_ms"], d["label"])
+        return cls(d["start_ms"], d["end_ms"], d["label"], d.get("oscillation_count", 0))
 
 
 @dataclass
@@ -95,6 +105,7 @@ class Phrase:
     pattern_label: str
     cycle_count: int
     description: str
+    oscillation_count: int = 0  # total up-down pairs across all cycles in this phrase
 
     @property
     def start_ts(self) -> str:
@@ -104,12 +115,21 @@ class Phrase:
     def end_ts(self) -> str:
         return ms_to_timestamp(self.end_ms)
 
+    @property
+    def bpm(self) -> float:
+        duration = self.end_ms - self.start_ms
+        if duration <= 0 or self.oscillation_count == 0:
+            return 0.0
+        return round(self.oscillation_count * 60_000 / duration, 2)
+
     def to_dict(self) -> dict:
         return {
             "start_ms": self.start_ms,
             "start_ts": self.start_ts,
             "end_ms": self.end_ms,
             "end_ts": self.end_ts,
+            "oscillation_count": self.oscillation_count,
+            "bpm": self.bpm,
             "pattern_label": self.pattern_label,
             "cycle_count": self.cycle_count,
             "description": self.description,
@@ -120,6 +140,7 @@ class Phrase:
         return cls(
             d["start_ms"], d["end_ms"],
             d["pattern_label"], d["cycle_count"], d["description"],
+            d.get("oscillation_count", 0),
         )
 
 
@@ -168,6 +189,22 @@ class AssessmentResult:
     def duration_ts(self) -> str:
         return ms_to_timestamp(self.duration_ms)
 
+    @property
+    def bpm(self) -> float:
+        """Average oscillations per minute, derived from directional phase count.
+
+        Each up-phase + down-phase pair counts as one oscillation (one beat).
+        This is independent of structural cycle grouping, which can span many
+        oscillations and would undercount BPM on pure alternating scripts.
+        """
+        active = sum(
+            1 for p in self.phases
+            if "upward" in p.label or "downward" in p.label
+        )
+        if active == 0 or self.duration_ms <= 0:
+            return 0.0
+        return round((active / 2) * 60_000 / self.duration_ms, 2)
+
     def to_dict(self) -> dict:
         return {
             "meta": {
@@ -176,6 +213,7 @@ class AssessmentResult:
                 "duration_ms": self.duration_ms,
                 "duration_ts": self.duration_ts,
                 "action_count": self.action_count,
+                "bpm": self.bpm,
             },
             "phases": [p.to_dict() for p in self.phases],
             "cycles": [c.to_dict() for c in self.cycles],

@@ -61,6 +61,7 @@ def cmd_assess(args):
 
     print(f"Assessment saved: {output}")
     print(f"  Duration:  {result.duration_ts}  ({result.duration_ms} ms)")
+    print(f"  BPM:       {result.bpm}")
     print(f"  Actions:   {result.action_count}")
     print(f"  Phases:    {len(result.phases)}")
     print(f"  Cycles:    {len(result.cycles)}")
