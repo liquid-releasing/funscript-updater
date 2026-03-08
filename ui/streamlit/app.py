@@ -11,10 +11,11 @@ Sidebar
   • Export buttons
 
 Main area  (tabs)
-  1. Assessment  — pipeline output inspection
-  2. Work Items  — interactive section tagger
-  3. Edit        — detail panel for the selected item
-  4. Export      — summary of output files
+  1. Viewer      — three-panel colour-coded chart with assessment navigator
+  2. Assessment  — pipeline output inspection
+  3. Work Items  — interactive section tagger
+  4. Edit        — detail panel for the selected item
+  5. Export      — summary of output files
 """
 
 from __future__ import annotations
@@ -30,9 +31,12 @@ if _ROOT not in sys.path:
 import streamlit as st
 
 from ui.common.project import Project
+from ui.common.view_state import ViewState
 from ui.common.work_items import ItemType, WorkItem
 from ui.streamlit.panels import assessment as assessment_panel
+from ui.streamlit.panels import assessment_nav as assessment_nav_panel
 from ui.streamlit.panels import detail as detail_panel
+from ui.streamlit.panels import viewer as viewer_panel
 from ui.streamlit.panels import work_items as work_items_panel
 
 # ------------------------------------------------------------------
@@ -55,6 +59,27 @@ if "project" not in st.session_state:
 
 if "output_dir" not in st.session_state:
     st.session_state.output_dir = os.path.join(_ROOT, "output")
+
+if "view_state" not in st.session_state:
+    st.session_state.view_state = ViewState()
+
+if "proposed_actions" not in st.session_state:
+    st.session_state.proposed_actions = None
+
+if "last_loaded_file" not in st.session_state:
+    st.session_state.last_loaded_file = None
+
+if "large_funscript_threshold" not in st.session_state:
+    st.session_state.large_funscript_threshold = 10_000
+
+if "last_assessment_elapsed" not in st.session_state:
+    st.session_state.last_assessment_elapsed = None
+
+if "bpm_threshold" not in st.session_state:
+    st.session_state.bpm_threshold = 120.0
+
+if "last_loaded_cfg" not in st.session_state:
+    st.session_state.last_loaded_cfg = None
 
 # ------------------------------------------------------------------
 # Sidebar
@@ -84,24 +109,73 @@ def _sidebar() -> None:
     )
     funscript_path = os.path.join(funscript_dir, selected_file)
 
-    # Check for a cached assessment JSON.
-    base = os.path.splitext(selected_file)[0]
-    cached_assessment = os.path.join(st.session_state.output_dir, f"{base}.assessment.json")
-    use_cached = (
-        os.path.exists(cached_assessment)
-        and st.sidebar.checkbox("Use cached assessment", value=True)
+    # --- Phrase detection parameters ---
+    with st.sidebar.expander("Phrase detection settings", expanded=True):
+        min_phrase_s = st.slider(
+            "Min phrase length (s)", min_value=5, max_value=120, value=20, step=5,
+            help="Phrases shorter than this are merged into a neighbour.",
+        )
+        amp_sensitivity = st.select_slider(
+            "Amplitude sensitivity",
+            options=["Low (0.35)", "Medium (0.30)", "High (0.25)"],
+            value="Medium (0.30)",
+            help="How much stroke-depth change triggers a new phrase.",
+        )
+
+    # --- Chart / transform settings ---
+    with st.sidebar.expander("Chart settings"):
+        large_funscript_threshold = st.number_input(
+            "Fast rendering threshold (actions)",
+            min_value=100,
+            max_value=100_000,
+            value=10_000,
+            step=500,
+            help=(
+                "Funscripts with more actions than this use a single grey "
+                "connecting line for speed.  Smaller funscripts use per-segment "
+                "coloured lines that match the dot colours."
+            ),
+        )
+        bpm_threshold = st.number_input(
+            "Transform BPM threshold",
+            min_value=40,
+            max_value=300,
+            value=120,
+            step=5,
+            help=(
+                "Phrases at or above this BPM are suggested the Amplitude Scale "
+                "transform; phrases below are suggested Passthrough."
+            ),
+        )
+    st.session_state.large_funscript_threshold = int(large_funscript_threshold)
+    st.session_state.bpm_threshold = float(bpm_threshold)
+
+    amp_tol_map = {"Low (0.35)": 0.35, "Medium (0.30)": 0.30, "High (0.25)": 0.25}
+
+    from assessment.analyzer import AnalyzerConfig
+    analyzer_cfg = AnalyzerConfig(
+        min_phrase_duration_ms=min_phrase_s * 1000,
+        amplitude_tolerance=amp_tol_map[amp_sensitivity],
+    )
+    cfg_key = (funscript_path, min_phrase_s, amp_sensitivity)
+
+    # Auto-load when the file or settings change.
+    needs_load = (
+        cfg_key != st.session_state.last_loaded_cfg
     )
 
-    if st.sidebar.button("Load / Analyse", type="primary"):
+    if needs_load or st.sidebar.button("Re-analyse", type="primary"):
+        import time
         with st.spinner("Running assessment…"):
+            _t0 = time.time()
             st.session_state.project = Project.from_funscript(
                 funscript_path,
-                existing_assessment_path=cached_assessment if use_cached else None,
+                analyzer_config=analyzer_cfg,
             )
-            if not use_cached:
-                os.makedirs(st.session_state.output_dir, exist_ok=True)
-                st.session_state.project.save_assessment(cached_assessment)
-        st.success("Loaded!")
+            st.session_state.last_assessment_elapsed = time.time() - _t0
+            st.session_state.last_loaded_cfg  = cfg_key
+            st.session_state.last_loaded_file = selected_file
+            st.session_state.view_state       = ViewState()
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -111,8 +185,10 @@ def _sidebar() -> None:
     if project and project.is_loaded:
         s = project.summary()
         st.sidebar.markdown(f"**{s['name']}**")
+        elapsed = st.session_state.last_assessment_elapsed
+        timing_str = f"  |  assessed in {elapsed:.1f}s" if elapsed is not None else ""
         st.sidebar.caption(
-            f"Duration: {s['duration']}  |  Avg BPM: {s['bpm']:.1f}\n\n"
+            f"Duration: {s['duration']}  |  Avg BPM: {s['bpm']:.1f}{timing_str}\n\n"
             f"{s['phrases']} phrases  •  {s['bpm_transitions']} transitions"
         )
 
@@ -197,12 +273,19 @@ def _main() -> None:
         )
         return
 
-    tab_assessment, tab_work_items, tab_edit, tab_export = st.tabs(
-        ["Assessment", "Work Items", "Edit", "Export"]
+    tab_viewer, tab_assessment, tab_nav, tab_work_items, tab_edit, tab_export = st.tabs(
+        ["Phrase Selector", "Assessment", "Navigator", "Work Items", "Edit", "Export"]
     )
+
+    with tab_viewer:
+        _render_viewer_tab(project)
 
     with tab_assessment:
         assessment_panel.render(project)
+
+    with tab_nav:
+        st.subheader("Assessment Navigator")
+        assessment_nav_panel.render(project, view_state=st.session_state.view_state)
 
     with tab_work_items:
         work_items_panel.render(project)
@@ -212,6 +295,39 @@ def _main() -> None:
 
     with tab_export:
         _render_export_tab(project)
+
+
+def _render_viewer_tab(project: Project) -> None:
+    view_state = st.session_state.view_state
+    viewer_panel.render(project, view_state, large_funscript_threshold=st.session_state.large_funscript_threshold)
+
+
+def _commit_actions(project: Project, committed_actions: list) -> None:
+    """Replace the project's funscript data with committed_actions and re-assess."""
+    import json
+    import tempfile
+    import streamlit as st
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".funscript", delete=False, mode="w"
+    ) as tmp:
+        with open(project.funscript_path) as src:
+            data = json.load(src)
+        data["actions"] = committed_actions
+        json.dump(data, tmp)
+        tmp_path = tmp.name
+
+    with st.spinner("Re-assessing…"):
+        updated = Project.from_funscript(tmp_path)
+        # Carry the funscript path back so future loads still work
+        updated.funscript_path = project.funscript_path
+        st.session_state.project = updated
+        st.session_state.proposed_actions = None
+        st.session_state.view_state = ViewState()
+
+    os.unlink(tmp_path)
+    st.success("Committed. Assessment rebuilt.")
+    st.rerun()
 
 
 def _render_export_tab(project: Project) -> None:
