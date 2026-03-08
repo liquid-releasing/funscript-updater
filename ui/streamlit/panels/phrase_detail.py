@@ -188,8 +188,11 @@ def _render_chart(
     }
     visible_bands = slice_bands(compute_annotation_bands(assessment_stub), win_start, win_end)
 
+    # Pass no bands — avoids hit-target traces that extend beyond win_start/win_end
+    # and cause Plotly to auto-range to the full funscript extent.
     chart = FunscriptChart(
-        s, visible_bands, "",
+        s, [],
+        "",
         win_end - win_start,
         large_funscript_threshold=10_000_000,
     )
@@ -198,32 +201,37 @@ def _render_chart(
         zoom_start_ms      = win_start
         zoom_end_ms        = win_end
         color_mode         = view_state.color_mode
-        show_phrases       = True
+        show_phrases       = False   # bands are empty; we add vrects manually
         selection_start_ms = sel_phrase["start_ms"]
         selection_end_ms   = sel_phrase["end_ms"]
         def has_zoom(self):      return True
-        def has_selection(self): return True
+        def has_selection(self): return False  # no hit-target selection needed
 
     fig = chart._build_figure(_LocalVS(), height=260)
 
-    # Explicitly lock the x-axis — overrides any autorange from hit targets
+    # Phrase highlight vrect (replaces the band-driven vrect)
+    fig.add_vrect(
+        x0=sel_phrase["start_ms"], x1=sel_phrase["end_ms"],
+        fillcolor="rgba(255,220,50,0.15)",
+        line_width=2, line_color="rgba(255,220,50,1.0)",
+        layer="below",
+    )
+
+    # Lock x-axis to the fixed window (no autorange)
     fig.update_xaxes(range=[win_start, win_end], autorange=False)
 
     # Dim areas outside the selected phrase
-    try:
-        _DIM = "rgba(15,15,20,0.65)"
-        if win_start < sel_phrase["start_ms"]:
-            fig.add_vrect(
-                x0=win_start, x1=sel_phrase["start_ms"],
-                fillcolor=_DIM, layer="above", line_width=0,
-            )
-        if sel_phrase["end_ms"] < win_end:
-            fig.add_vrect(
-                x0=sel_phrase["end_ms"], x1=win_end,
-                fillcolor=_DIM, layer="above", line_width=0,
-            )
-    except Exception:
-        pass
+    _DIM = "rgba(15,15,20,0.65)"
+    if win_start < sel_phrase["start_ms"]:
+        fig.add_vrect(
+            x0=win_start, x1=sel_phrase["start_ms"],
+            fillcolor=_DIM, layer="above", line_width=0,
+        )
+    if sel_phrase["end_ms"] < win_end:
+        fig.add_vrect(
+            x0=sel_phrase["end_ms"], x1=win_end,
+            fillcolor=_DIM, layer="above", line_width=0,
+        )
 
     st.plotly_chart(fig, key=chart_key, config={"displayModeBar": False})
 
@@ -407,9 +415,7 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
             use_container_width=True,
             help=f"Download as {download_name}",
         ):
-            _clear_transform_state()
-            view_state.clear_selection()
-            st.rerun()
+            _return_to_selector(view_state)
 
     with col_cancel:
         if st.button(
@@ -418,9 +424,23 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
             use_container_width=True,
             help="Discard transforms and return to phrase selector",
         ):
-            _clear_transform_state()
-            view_state.clear_selection()
-            st.rerun()
+            _return_to_selector(view_state)
+
+
+def _return_to_selector(view_state) -> None:
+    """Clear transforms + selection and force a fresh phrase-selector chart.
+
+    Incrementing ``phrase_sel_chart_instance`` changes the Plotly widget key
+    so Streamlit discards the old chart (and its stale browser-side selection
+    state) rather than reusing it.
+    """
+    import streamlit as st
+    _clear_transform_state()
+    view_state.clear_selection()
+    st.session_state.phrase_sel_chart_instance = (
+        st.session_state.get("phrase_sel_chart_instance", 0) + 1
+    )
+    st.rerun()
 
 
 def _build_edited_actions(phrases: list, original_actions: list) -> list:

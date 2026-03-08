@@ -88,7 +88,8 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None, l
         with st.spinner(spinner_msg):
             series = compute_chart_data(original_actions)
             chart  = FunscriptChart(series, bands, "", duration_ms, large_funscript_threshold=large_funscript_threshold)
-            ev     = chart.render_streamlit(view_state, key="chart_phrase_sel", height=380)
+            _chart_v = st.session_state.get("phrase_sel_chart_instance", 0)
+            ev     = chart.render_streamlit(view_state, key=f"chart_phrase_sel_{_chart_v}", height=380)
         st.caption(f"Chart built in {_time.time() - _t0:.1f}s")
         _handle_chart_event(ev, view_state, phrases)
 
