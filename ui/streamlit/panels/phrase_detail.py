@@ -262,7 +262,7 @@ def _render_preview_stats(preview_actions: list, phrase: dict) -> None:
         "Mean":    f"{mean_pos:.1f}",
         "Actions": len(slice_acts),
     }
-    st.dataframe(pd.DataFrame([row]), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame([row]), hide_index=True, width="stretch")
 
 
 # ------------------------------------------------------------------
@@ -364,14 +364,14 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
     with col_p:
         if st.button("⏮ Prev", key="pd_phrase_prev",
                      disabled=(phrase_idx == 0),
-                     use_container_width=True):
+                     width="stretch"):
             _select_and_zoom(phrases[phrase_idx - 1], view_state, duration_ms)
             st.rerun()
 
     with col_n:
         if st.button("Next ⏭", key="pd_phrase_next",
                      disabled=(phrase_idx >= n - 1),
-                     use_container_width=True):
+                     width="stretch"):
             _select_and_zoom(phrases[phrase_idx + 1], view_state, duration_ms)
             st.rerun()
 
@@ -412,7 +412,7 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
             file_name=download_name,
             mime="application/json",
             key="pd_save",
-            use_container_width=True,
+            width="stretch",
             help=f"Download as {download_name}",
         ):
             _return_to_selector(view_state)
@@ -421,7 +421,7 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
         if st.button(
             "✕ Cancel",
             key="pd_cancel",
-            use_container_width=True,
+            width="stretch",
             help="Discard transforms and return to phrase selector",
         ):
             _return_to_selector(view_state)
