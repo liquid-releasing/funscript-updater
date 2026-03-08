@@ -232,7 +232,7 @@ def _render_export_tab(project: Project) -> None:
             st.markdown(f"**{icon} {label} windows ({len(items)})**")
             rows = [{"start": w.start_ts, "end": w.end_ts, "label": w.label or "—"} for w in items]
             import pandas as pd
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     st.divider()
     if st.button("Write JSON files", type="primary"):

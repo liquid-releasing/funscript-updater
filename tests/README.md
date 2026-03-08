@@ -2,7 +2,7 @@
 
 Unit tests for the core pipeline modules.
 
-76 core tests + 38 UI-layer tests = **114 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+85 core tests + 21 CLI tests + 45 UI-layer tests = **151 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -58,9 +58,25 @@ python -m unittest discover -s ui/common/tests -v
 | `TestOverlaps` | Overlapping, non-overlapping, touching at endpoint, contained, identical, adjacent |
 | `TestLowPassFilter` | Zero strength = pass-through, full strength = locks to first value, output length, empty list, single element |
 
+### `test_cli.py` — CLI subcommands
+
+| Class | What it covers |
+| --- | --- |
+| `TestCliAssess` | Exit code, output JSON structure, default path, summary output, analyzer config round-trip |
+| `TestCliTransform` | Exit code, valid funscript output, positions in range, transformer config flag |
+| `TestCliCustomize` | Exit code, valid funscript output, perf window flag, missing window file handled gracefully |
+| `TestCliPipeline` | Exit code, all three output files written, positions in range, perf window flag, stage summaries printed |
+| `TestCliConfig` | Transformer/customizer/analyzer config dump, config round-trip into transform command |
+
+### `test_integration.py` — full pipeline chain
+
+| Class | What it covers |
+| --- | --- |
+| `TestAssessTransformCustomizeChain` | Assessment stage, transformer stage, customizer stage, `run_pipeline()` writes all outputs, positions in range, log non-empty, missing assessment error, per-item config carried through to window JSON |
+
 ## Fixture
 
-`fixtures/sample.funscript` — a small synthetic funscript used by all four modules.
+`fixtures/sample.funscript` — a small synthetic funscript used by all modules.
 It is intentionally short so tests run in < 0.1 s.
 
 ## Test count by module
@@ -71,5 +87,7 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_transformer.py` | 15 |
 | `test_customizer.py` | 12 |
 | `test_utils.py` | 24 |
-| `ui/common/tests/` | 38 |
-| **Total** | **114** |
+| `test_integration.py` | 9 |
+| `test_cli.py` | 21 |
+| `ui/common/tests/` | 45 |
+| **Total** | **151** |

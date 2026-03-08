@@ -93,7 +93,7 @@ def _render_phases(phases: List[Dict]) -> None:
             {"start": p["start_ts"], "end": p["end_ts"], "label": p["label"]}
             for p in phases[:20]
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _render_patterns(patterns: List[Dict]) -> None:
@@ -111,7 +111,7 @@ def _render_patterns(patterns: List[Dict]) -> None:
             }
             for p in sorted(patterns, key=lambda x: x["count"], reverse=True)
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _render_phrases_timeline(phrases: List[Dict], transitions: List[Dict]) -> None:
@@ -140,7 +140,7 @@ def _render_phrases_timeline(phrases: List[Dict], transitions: List[Dict]) -> No
                 "to BPM": round(t["to_bpm"], 1),
                 "change %": f"{arrow} {abs(t['change_pct']):.1f}%",
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     else:
         st.info("No significant BPM transitions detected — tempo is uniform throughout.")
 
@@ -156,7 +156,7 @@ def _render_phrases_timeline(phrases: List[Dict], transitions: List[Dict]) -> No
             }
             for p in phrases
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _render_horizontal_timeline(phrases: List[Dict], total_ms: int) -> None:

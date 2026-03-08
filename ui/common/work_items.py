@@ -125,14 +125,16 @@ class WorkItem:
     # Serialisation
     # ------------------------------------------------------------------
 
-    def to_window_dict(self) -> Dict[str, str]:
+    def to_window_dict(self) -> Dict[str, Any]:
         """Return a window dict compatible with the customizer's JSON input."""
-        d: Dict[str, str] = {
+        d: Dict[str, Any] = {
             "start": self.start_ts,
             "end": self.end_ts,
         }
         if self.label:
             d["label"] = self.label
+        if self.config:
+            d["config"] = self.config
         return d
 
     def to_dict(self) -> Dict[str, Any]:
@@ -226,6 +228,39 @@ def items_from_bpm_transitions(
             bpm=bpm,
             source="bpm_transition",
         ))
+    return items
+
+
+def items_from_time_windows(
+    duration_ms: int,
+    window_ms: int,
+    bpm: float = 0.0,
+) -> List[WorkItem]:
+    """Create neutral WorkItems by splitting *duration_ms* into equal windows.
+
+    Used as a fallback for uniform-tempo content that produces only a single
+    phrase with no BPM transitions.
+
+    Parameters
+    ----------
+    duration_ms:
+        Total funscript duration in milliseconds.
+    window_ms:
+        Size of each segment in milliseconds.
+    bpm:
+        Representative BPM to attach to every item (informational).
+    """
+    items: List[WorkItem] = []
+    start = 0
+    while start < duration_ms:
+        end = min(start + window_ms, duration_ms)
+        items.append(WorkItem(
+            start_ms=start,
+            end_ms=end,
+            bpm=bpm,
+            source="time_window",
+        ))
+        start = end
     return items
 
 

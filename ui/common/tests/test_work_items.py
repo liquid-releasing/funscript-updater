@@ -16,6 +16,7 @@ from ui.common.work_items import (
     _PERF_DEFAULTS,
     items_from_bpm_transitions,
     items_from_phrases,
+    items_from_time_windows,
 )
 
 
@@ -164,6 +165,45 @@ class TestItemsFromBpmTransitions(unittest.TestCase):
 
     def test_empty_transitions_returns_empty(self):
         items = items_from_bpm_transitions([], self._PHRASES)
+        self.assertEqual(items, [])
+
+
+class TestItemsFromTimeWindows(unittest.TestCase):
+    def test_even_division(self):
+        # 30 minutes split into 5-minute windows → 6 items
+        items = items_from_time_windows(30 * 60 * 1000, 5 * 60 * 1000)
+        self.assertEqual(len(items), 6)
+        self.assertEqual(items[0].start_ms, 0)
+        self.assertEqual(items[-1].end_ms, 30 * 60 * 1000)
+
+    def test_uneven_division(self):
+        # 11 minutes with 5-minute windows → 3 items (0-5, 5-10, 10-11)
+        items = items_from_time_windows(11 * 60 * 1000, 5 * 60 * 1000)
+        self.assertEqual(len(items), 3)
+        self.assertEqual(items[-1].end_ms, 11 * 60 * 1000)
+
+    def test_windows_are_contiguous(self):
+        items = items_from_time_windows(20 * 60 * 1000, 5 * 60 * 1000)
+        for i in range(1, len(items)):
+            self.assertEqual(items[i].start_ms, items[i - 1].end_ms)
+
+    def test_source_label(self):
+        items = items_from_time_windows(10 * 60 * 1000, 5 * 60 * 1000)
+        for item in items:
+            self.assertEqual(item.source, "time_window")
+
+    def test_bpm_attached(self):
+        items = items_from_time_windows(10 * 60 * 1000, 5 * 60 * 1000, bpm=120.0)
+        for item in items:
+            self.assertAlmostEqual(item.bpm, 120.0)
+
+    def test_type_is_neutral(self):
+        items = items_from_time_windows(10 * 60 * 1000, 5 * 60 * 1000)
+        for item in items:
+            self.assertEqual(item.item_type, ItemType.NEUTRAL)
+
+    def test_zero_duration(self):
+        items = items_from_time_windows(0, 5 * 60 * 1000)
         self.assertEqual(items, [])
 
 
