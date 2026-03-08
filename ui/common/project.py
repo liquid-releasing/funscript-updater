@@ -35,7 +35,13 @@ from ui.common.work_items import (
     WorkItem,
     items_from_bpm_transitions,
     items_from_phrases,
+    items_from_time_windows,
 )
+
+# Fallback segmentation: if assessment produces ≤ this many work items for
+# content longer than FALLBACK_MIN_DURATION_MS, split into fixed windows.
+_FALLBACK_WINDOW_MS: int = 5 * 60 * 1000   # 5 minutes per segment
+_FALLBACK_MIN_DURATION_MS: int = 10 * 60 * 1000  # only trigger for 10+ min
 
 
 @dataclass
@@ -113,7 +119,14 @@ class Project:
     # ------------------------------------------------------------------
 
     def _init_work_items(self) -> None:
-        """Populate work_items from the assessment (called once on load)."""
+        """Populate work_items from the assessment (called once on load).
+
+        Strategy (in priority order):
+        1. BPM transitions present → segment at transition boundaries.
+        2. Multiple phrases → one item per phrase.
+        3. Fallback → fixed time-window segments (for uniform-tempo content
+           where the whole piece is one long phrase with no BPM changes).
+        """
         if self.assessment is None:
             return
         ad = self.assessment.to_dict()
@@ -122,6 +135,17 @@ class Project:
 
         if transitions:
             self.work_items = items_from_bpm_transitions(transitions, phrases)
+        elif len(phrases) > 1:
+            self.work_items = items_from_phrases(phrases)
+        elif (
+            self.assessment.duration_ms >= _FALLBACK_MIN_DURATION_MS
+            and len(phrases) <= 1
+        ):
+            # Uniform-tempo fallback: divide into fixed-size windows.
+            self.work_items = items_from_time_windows(
+                self.assessment.duration_ms, _FALLBACK_WINDOW_MS,
+                bpm=phrases[0].get("bpm", 0.0) if phrases else 0.0,
+            )
         else:
             self.work_items = items_from_phrases(phrases)
 

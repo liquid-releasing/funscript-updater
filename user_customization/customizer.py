@@ -36,8 +36,8 @@ from models import AssessmentResult
 from utils import low_pass_filter, parse_timestamp
 from .config import CustomizerConfig
 
-_WindowPair = Tuple[int, int]
-_WindowTriple = Tuple[int, int, str]
+_WindowTriple = Tuple[int, int, str]    # raw windows: (start, end, label)
+_ConfigWindow = Tuple[int, int, dict]   # perf/break windows: (start, end, config_overrides)
 
 
 class WindowCustomizer:
@@ -50,8 +50,8 @@ class WindowCustomizer:
         self._original_actions: list = []
         self._log_lines: List[str] = []
 
-        self._perf_windows: List[_WindowPair] = []
-        self._break_windows: List[_WindowPair] = []
+        self._perf_windows: List[_ConfigWindow] = []
+        self._break_windows: List[_ConfigWindow] = []
         self._raw_windows: List[_WindowTriple] = []
 
         self._cycles: list = []   # [{"start": ms, "end": ms}, ...]
@@ -93,12 +93,13 @@ class WindowCustomizer:
         """
         if perf_path:
             windows = self._load_ts_file(perf_path, "Performance")
-            self._perf_windows = [(s, e) for s, e, _ in windows]
+            self._perf_windows = [(s, e, cfg) for s, e, _, cfg in windows]
         if break_path:
             windows = self._load_ts_file(break_path, "Break")
-            self._break_windows = [(s, e) for s, e, _ in windows]
+            self._break_windows = [(s, e, cfg) for s, e, _, cfg in windows]
         if raw_path:
-            self._raw_windows = self._load_ts_file(raw_path, "Raw")
+            windows = self._load_ts_file(raw_path, "Raw")
+            self._raw_windows = [(s, e, lbl) for s, e, lbl, _ in windows]
 
     def load_beats_from_file(self, path: str) -> None:
         """Load beat times from a JSON file (enables Task 6 beat accents).
@@ -123,7 +124,7 @@ class WindowCustomizer:
         """
         cfg = self.config
         actions = self._actions
-        raw_ms: List[_WindowPair] = [(s, e) for s, e, _ in self._raw_windows]
+        raw_ms = [(s, e) for s, e, _ in self._raw_windows]
 
         cycle_ranges = [(c["start"], c["end"]) for c in self._cycles]
         cycle_midpoints = [(c["start"] + c["end"]) / 2 for c in self._cycles]
@@ -138,33 +139,38 @@ class WindowCustomizer:
                 actions[i]["pos"] = self._original_actions[i]["pos"]
                 continue
 
-            # Task 2 — performance window
-            if self._in(t, self._perf_windows):
+            # Task 2 — performance window (per-window config overrides applied)
+            perf_overrides = self._find_window(t, self._perf_windows)
+            if perf_overrides is not None:
+                eff = self._effective_config(cfg, perf_overrides)
                 dt = actions[i]["at"] - actions[i - 1]["at"]
-                if abs(dt) < cfg.timing_jitter_ms:
-                    actions[i]["at"] = actions[i - 1]["at"] + cfg.timing_jitter_ms
+                if abs(dt) < eff.timing_jitter_ms:
+                    actions[i]["at"] = actions[i - 1]["at"] + eff.timing_jitter_ms
 
                 p0 = actions[i - 1]["pos"]
                 p1 = actions[i]["pos"]
                 dt = max(1, actions[i]["at"] - actions[i - 1]["at"])
                 vel = (p1 - p0) / dt
 
-                if abs(vel) > cfg.max_velocity:
-                    p1 = p0 + math.copysign(cfg.max_velocity * dt, vel)
+                if abs(vel) > eff.max_velocity:
+                    p1 = p0 + math.copysign(eff.max_velocity * dt, vel)
                     actions[i]["pos"] = int(p1)
 
                 dir1 = actions[i - 1]["pos"] - actions[i - 2]["pos"]
                 dir2 = actions[i]["pos"] - actions[i - 1]["pos"]
                 if dir1 * dir2 < 0:
-                    softened = actions[i - 1]["pos"] + dir2 * (1 - cfg.reversal_soften)
-                    blended = softened * (1 - cfg.height_blend) + actions[i]["pos"] * cfg.height_blend
-                    blended = max(cfg.compress_bottom, min(cfg.compress_top, blended))
+                    softened = actions[i - 1]["pos"] + dir2 * (1 - eff.reversal_soften)
+                    blended = softened * (1 - eff.height_blend) + actions[i]["pos"] * eff.height_blend
+                    blended = max(eff.compress_bottom, min(eff.compress_top, blended))
                     actions[i]["pos"] = int(blended)
 
-            # Task 3 — break window
-            elif self._in(t, self._break_windows):
-                p = actions[i]["pos"]
-                actions[i]["pos"] = int(p + (50 - p) * cfg.break_amplitude_reduce)
+            # Task 3 — break window (per-window config overrides applied)
+            else:
+                break_overrides = self._find_window(t, self._break_windows)
+                if break_overrides is not None:
+                    eff = self._effective_config(cfg, break_overrides)
+                    p = actions[i]["pos"]
+                    actions[i]["pos"] = int(p + (50 - p) * eff.break_amplitude_reduce)
 
             # Task 5 — cycle-aware dynamics
             factor = self._cycle_factor(t, cycle_ranges, cycle_midpoints)
@@ -186,12 +192,15 @@ class WindowCustomizer:
             t = a["at"]
             if self._in(t, raw_ms):
                 strengths.append(0.0)
-            elif self._in(t, self._perf_windows):
-                strengths.append(cfg.lpf_performance)
-            elif self._in(t, self._break_windows):
-                strengths.append(cfg.lpf_break)
             else:
-                strengths.append(0.0)
+                po = self._find_window(t, self._perf_windows)
+                bo = self._find_window(t, self._break_windows)
+                if po is not None:
+                    strengths.append(self._effective_config(cfg, po).lpf_performance)
+                elif bo is not None:
+                    strengths.append(self._effective_config(cfg, bo).lpf_break)
+                else:
+                    strengths.append(0.0)
 
         smoothed = low_pass_filter(positions, strengths)
         for i, p in enumerate(smoothed):
@@ -219,14 +228,29 @@ class WindowCustomizer:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _load_ts_file(self, path: str, label: str) -> List[_WindowTriple]:
+    def _load_ts_file(self, path: str, label: str) -> List[Tuple[int, int, str, dict]]:
+        """Load a window JSON file.
+
+        Each entry may carry an optional ``"label"`` and/or ``"config"`` key:
+
+            [{"start": "00:01:10.000", "end": "00:01:25.000",
+              "label": "chorus", "config": {"max_velocity": 0.28}}]
+
+        Returns a list of ``(start_ms, end_ms, label, config_overrides)`` tuples.
+        Old files without ``"config"`` return an empty dict for that field.
+        """
         if not os.path.exists(path):
             self._log(f"{label}: file not found, treating as empty.")
             return []
         with open(path) as f:
             data = json.load(f)
         out = [
-            (parse_timestamp(w["start"]), parse_timestamp(w["end"]), w.get("label", ""))
+            (
+                parse_timestamp(w["start"]),
+                parse_timestamp(w["end"]),
+                w.get("label", ""),
+                w.get("config", {}),
+            )
             for w in data
         ]
         self._log(f"{label}: loaded {len(out)} windows.")
@@ -236,8 +260,30 @@ class WindowCustomizer:
         self._log_lines.append(msg)
 
     @staticmethod
-    def _in(t: int, windows: List[_WindowPair]) -> bool:
+    def _in(t: int, windows) -> bool:
+        """Return True if *t* falls within any (start, end) pair in *windows*."""
         return any(s <= t <= e for s, e in windows)
+
+    @staticmethod
+    def _find_window(t: int, windows: List[_ConfigWindow]) -> Optional[dict]:
+        """Return the config-overrides dict for the first window containing *t*.
+
+        Returns ``None`` if *t* is not inside any window (distinct from an
+        empty override dict ``{}`` which means "in a window, no overrides").
+        """
+        for s, e, overrides in windows:
+            if s <= t <= e:
+                return overrides
+        return None
+
+    @staticmethod
+    def _effective_config(base: "CustomizerConfig", overrides: dict) -> "CustomizerConfig":
+        """Return a CustomizerConfig with *overrides* merged on top of *base*."""
+        if not overrides:
+            return base
+        merged = base.to_dict()
+        merged.update(overrides)
+        return CustomizerConfig.from_dict(merged)
 
     @staticmethod
     def _cycle_factor(t: int, ranges: list, midpoints: list) -> float:
