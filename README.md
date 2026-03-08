@@ -1,218 +1,171 @@
 # funscript-updater
 
-A structure-aware, beat-sensitive post-processor for funscripts. Analyzes an existing script's motion structure and produces a new script with smoother defaults, expressive performance sections, gentle breaks, and beat-locked accents.
+A structure-aware post-processor for funscripts. It analyzes the motion
+structure of an existing script, lets you review and tag sections through an
+interactive UI, and generates an improved script with smoother defaults,
+expressive performance sections, and gentle breaks.
 
 ---
 
-## Workflow
+## Current state
 
-### Step 1 — Assess the current funscript
-
-Run the analyzer against your source funscript. This produces a single JSON file describing the motion structure.
-
-```bash
-python cli.py assess path/to/input.funscript --output assessment.json
-```
-
-The assessment JSON contains (with both `_ms` and `_ts` fields for every timestamp):
-
-| Section | What it captures |
+| Capability | Status |
 | --- | --- |
-| `phases` | Fine-grained up/down/flat direction segments |
-| `cycles` | Full oscillations (one up + one down phase) |
-| `patterns` | Groups of similar-duration cycles |
-| `phrases` | Runs of the same pattern — the long-form structure |
-| `beat_windows` | Cycle and phrase start/end boundaries |
-| `auto_mode_windows` | Suggested performance / break / default regions |
-
-### Step 2 — Review suggested updates
-
-Open `assessment.json` and review `auto_mode_windows`. The analyzer classifies phrases by cycle count:
-
-- **performance** — phrases with ≥ 5 cycles (high-energy, fast sections)
-- **break** — phrases with ≤ 2 cycles (low-energy, slow sections)
-- **default** — everything else
-
-Use `visualize` to see the structure plotted over the raw motion curve:
-
-```bash
-python cli.py visualize path/to/input.funscript --assessment assessment.json --output viz.png
-```
-
-### Step 3 — Manual updates
-
-Override any auto window by creating JSON files with human-readable timestamps (`HH:MM:SS.mmm`). Manual windows take priority — any auto window overlapping a manual one is removed.
-
-#### manual_performance.json
-
-```json
-[
-  { "start": "00:01:10.000", "end": "00:01:25.000", "label": "chorus buildup" }
-]
-```
-
-#### manual_break.json
-
-```json
-[
-  { "start": "00:02:05.000", "end": "00:02:12.500", "label": "verse rest" }
-]
-```
-
-#### raw_windows.json
-
-Sections where original actions are copied verbatim — highest priority, no transform applied.
-
-```json
-[
-  { "start": "00:03:10.000", "end": "00:03:16.561", "label": "keep original" }
-]
-```
-
-Use empty arrays `[]` if you don't need any manual overrides yet.
-
-### Step 4 — Generate new funscript
-
-```bash
-python cli.py transform path/to/input.funscript \
-    --assessment assessment.json \
-    --output output.funscript \
-    --perf manual_performance.json \
-    --break manual_break.json \
-    --raw raw_windows.json
-```
-
-Optional flags:
-
-- `--config transformer_config.json` — custom transform settings (see below)
-- `--beats beats.json` — beat times in ms (`[{"time": 1200}, ...]`), enables Task 6
-- `--save-merged merged.json` — save the final merged window snapshot for inspection
+| Structural analysis (phases, cycles, patterns, phrases, BPM transitions) | ✅ Available |
+| Interactive assessment viewer (Streamlit UI) | ✅ Available |
+| Work-item tagger (performance / break / raw / neutral) | ✅ Available |
+| Transform + customize pipeline | ✅ Available via CLI |
+| Transform + customize inside the UI | 🔜 Coming soon |
 
 ---
 
-## The Six Tasks
+## User workflow
 
-| Task | Mode | What it does |
-| --- | --- | --- |
-| 1 | Default | Half-speed timing + double amplitude outside performance windows |
-| 2 | Performance | Velocity limiting, reversal softening, position compression |
-| 3 | Break | Pulls positions toward center (50), reduces amplitude |
-| 4 | Raw preserve | Copies original timestamps and positions verbatim |
-| 5 | Cycle dynamics | Cosine-shaped push/pull aligned to cycle midpoints |
-| 6 | Beat accents | Small nudges near detected beat times |
+### 1 — Analyze
+
+The analyzer reads a `.funscript` file and detects its motion structure,
+working through five stages:
+
+```text
+actions → phases → cycles → patterns → phrases → BPM transitions
+```
+
+- **Phases** — individual up, down, or flat direction segments
+- **Cycles** — one complete oscillation (one up + one down phase)
+- **Patterns** — cycles with the same direction sequence and similar duration
+- **Phrases** — consecutive runs of the same pattern, each with a BPM value
+- **BPM transitions** — points where tempo changes significantly between phrases
+
+The output is a single JSON file capturing the full structural picture.
+
+### 2 — Review in the UI
+
+Open the Streamlit app and load your funscript. The **Assessment** tab shows
+the full pipeline output — a colour-coded phrase timeline, BPM transitions
+table, and drill-down detail for patterns and phases.
+
+The **Work Items** tab lists every detected section. Each one can be tagged:
+
+| Tag | Meaning |
+| --- | --- |
+| 🔥 Performance | High-energy section — apply velocity limiting and compression |
+| 🌊 Break | Rest section — reduce amplitude and pull toward centre |
+| 🎯 Raw | Preserve original actions verbatim |
+| ⚪ Neutral | Let the BPM-threshold transformer decide |
+
+Selecting an item opens the **Edit** tab where you can adjust the time
+window and tune the type-specific settings with sliders.
+
+### 3 — Export
+
+Click **Export** to write the tagged windows as JSON files ready for the
+customizer. The app also saves a project file so your tagging is preserved
+between sessions.
+
+### 4 — Transform and customize (CLI, UI integration coming soon)
+
+Run the transformer and customizer from the CLI using the exported window
+files:
+
+```bash
+# Step 1 — analyze (or use the UI; it saves a cached JSON automatically)
+python cli.py assess input.funscript --output output/assessment.json
+
+# Step 2 — transform (BPM-threshold baseline)
+python cli.py transform input.funscript \
+    --assessment output/assessment.json \
+    --output output/transformed.funscript
+
+# Step 3 — customize (apply your tagged windows)
+python cli.py customize output/transformed.funscript \
+    --assessment output/assessment.json \
+    --perf output/input.performance.json \
+    --break output/input.break.json \
+    --raw output/input.raw.json \
+    --output output/final.funscript
+```
 
 ---
 
-## Installation
+## Getting started
+
+### Install
 
 ```bash
-python -m venv .venv
-source .venv/Scripts/activate   # Windows Git Bash
 pip install -r requirements.txt
+pip install -r ui/streamlit/requirements.txt
 ```
 
-`matplotlib` is the only dependency and is only required for `visualize`.
+### Launch the UI
+
+```bash
+streamlit run ui/streamlit/app.py
+```
+
+Opens at `http://localhost:8501`. Select a funscript from the sidebar and
+click **Load / Analyse** to see the assessment results immediately.
+
+### Analyze from the command line
+
+```bash
+python cli.py assess path/to/file.funscript --output output/assessment.json
+```
 
 ---
 
-## Project Structure
+## Project structure
 
 ```text
 funscript-updater/
-├── assessment/
-│   ├── analyzer.py       # FunscriptAnalyzer — runs Steps 1 analysis pipeline
-│   └── visualizer.py     # FunscriptVisualizer — plots motion + structure
-├── suggested_updates/
-│   ├── config.py         # TransformerConfig dataclass (all tunable parameters)
-│   └── transformer.py    # FunscriptTransformer — runs Steps 4 six tasks
-├── tests/
-│   ├── fixtures/
-│   │   └── sample.funscript
-│   ├── test_utils.py
-│   ├── test_analyzer.py
-│   └── test_transformer.py
-├── models.py             # Shared dataclasses (Phase, Cycle, Pattern, Phrase, Window, AssessmentResult)
-├── utils.py              # Shared utilities (parse_timestamp, ms_to_timestamp, overlaps, low_pass_filter)
-├── cli.py                # CLI entry point
+├── assessment/               # Step 1: structural analysis
+│   ├── analyzer.py           #   FunscriptAnalyzer
+│   └── readme.md
+├── suggested_updates/        # Step 2: BPM-threshold baseline transform
+│   ├── transformer.py        #   FunscriptTransformer
+│   └── config.py             #   TransformerConfig
+├── user_customization/       # Step 3: window-based fine-tuning
+│   ├── customizer.py         #   WindowCustomizer
+│   └── config.py             #   CustomizerConfig
+├── visualizations/           # matplotlib motion chart
+│   └── motion.py
+├── ui/                       # All UI code
+│   ├── common/               #   Framework-agnostic models and logic
+│   │   ├── work_items.py     #   WorkItem + ItemType
+│   │   ├── project.py        #   Project session state
+│   │   └── tests/
+│   ├── streamlit/            #   Streamlit app (local + cloud deployable)
+│   │   ├── app.py
+│   │   └── panels/
+│   └── web/                  #   FastAPI + frontend (planned)
+├── tests/                    # Core pipeline unit tests (76 tests)
+├── models.py                 # Shared dataclasses
+├── utils.py                  # Timestamp helpers, low-pass filter
+├── cli.py                    # CLI entry point
 └── requirements.txt
 ```
 
 ---
 
-## CLI Reference
+## CLI reference
 
 ```bash
-python cli.py assess <funscript> [--output <path>] [--config <analyzer_config.json>]
-python cli.py transform <funscript> --assessment <path> [--output <path>]
-                        [--config <transformer_config.json>]
-                        [--beats <beats.json>]
-                        [--perf <manual_performance.json>]
-                        [--break <manual_break.json>]
-                        [--raw <raw_windows.json>]
-                        [--save-merged <merged.json>]
+python cli.py assess    <funscript> [--output <path>] [--config <json>]
+python cli.py transform <funscript> --assessment <path> [--output <path>] [--config <json>]
+python cli.py customize <funscript> --assessment <path> [--output <path>]
+                        [--perf <json>] [--break <json>] [--raw <json>] [--beats <json>]
 python cli.py visualize <funscript> --assessment <path> [--output <path>]
-python cli.py config [--output <path>]    # dump default transformer config
-python cli.py test                        # run unit tests
-```
-
----
-
-## Transformer Config
-
-Dump the default config to a file, edit it, and pass it with `--config`:
-
-```bash
-python cli.py config --output my_config.json
-python cli.py transform input.funscript --assessment assessment.json --config my_config.json
-```
-
-Key parameters:
-
-| Parameter | Default | Effect |
-| --- | --- | --- |
-| `time_scale` | 2.0 | Timing multiplier in default mode (2.0 = half speed) |
-| `amplitude_scale` | 2.0 | Position spread multiplier around center |
-| `lpf_default` | 0.10 | Smoothing in default sections |
-| `lpf_performance` | 0.16 | Smoothing in performance sections |
-| `lpf_break` | 0.30 | Smoothing in break sections |
-| `max_velocity` | 0.32 | Position-per-ms velocity cap in performance mode |
-| `beat_accent_amount` | 4 | Position nudge amount near beats |
-
----
-
-## API (for UI integration)
-
-All classes are designed to be driven from a future UI without any CLI dependency.
-
-```python
-from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
-from assessment.visualizer import FunscriptVisualizer
-from suggested_updates.transformer import FunscriptTransformer
-from suggested_updates.config import TransformerConfig
-from models import AssessmentResult
-
-# Step 1
-analyzer = FunscriptAnalyzer(config=AnalyzerConfig(performance_cycle_threshold=4))
-analyzer.load("input.funscript")
-result = analyzer.analyze()
-result.save("assessment.json")
-
-# Step 4
-transformer = FunscriptTransformer(config=TransformerConfig(time_scale=1.5))
-transformer.load_funscript("input.funscript")
-transformer.load_assessment(result)          # or load_assessment_from_file("assessment.json")
-transformer.load_manual_overrides(perf_path="manual_performance.json")
-transformer.merge_windows()
-transformer.transform()
-transformer.save("output.funscript")
-```
-
----
-
-## Running Tests
-
-```bash
+python cli.py config    [--customizer] [--output <path>]
 python cli.py test
-# or directly:
-python -m unittest discover tests
+```
+
+---
+
+## Running tests
+
+```bash
+# Core pipeline (76 tests)
+python -m unittest discover -s tests -v
+
+# UI layer (38 tests)
+python -m unittest discover -s ui/common/tests -v
 ```
