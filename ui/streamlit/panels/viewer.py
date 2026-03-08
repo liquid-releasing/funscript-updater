@@ -105,49 +105,13 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None, l
 # ------------------------------------------------------------------
 
 def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
-    """Colour mode + time range display + scroll/zoom controls + phrase prev/next."""
+    """Colour mode + time range display + scroll/zoom controls."""
     import streamlit as st
 
     zoom_start = view_state.zoom_start_ms or 0
     zoom_end   = view_state.zoom_end_ms   or duration_ms
     span       = zoom_end - zoom_start
     scroll_step = max(span // 3, 1_000)
-
-    # --- Phrase prev / next (own row so they aren't squeezed) ---
-    cur_idx = None
-    if view_state.has_selection() and phrases:
-        for i, ph in enumerate(phrases):
-            if ph["start_ms"] == view_state.selection_start_ms and ph["end_ms"] == view_state.selection_end_ms:
-                cur_idx = i
-                break
-
-    nav_label = f"Phrase {cur_idx + 1} of {len(phrases)}" if cur_idx is not None else f"{len(phrases)} phrases"
-    col_prev, col_next, col_nav_label, col_spacer = st.columns([1, 1, 3, 7])
-
-    with col_prev:
-        prev_disabled = not phrases or cur_idx is None or cur_idx == 0
-        if st.button("⏮ Prev", key="phrase_prev", disabled=prev_disabled, use_container_width=True):
-            target = phrases[cur_idx - 1]
-            _select_phrase(target, view_state)
-            _zoom_to_phrase(target, view_state, duration_ms)
-            st.rerun()
-
-    with col_next:
-        next_disabled = not phrases
-        if st.button("Next ⏭", key="phrase_next", disabled=next_disabled, use_container_width=True):
-            if cur_idx is None:
-                target = phrases[0]
-            elif cur_idx < len(phrases) - 1:
-                target = phrases[cur_idx + 1]
-            else:
-                target = None
-            if target:
-                _select_phrase(target, view_state)
-                _zoom_to_phrase(target, view_state, duration_ms)
-                st.rerun()
-
-    with col_nav_label:
-        st.caption(nav_label)
 
     col_mode, col_t0, col_t1, col_left, col_right, col_all, col_zin, col_zout = st.columns(
         [2, 2, 2, 1, 1, 1, 1, 1]

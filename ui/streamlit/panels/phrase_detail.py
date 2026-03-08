@@ -2,23 +2,24 @@
 
 Layout (when a phrase is selected)
 ------------------------------------
-  Divider + "P{N} — Phrase Detail" heading
+  ┌─────────────────────────────────┬──────────────┐
+  │  P{N} — Phrase Detail           │              │
+  │  Original chart (fixed x-axis)  │  Transform   │
+  ├─────────────────────────────────│  controls    │
+  │  Preview — {Transform Name}     │              │
+  │  Preview chart (fixed x-axis)   │  ⏮ Prev  Next ⏭ │
+  └─────────────────────────────────┴──────────────┘
 
-  Row 1:
-    [ Full-colour zoomed chart — original actions   (3/4) ]
-    [ Transform selector + param sliders            (1/4) ]
+Both charts share the same x-axis viewport (phrase + one neighbour each
+side) and have the modebar removed so the timescale cannot be changed.
 
-  Row 2 (always visible):
-    [ Preview chart — transform applied, not saved (full) ]
-    Caption: "Preview — {Transform Name}  (not saved)"
+Navigation buttons live at the bottom-right, inline with the preview chart.
 """
 
 from __future__ import annotations
 
 import copy
 from typing import Any, Dict, List, Optional
-
-from utils import ms_to_timestamp
 
 
 # ------------------------------------------------------------------
@@ -50,10 +51,9 @@ def render(
     phrase = phrases[phrase_idx]
 
     st.divider()
-    st.subheader(f"P{phrase_idx + 1} — Phrase Detail")
 
     # ------------------------------------------------------------------
-    # Viewport: selected phrase + one neighbour each side + small pad
+    # Viewport: phrase + one neighbour each side + small pad
     # ------------------------------------------------------------------
     prev_phrase = phrases[phrase_idx - 1] if phrase_idx > 0 else None
     next_phrase = phrases[phrase_idx + 1] if phrase_idx < len(phrases) - 1 else None
@@ -65,12 +65,25 @@ def render(
     win_end   = min(duration_ms, win_end + pad)
 
     # ------------------------------------------------------------------
-    # Row 1: original chart (left) + transform controls (right)
+    # Resolve current transform selection (from session state or default)
     # ------------------------------------------------------------------
-    col_chart, col_controls = st.columns([3, 1])
+    from suggested_updates.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
 
-    with col_chart:
-        st.caption("Original")
+    transform_state = st.session_state.get(f"phrase_transform_{phrase_idx}", {})
+    transform_key   = transform_state.get("transform_key", suggest_transform(phrase, bpm_threshold))
+    param_values    = transform_state.get("param_values", {})
+    spec = TRANSFORM_CATALOG.get(transform_key, TRANSFORM_CATALOG["passthrough"])
+
+    preview_actions = _apply_transform_to_window(original_actions, phrase, spec, param_values)
+
+    # ------------------------------------------------------------------
+    # Two-column layout: charts (left 3) | controls + nav (right 1)
+    # ------------------------------------------------------------------
+    col_charts, col_right = st.columns([3, 1])
+
+    with col_charts:
+        # --- Original chart ---
+        st.subheader(f"P{phrase_idx + 1} — Phrase Detail")
         _render_chart(
             actions=original_actions,
             phrases=phrases,
@@ -81,40 +94,31 @@ def render(
             chart_key=f"detail_orig_{phrase_idx}_{win_start}",
         )
 
-    with col_controls:
+        # --- Preview chart ---
+        st.subheader(f"Preview — {spec.name}")
+        _render_chart(
+            actions=preview_actions,
+            phrases=phrases,
+            phrase_idx=phrase_idx,
+            win_start=win_start,
+            win_end=win_end,
+            view_state=view_state,
+            chart_key=f"detail_prev_{phrase_idx}_{win_start}_{transform_key}",
+        )
+        st.caption("*(not saved)*")
+
+    with col_right:
+        # --- Transform controls (top) ---
         _render_transform_controls(phrase, bpm_threshold, phrase_idx)
 
-    # ------------------------------------------------------------------
-    # Row 2: preview chart (transform applied, not saved)
-    # ------------------------------------------------------------------
-    transform_state = st.session_state.get(f"phrase_transform_{phrase_idx}", {})
-    transform_key  = transform_state.get("transform_key", "passthrough")
-    param_values   = transform_state.get("param_values", {})
-
-    from suggested_updates.phrase_transforms import TRANSFORM_CATALOG
-    spec = TRANSFORM_CATALOG.get(transform_key, TRANSFORM_CATALOG["passthrough"])
-
-    preview_actions = _apply_transform_to_window(
-        original_actions=original_actions,
-        phrase=phrase,
-        spec=spec,
-        param_values=param_values,
-    )
-
-    st.caption(f"Preview — **{spec.name}** *(not saved)*")
-    _render_chart(
-        actions=preview_actions,
-        phrases=phrases,
-        phrase_idx=phrase_idx,
-        win_start=win_start,
-        win_end=win_end,
-        view_state=view_state,
-        chart_key=f"detail_prev_{phrase_idx}_{win_start}_{transform_key}",
-    )
+        # --- Prev / Next navigation (bottom) ---
+        st.write("")
+        st.write("")
+        _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
 
 
 # ------------------------------------------------------------------
-# Shared chart renderer
+# Chart renderer (fixed viewport, no modebar)
 # ------------------------------------------------------------------
 
 def _render_chart(
@@ -142,7 +146,6 @@ def _render_chart(
     }
     visible_bands = slice_bands(compute_annotation_bands(assessment_stub), win_start, win_end)
 
-    # Always use per-segment coloured lines in the detail view
     chart = FunscriptChart(
         s, visible_bands, "",
         win_end - win_start,
@@ -159,7 +162,9 @@ def _render_chart(
         def has_zoom(self):      return True
         def has_selection(self): return True
 
-    chart.render_streamlit(_LocalVS(), key=chart_key, height=260)
+    fig = chart._build_figure(_LocalVS(), height=260)
+    # Render without modebar so the timescale is locked
+    st.plotly_chart(fig, key=chart_key, config={"displayModeBar": False})
 
 
 # ------------------------------------------------------------------
@@ -172,18 +177,14 @@ def _apply_transform_to_window(
     spec,
     param_values: dict,
 ) -> list:
-    """Return a deep copy of original_actions with the transform applied
-    only to actions that fall within the phrase's time window."""
+    """Deep-copy original_actions, apply spec only to the phrase slice."""
     phrase_start = phrase["start_ms"]
     phrase_end   = phrase["end_ms"]
 
-    result = copy.deepcopy(original_actions)
-
-    # Extract the phrase slice, apply, write back
+    result       = copy.deepcopy(original_actions)
     phrase_slice = [a for a in result if phrase_start <= a["at"] <= phrase_end]
     transformed  = spec.apply(phrase_slice, param_values)
 
-    # Map by timestamp for fast lookup
     t_to_pos = {a["at"]: a["pos"] for a in transformed}
     for a in result:
         if a["at"] in t_to_pos:
@@ -247,3 +248,39 @@ def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: i
         "transform_key": chosen_key,
         "param_values":  param_values,
     }
+
+
+# ------------------------------------------------------------------
+# Phrase navigation buttons (bottom-right)
+# ------------------------------------------------------------------
+
+def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms: int) -> None:
+    import streamlit as st
+
+    n = len(phrases)
+    st.caption(f"P{phrase_idx + 1} of {n}")
+
+    col_p, col_n = st.columns(2)
+    with col_p:
+        if st.button("⏮ Prev", key="pd_phrase_prev",
+                     disabled=(phrase_idx == 0),
+                     use_container_width=True):
+            target = phrases[phrase_idx - 1]
+            _select_and_zoom(target, view_state, duration_ms)
+            st.rerun()
+
+    with col_n:
+        if st.button("Next ⏭", key="pd_phrase_next",
+                     disabled=(phrase_idx >= n - 1),
+                     use_container_width=True):
+            target = phrases[phrase_idx + 1]
+            _select_and_zoom(target, view_state, duration_ms)
+            st.rerun()
+
+
+def _select_and_zoom(phrase: dict, view_state, duration_ms: int) -> None:
+    view_state.set_selection(phrase["start_ms"], phrase["end_ms"])
+    start = phrase["start_ms"]
+    end   = phrase["end_ms"]
+    pad   = max((end - start) // 5, 2_000)
+    view_state.set_zoom(max(0, start - pad), min(duration_ms, end + pad))
