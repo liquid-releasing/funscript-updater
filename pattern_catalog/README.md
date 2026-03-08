@@ -115,6 +115,51 @@ and is independent of the bulk pipeline transformer.
 | `invert` | Invert | Flips positions around 50 (pos = 100 − pos) | Corrects a phrase that is phase-inverted relative to the rest of the script |
 | `boost_contrast` | Boost Contrast | Pushes positions toward 0 and 100, away from the midpoint | Flat-feeling phrases where peaks/troughs don't reach the extremes |
 
+### CLI usage (`phrase-transform` command)
+
+Apply a transform to specific phrases, all phrases, or let the suggestion rules
+choose automatically.
+
+```bash
+# Apply smooth to phrases 4 and 5 only
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform smooth --phrase 4 --phrase 5 \
+    --param strength=0.25
+
+# Normalize all phrases (open up compressed signal)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform normalize --all
+
+# Boost contrast on a single phrase, custom range
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform boost_contrast --phrase 2 \
+    --param strength=0.8
+
+# Scale amplitude down across all phrases (gentler output)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform amplitude_scale --all \
+    --param scale=0.7
+
+# Invert phrase 1 (fix phase-inverted section)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform invert --phrase 1
+
+# Let suggest_transform() pick the best transform per phrase automatically
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --suggest --bpm-threshold 120
+
+# Preview the plan without writing any file
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --suggest --dry-run
+```
+
 ### Programmatic use
 
 ```python
