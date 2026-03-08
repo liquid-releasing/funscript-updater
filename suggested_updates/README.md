@@ -94,3 +94,45 @@ python cli.py transform input.funscript \
 ```bash
 python -m unittest tests.test_transformer -v
 ```
+
+
+## Interactive phrase transforms (`phrase_transforms.py`)
+
+The Streamlit phrase detail panel lets users apply named transforms to
+individual phrases before saving.  The catalog lives in `phrase_transforms.py`
+and is independent of the bulk pipeline transformer.
+
+### Transform catalog
+
+| Key | Name | Description |
+| --- | --- | --- |
+| `passthrough` | Passthrough | Keep original positions unchanged |
+| `amplitude_scale` | Amplitude Scale | Scale stroke depth around midpoint (50) |
+| `normalize` | Normalize Range | Expand positions to fill a target range |
+| `smooth` | Smooth | Low-pass filter to reduce jitter |
+| `clamp_upper` | Clamp Upper Half | Compress into 50–100 zone |
+| `clamp_lower` | Clamp Lower Half | Compress into 0–50 zone |
+| `invert` | Invert | Mirror positions around 50 |
+| `boost_contrast` | Boost Contrast | Push toward 0 and 100 extremes |
+
+### Programmatic use
+
+```python
+from suggested_updates.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+
+# Apply a named transform to a slice of actions
+spec = TRANSFORM_CATALOG["amplitude_scale"]
+new_actions = spec.apply(phrase_actions, {"scale": 1.8})
+
+# Get the rule-based suggestion for a phrase dict
+key = suggest_transform(phrase_dict, bpm_threshold=120.0)
+```
+
+### Suggestion rules
+
+| Condition (checked in order) | Suggested transform |
+| --- | --- |
+| `pattern_label` contains `"transition"` | `smooth` |
+| `bpm < bpm_threshold` | `passthrough` |
+| `bpm >= bpm_threshold` and `amplitude_span < 40` | `normalize` |
+| `bpm >= bpm_threshold` | `amplitude_scale` |

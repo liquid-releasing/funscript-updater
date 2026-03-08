@@ -1,6 +1,6 @@
 # ui/streamlit — Streamlit UI
 
-Interactive local app (and Streamlit Cloud deployable) for the Funscript Updater pipeline.
+Interactive local app for reviewing, editing, and exporting funscript transforms.
 
 ## Quick start
 
@@ -12,75 +12,179 @@ streamlit run ui/streamlit/app.py
 
 Opens at `http://localhost:8501`.
 
-## Layout
+## Sidebar
+
+| Control | Description |
+| --- | --- |
+| Funscript selector | Pick a `.funscript` file from `test_funscript/` |
+| Min phrase length | Shortest allowed phrase (s); shorter phrases are merged |
+| Amplitude sensitivity | How much stroke-depth change triggers a new phrase boundary |
+| Fast rendering threshold | Funscripts above this action count use a grey line for speed |
+| Transform BPM threshold | Phrases at or above this BPM receive the Amplitude Scale suggestion |
+| Re-analyse | Force a fresh assessment with the current settings |
+
+Settings auto-apply when changed; the assessment reruns automatically.
+
+## Tabs
+
+### 1. Phrase Selector
+
+The primary workspace.  Shows the full funscript as a colour-coded chart
+(velocity or amplitude mode) with phrase bounding boxes overlaid.
+
+**Selecting a phrase**
+- Click anywhere inside a phrase box on the chart, or
+- Click a numbered phrase button (P1, P2, …) below the chart.
+
+Once a phrase is selected the chart is hidden and the **Phrase Detail** panel
+appears in its place.
+
+**Chart controls** (visible in selector mode only)
+
+| Control | Effect |
+| --- | --- |
+| Color mode radio | Switch between velocity and amplitude colouring |
+| From / To text inputs | Type a timestamp (`M:SS`) to jump to a time range |
+| ◀ / ▶ | Scroll left / right by one-third of the current window |
+| All | Reset zoom to show the full funscript |
+| ＋ / － | Zoom in / out (halve or double the time window) |
+
+**Large funscript rendering**
+Funscripts above the fast rendering threshold (default: 10 000 actions) use a
+single grey connecting line for speed; smaller funscripts use per-segment
+coloured lines that match the dot colours.
+
+---
+
+### Phrase Detail (replaces Phrase Selector when a phrase is selected)
 
 ```
-Sidebar                        Main area (tabs)
-───────────────────────────    ──────────────────────────────────────
-• File picker                  1. Assessment
-• Load / Analyse button           Summary stats (8 metrics)
-• Session summary                 Phases breakdown chart
-• Add manual item form            Cycles → Patterns table
-• Export buttons                  Phrases BPM timeline (SVG)
-                                  BPM transitions table
-
-                               2. Work Items
-                                  Scrollable list of all sections
-                                  Per-row type selector
-                                  Edit button → selects for tab 3
-
-                               3. Edit (detail panel)
-                                  Time window editor
-                                  Performance controls (sliders)
-                                  Break controls (sliders)
-                                  Raw preserve notice
-                                  Neutral prompt
-
-                               4. Export
-                                  Window summary tables
-                                  Write JSON files button
+┌─────────────────────────────────┬──────────────┐
+│  P{N} — Phrase Detail           │              │
+│  Original chart (fixed x-axis)  │  Transform   │
+├─────────────────────────────────│  controls    │
+│  Preview — {Transform Name}     │              │
+│  Preview chart (fixed x-axis)   │  ⏮ Prev      │
+│  [position stats table]         │     Next ⏭   │
+│  *(not saved)*                  │  ── divider ─│
+│                                 │  💾 Save      │
+└─────────────────────────────────│  ✕ Cancel    │
+                                  └──────────────┘
 ```
+
+**Original chart** — the phrase as it exists in the loaded funscript.
+
+**Preview chart** — live preview with the selected transform applied.  Only the
+phrase slice is transformed; surrounding context uses original positions.
+
+Both charts:
+- Share the same fixed x-axis width (based on the longest phrase in the file
+  so stroke velocity is visually comparable across all phrases).
+- Show the selected phrase at full brightness; surrounding context is dimmed.
+- Have the modebar removed — the timescale cannot be accidentally changed.
+
+**Position stats table** (below the preview chart)
+
+| Column | Meaning |
+| --- | --- |
+| Min | Lowest position value in the preview phrase slice |
+| Max | Highest position value |
+| Range | Max − Min (stroke depth indicator) |
+| Mean | Average position |
+| Actions | Number of actions in the phrase |
+
+**Transform controls**
+
+Choose from the catalog of named transforms.  The rule-based suggestion for
+the phrase is shown in a caption; the selectbox defaults to Passthrough so
+the user starts with no change applied.
+
+Transforms with parameters expose sliders that update the preview in real time.
+
+| Transform | Effect |
+| --- | --- |
+| Passthrough | No change |
+| Amplitude Scale | Scale stroke depth around midpoint (50) |
+| Normalize Range | Expand positions to fill a target range |
+| Smooth | Low-pass filter to reduce jitter |
+| Clamp Upper Half | Compress into 50–100 zone |
+| Clamp Lower Half | Compress into 0–50 zone |
+| Invert | Mirror positions around 50 |
+| Boost Contrast | Push toward 0 and 100 extremes |
+
+**Navigation**
+- ⏮ Prev / Next ⏭ — move to the previous or next phrase (transform choices are
+  remembered per phrase within the session).
+
+**Save / Cancel**
+- 💾 **Save** — applies all stored per-phrase transforms (across the entire
+  funscript), downloads the result as `{name}.edited.funscript`, and returns
+  to the phrase selector.  The original file is never modified.
+- ✕ **Cancel** — discards all stored transforms and returns to the phrase
+  selector without downloading.
+
+---
+
+### 2. Assessment
+
+Read-only display of the pipeline output: summary metrics, phase breakdown,
+cycle → pattern table, phrase BPM timeline, and BPM transition table.
+
+### 3. Navigator
+
+Assessment navigator: scroll through phases, cycles, patterns, and phrases
+with linked chart highlighting.
+
+### 4. Work Items
+
+Scrollable list of all detected sections.  Each row shows time range, BPM,
+and a type selector (Performance / Break / Raw / Neutral).  Click **Edit** to
+open the detail panel for that item.
+
+### 5. Edit
+
+Detail panel for the selected work item.  Shows type-specific controls
+(performance velocity limits, break amplitude settings, etc.).
+
+### 6. Export
+
+Summary tables of typed work items and a button to write JSON window files
+for the downstream customizer pipeline.
 
 ## Panels
 
 Each panel is an independent module in `panels/`:
 
-| Module | Tab | Responsibility |
-|---|---|---|
-| `panels/assessment.py` | Assessment | Read-only pipeline output display |
-| `panels/work_items.py` | Work Items | Interactive section tagger |
-| `panels/detail.py` | Edit | Editable controls for the selected item |
+| Module | Responsibility |
+| --- | --- |
+| `panels/viewer.py` | Phrase Selector + Phrase Detail orchestration |
+| `panels/phrase_detail.py` | Phrase Detail panel (charts, transforms, save/cancel) |
+| `panels/assessment.py` | Read-only pipeline output display |
+| `panels/assessment_nav.py` | Assessment navigator |
+| `panels/work_items.py` | Interactive section tagger |
+| `panels/detail.py` | Editable controls for the selected work item |
 
-Panels do **not** hold state themselves — all state lives in
-`st.session_state.project` (a `ui.common.project.Project` instance).
-
-## Item types and their customizer tasks
-
-| Type | Icon | Customizer task | Effect |
-|---|---|---|---|
-| Performance | 🔥 | Task 2 | Velocity limiting, reversal softening, position compression |
-| Break | 🌊 | Task 3 | Amplitude reduction, centre pull |
-| Raw | 🎯 | Task 4 | Copy original actions verbatim |
-| Neutral | ⚪ | (none) | BPM-threshold transformer decides |
+Panels do **not** hold state — all state lives in `st.session_state.project`
+(a `ui.common.project.Project`) and `st.session_state.view_state`
+(a `ui.common.view_state.ViewState`).
 
 ## Output files
 
 All outputs go to `output/` (gitignored).
 
 | File | Description |
-|---|---|
-| `<name>.assessment.json` | Assessment result (auto-saved on first load) |
+| --- | --- |
+| `<name>.edited.funscript` | User-edited funscript (downloaded via Save button) |
 | `<name>.performance.json` | Performance window list for customizer |
 | `<name>.break.json` | Break window list |
 | `<name>.raw.json` | Raw preserve window list |
 | `<name>.project.json` | Full project state (work items + types + configs) |
 
-## Extending
+## Performance notes
 
-To add a new panel:
-1. Create `panels/my_panel.py` with a `render(project)` function.
-2. Import it in `app.py` and add a tab entry.
-
-The `ui/common` layer handles all business logic; panels are purely
-responsible for rendering and translating user gestures into
-`project.*` method calls.
+- The phrase selector chart is hidden while a phrase is selected — no chart
+  redraw overhead during editing.
+- Detail charts compute colour data only for the visible window (not the full
+  funscript) so they render quickly even for long files.
+- The fast rendering threshold in the sidebar controls when the phrase selector
+  switches from per-segment coloured lines to a single grey line.
