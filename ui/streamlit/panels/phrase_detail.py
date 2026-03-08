@@ -109,7 +109,7 @@ def _detail_fragment(
     bpm_threshold: float,
     duration_ms: int,
 ) -> None:
-    from suggested_updates.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
 
     view_state = st.session_state.view_state
     phrase     = phrases[phrase_idx]
@@ -378,7 +378,7 @@ def _apply_transform_to_window(
 # ------------------------------------------------------------------
 
 def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: int) -> None:
-    from suggested_updates.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
 
     suggested_key = suggest_transform(phrase, bpm_threshold)
     keys   = list(TRANSFORM_CATALOG.keys())
@@ -513,7 +513,7 @@ def _return_to_selector(view_state) -> None:
 
 def _build_edited_actions(phrases: list, original_actions: list) -> list:
     """Apply all stored phrase transforms to original_actions."""
-    from suggested_updates.phrase_transforms import TRANSFORM_CATALOG
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
 
     result = copy.deepcopy(original_actions)
     for idx, phrase in enumerate(phrases):

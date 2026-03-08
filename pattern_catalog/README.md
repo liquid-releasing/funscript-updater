@@ -1,4 +1,4 @@
-# suggested_updates
+# pattern_catalog
 
 BPM-threshold based transformation of funscripts (Pipeline Stage 2).
 
@@ -30,7 +30,7 @@ phrase lookup so that timeline boundaries remain consistent.
 Config can be saved and loaded as JSON:
 
 ```python
-from suggested_updates import TransformerConfig
+from pattern_catalog import TransformerConfig
 
 cfg = TransformerConfig(bpm_threshold=100.0, amplitude_scale=1.8)
 cfg.save("transformer_config.json")
@@ -61,7 +61,7 @@ transformer.load_assessment_from_file("assessment.json") # from file
 ### Programmatically
 
 ```python
-from suggested_updates import FunscriptTransformer, TransformerConfig
+from pattern_catalog import FunscriptTransformer, TransformerConfig
 
 transformer = FunscriptTransformer(config=TransformerConfig(bpm_threshold=100.0))
 transformer.load_funscript("input.funscript")
@@ -118,7 +118,7 @@ and is independent of the bulk pipeline transformer.
 ### Programmatic use
 
 ```python
-from suggested_updates.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
 
 # Apply a named transform to a slice of actions
 spec = TRANSFORM_CATALOG["amplitude_scale"]

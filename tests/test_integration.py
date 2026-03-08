@@ -13,7 +13,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
-from suggested_updates import FunscriptTransformer, TransformerConfig
+from pattern_catalog import FunscriptTransformer, TransformerConfig
 from user_customization import WindowCustomizer, CustomizerConfig
 from ui.common.project import Project
 from ui.common.pipeline import run_pipeline

@@ -1,4 +1,4 @@
-"""Tests for suggested_updates/phrase_transforms.py.
+"""Tests for pattern_catalog/phrase_transforms.py.
 
 Covers:
 - TRANSFORM_CATALOG completeness and structure
@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from suggested_updates.phrase_transforms import (
+from pattern_catalog.phrase_transforms import (
     TRANSFORM_CATALOG,
     PhraseTransform,
     TransformParam,

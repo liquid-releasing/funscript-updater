@@ -76,10 +76,10 @@ def _build_analyzer_config(args):
 
 def cmd_pipeline(args):
     from assessment.analyzer import FunscriptAnalyzer
-    from suggested_updates.config import TransformerConfig
+    from pattern_catalog.config import TransformerConfig
     from user_customization.config import CustomizerConfig
     from user_customization.customizer import WindowCustomizer
-    from suggested_updates.transformer import FunscriptTransformer
+    from pattern_catalog.transformer import FunscriptTransformer
     import tempfile, os
 
     output_dir = args.output_dir or os.path.join(
@@ -158,8 +158,8 @@ def cmd_assess(args):
 
 
 def cmd_transform(args):
-    from suggested_updates.transformer import FunscriptTransformer
-    from suggested_updates.config import TransformerConfig
+    from pattern_catalog.transformer import FunscriptTransformer
+    from pattern_catalog.config import TransformerConfig
 
     config = TransformerConfig.load(args.config) if args.config else TransformerConfig()
     transformer = FunscriptTransformer(config)
@@ -243,7 +243,7 @@ def cmd_config(args):
             json.dump(dataclasses.asdict(cfg), f, indent=2)
         print(f"Default analyzer config written: {output}")
     else:
-        from suggested_updates.config import TransformerConfig
+        from pattern_catalog.config import TransformerConfig
         cfg = TransformerConfig()
         output = args.output or "transformer_config.json"
         cfg.save(output)

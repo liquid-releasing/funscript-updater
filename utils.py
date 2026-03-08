@@ -1,4 +1,4 @@
-"""Shared utility functions used across assessment and suggested_updates."""
+"""Shared utility functions used across assessment and pattern_catalog."""
 
 
 def parse_timestamp(ts: str) -> int:

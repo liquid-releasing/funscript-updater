@@ -6,7 +6,7 @@ pipeline and the Streamlit UI phrase-detail panel.
 
 Usage::
 
-    from suggested_updates.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
 
     spec = TRANSFORM_CATALOG["amplitude_scale"]
     new_actions = spec.apply(phrase_actions)
