@@ -159,6 +159,7 @@ def _detail_fragment(
         )
 
         st.subheader(f"Preview — {spec.name}")
+        st.caption(_phrase_description(phrase))
         _render_chart(
             actions=preview_actions,
             phrases=phrases,
