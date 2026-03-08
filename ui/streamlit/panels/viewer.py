@@ -88,20 +88,17 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None) -
     prop_series  = compute_chart_data(proposed_actions)
     comm_series  = compute_chart_data(committed_actions)
 
-    chart_height = 260
+    chart_height = 220
 
     orig_chart = FunscriptChart(orig_series, bands, "Original",  duration_ms)
     prop_chart = FunscriptChart(prop_series, bands, "Proposed",  duration_ms)
     comm_chart = FunscriptChart(comm_series, bands, "Committed", duration_ms)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        ev = orig_chart.render_streamlit(view_state, key="chart_orig", height=chart_height)
-        _handle_chart_selection(ev, view_state)
-    with col2:
-        prop_chart.render_streamlit(view_state, key="chart_prop", height=chart_height)
-    with col3:
-        comm_chart.render_streamlit(view_state, key="chart_comm", height=chart_height)
+    # Stack panels vertically so patterns are easy to compare across the same time axis
+    ev = orig_chart.render_streamlit(view_state, key="chart_orig", height=chart_height)
+    _handle_chart_selection(ev, view_state)
+    prop_chart.render_streamlit(view_state, key="chart_prop", height=chart_height)
+    comm_chart.render_streamlit(view_state, key="chart_comm", height=chart_height)
 
     # ------------------------------------------------------------------
     # Commit bar
@@ -116,8 +113,8 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None) -
 def _render_toolbar(view_state, duration_ms: int) -> None:
     import streamlit as st
 
-    with st.expander("Display options", expanded=False):
-        col1, col2, col3 = st.columns(3)
+    with st.expander("Display options", expanded=True):
+        col1, col2 = st.columns([2, 3])
         with col1:
             view_state.color_mode = st.radio(
                 "Colour mode",
@@ -128,12 +125,13 @@ def _render_toolbar(view_state, duration_ms: int) -> None:
             )
         with col2:
             st.markdown("**Annotations**")
-            view_state.show_cycles      = st.checkbox("Cycles",      view_state.show_cycles,      key="ann_cycles")
-            view_state.show_phrases     = st.checkbox("Phrases",     view_state.show_phrases,     key="ann_phrases")
-            view_state.show_transitions = st.checkbox("Transitions", view_state.show_transitions, key="ann_trans")
-        with col3:
-            view_state.show_phases   = st.checkbox("Phases",   view_state.show_phases,   key="ann_phases")
-            view_state.show_patterns = st.checkbox("Patterns", view_state.show_patterns, key="ann_patterns")
+            ann_col1, ann_col2, ann_col3 = st.columns(3)
+            with ann_col1:
+                view_state.show_phrases     = st.checkbox("Phrases",     view_state.show_phrases,     key="ann_phrases")
+            with ann_col2:
+                view_state.show_transitions = st.checkbox("Transitions", view_state.show_transitions, key="ann_trans")
+            with ann_col3:
+                view_state.show_patterns = st.checkbox("Patterns", view_state.show_patterns, key="ann_patterns")
 
 
 def _render_zoom_controls(view_state, duration_ms: int) -> None:

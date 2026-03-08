@@ -51,7 +51,7 @@ class ViewState:
     color_mode: ColorMode = "velocity"
 
     show_phases:      bool = False
-    show_cycles:      bool = True
+    show_cycles:      bool = False
     show_patterns:    bool = False
     show_phrases:     bool = True
     show_transitions: bool = True

@@ -88,13 +88,22 @@ class FunscriptChart:
             return None
 
         fig = self._build_figure(view_state, height)
-        event = st.plotly_chart(
-            fig,
-            key=key,
-            on_select="rerun",
-            selection_mode="box",
-            use_container_width=True,
-        )
+        try:
+            event = st.plotly_chart(
+                fig,
+                key=key,
+                on_select="rerun",
+                selection_mode="box",
+                use_container_width=True,
+            )
+        except TypeError:
+            # Newer Streamlit removed use_container_width from plotly_chart
+            event = st.plotly_chart(
+                fig,
+                key=key,
+                on_select="rerun",
+                selection_mode="box",
+            )
         return event
 
     # ------------------------------------------------------------------
