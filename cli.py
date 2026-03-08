@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """Funscript Updater CLI
 
-Four-step workflow:
+Full-pipeline shortcut (Steps 1 + 3 + 4 in one command):
+
+  python cli.py pipeline path/to/input.funscript --output-dir output/
+      [--perf performance.json] [--break break.json] [--raw raw.json]
+      [--beats beats.json] [--transformer-config tc.json]
+      [--customizer-config cc.json]
+
+Individual steps:
 
   Step 1 — Assess
     python cli.py assess path/to/input.funscript [--output assessment.json]
+                        [--config analyzer_config.json]
 
   Step 2 — Review (human step — open assessment.json, review bpm_transitions and phrase BPMs)
 
@@ -27,9 +35,10 @@ Four-step workflow:
 Additional commands:
 
   python cli.py visualize path/to/input.funscript --assessment assessment.json [--output viz.png]
-  python cli.py config --output transformer_config.json   # dump default transformer config
-  python cli.py config --customizer --output customizer_config.json  # dump customizer config
-  python cli.py test                                      # run unit tests
+  python cli.py config --output transformer_config.json        # dump default transformer config
+  python cli.py config --customizer --output cc.json           # dump customizer config
+  python cli.py config --analyzer --output analyzer_config.json  # dump analyzer config
+  python cli.py test                                            # run all tests
 """
 
 import argparse
@@ -43,6 +52,58 @@ sys.path.insert(0, os.path.dirname(__file__))
 # ------------------------------------------------------------------
 # Command implementations
 # ------------------------------------------------------------------
+
+def cmd_pipeline(args):
+    from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
+    from suggested_updates.config import TransformerConfig
+    from user_customization.config import CustomizerConfig
+    from user_customization.customizer import WindowCustomizer
+    from suggested_updates.transformer import FunscriptTransformer
+    import tempfile, os
+
+    output_dir = args.output_dir or os.path.join(
+        os.path.dirname(args.funscript), "output"
+    )
+    os.makedirs(output_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(args.funscript))[0]
+
+    # Stage 1 — Assess
+    analyzer = FunscriptAnalyzer()
+    analyzer.load(args.funscript)
+    assessment = analyzer.analyze()
+    assessment_path = os.path.join(output_dir, f"{base}.assessment.json")
+    assessment.save(assessment_path)
+    print(f"Assessment saved: {assessment_path}")
+    print(f"  BPM: {assessment.bpm}  Phrases: {len(assessment.phrases)}"
+          f"  Transitions: {len(assessment.bpm_transitions)}")
+
+    # Stage 2 — Transform
+    tx_config = TransformerConfig.load(args.transformer_config) if args.transformer_config else TransformerConfig()
+    transformer = FunscriptTransformer(tx_config)
+    transformer.load_funscript(args.funscript)
+    transformer.load_assessment(assessment)
+    transformer.transform()
+    transformed_path = os.path.join(output_dir, f"{base}.transformed.funscript")
+    transformer.save(transformed_path)
+    print(f"Transformed:  {transformed_path}")
+
+    # Stage 3 — Customize
+    cust_config = CustomizerConfig.load(args.customizer_config) if args.customizer_config else CustomizerConfig()
+    customizer = WindowCustomizer(cust_config)
+    customizer.load_funscript(transformed_path)
+    customizer.load_assessment(assessment)
+    customizer.load_manual_overrides(
+        perf_path=args.perf,
+        break_path=args.break_windows,
+        raw_path=args.raw,
+    )
+    if args.beats:
+        customizer.load_beats_from_file(args.beats)
+    customizer.customize()
+    customized_path = os.path.join(output_dir, f"{base}.customized.funscript")
+    customizer.save(customized_path)
+    print(f"Customized:   {customized_path}")
+
 
 def cmd_assess(args):
     from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
@@ -152,6 +213,14 @@ def cmd_config(args):
         output = args.output or "customizer_config.json"
         cfg.save(output)
         print(f"Default customizer config written: {output}")
+    elif args.analyzer:
+        from assessment.analyzer import AnalyzerConfig
+        import dataclasses, json
+        cfg = AnalyzerConfig()
+        output = args.output or "analyzer_config.json"
+        with open(output, "w") as f:
+            json.dump(dataclasses.asdict(cfg), f, indent=2)
+        print(f"Default analyzer config written: {output}")
     else:
         from suggested_updates.config import TransformerConfig
         cfg = TransformerConfig()
@@ -163,11 +232,13 @@ def cmd_config(args):
 
 def cmd_test(_args):
     import unittest
+    root = os.path.dirname(__file__)
     loader = unittest.TestLoader()
-    suite = loader.discover(
-        start_dir=os.path.join(os.path.dirname(__file__), "tests"),
-        pattern="test_*.py",
-    )
+    suite = unittest.TestSuite()
+    # Core pipeline tests
+    suite.addTests(loader.discover(start_dir=os.path.join(root, "tests"), pattern="test_*.py"))
+    # UI common-layer tests
+    suite.addTests(loader.discover(start_dir=os.path.join(root, "ui", "common", "tests"), pattern="test_*.py"))
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)
@@ -183,6 +254,24 @@ def build_parser() -> argparse.ArgumentParser:
         description="Funscript Updater — analyze and transform funscripts",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    # --- pipeline ---
+    p_pipe = sub.add_parser(
+        "pipeline",
+        help="Run all three stages (assess -> transform -> customize) in one step",
+    )
+    p_pipe.add_argument("funscript", help="Path to source .funscript file")
+    p_pipe.add_argument(
+        "--output-dir", help="Directory for all output files (default: ./output/)"
+    )
+    p_pipe.add_argument("--perf", help="Performance windows JSON")
+    p_pipe.add_argument(
+        "--break", dest="break_windows", help="Break windows JSON"
+    )
+    p_pipe.add_argument("--raw", help="Raw-preserve windows JSON")
+    p_pipe.add_argument("--beats", help="Beats JSON (enables beat accents)")
+    p_pipe.add_argument("--transformer-config", help="Transformer config JSON")
+    p_pipe.add_argument("--customizer-config", help="Customizer config JSON")
 
     # --- assess ---
     p_assess = sub.add_parser("assess", help="Step 1: analyze a funscript")
@@ -221,7 +310,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_cfg.add_argument("--output", help="Output path")
     p_cfg.add_argument(
         "--customizer", action="store_true",
-        help="Dump customizer config instead of transformer config"
+        help="Dump customizer config instead of transformer config",
+    )
+    p_cfg.add_argument(
+        "--analyzer", action="store_true",
+        help="Dump analyzer config instead of transformer config",
     )
 
     # --- test ---
@@ -240,6 +333,7 @@ def main():
     args = parser.parse_args()
 
     dispatch = {
+        "pipeline": cmd_pipeline,
         "assess": cmd_assess,
         "transform": cmd_transform,
         "customize": cmd_customize,
