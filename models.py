@@ -40,7 +40,8 @@ class Cycle:
     start_ms: int
     end_ms: int
     label: str
-    oscillation_count: int = 0  # actual up-down pairs within this structural cycle
+    oscillation_count: int = 0   # actual up-down pairs within this structural cycle
+    amplitude_range: float = 0.0  # max_pos - min_pos of actions within this cycle
 
     @property
     def start_ts(self) -> str:
@@ -66,11 +67,16 @@ class Cycle:
             "oscillation_count": self.oscillation_count,
             "bpm": self.bpm,
             "label": self.label,
+            "amplitude_range": round(self.amplitude_range, 1),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "Cycle":
-        return cls(d["start_ms"], d["end_ms"], d["label"], d.get("oscillation_count", 0))
+        return cls(
+            d["start_ms"], d["end_ms"], d["label"],
+            d.get("oscillation_count", 0),
+            d.get("amplitude_range", 0.0),
+        )
 
 
 @dataclass

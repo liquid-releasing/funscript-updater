@@ -27,6 +27,12 @@ class AnalyzerConfig:
     min_phase_duration_ms: int = 80
     duration_tolerance: float = 0.20
     velocity_tolerance: float = 0.25
+    # Two cycles whose amplitude ranges differ by more than this fraction
+    # are considered distinct patterns (breaks up P1-style monolithic phrases).
+    amplitude_tolerance: float = 0.30
+    # After phrase detection, merge any phrase shorter than this into its
+    # shortest neighbour.  Set to 0 to disable.
+    min_phrase_duration_ms: int = 20_000
     # Flag BPM transitions whose absolute percentage change exceeds this value
     bpm_change_threshold_pct: float = 40.0
 
@@ -163,19 +169,25 @@ class FunscriptAnalyzer:
                 if len(active_dirs) >= 2:
                     # completed a full oscillation; close and start fresh
                     label = " → ".join(self._phase_direction(p.label) for p in current)
+                    c_start = current[0].start_ms
+                    c_end   = current[-1].end_ms
                     cycles.append(Cycle(
-                        current[0].start_ms, current[-1].end_ms, label,
+                        c_start, c_end, label,
                         self._oscillation_count(current),
+                        self._cycle_amplitude(c_start, c_end),
                     ))
                     current = [ph]
                 else:
                     current.append(ph)
 
         if current:
-            label = " → ".join(self._phase_direction(p.label) for p in current)
+            label   = " → ".join(self._phase_direction(p.label) for p in current)
+            c_start = current[0].start_ms
+            c_end   = current[-1].end_ms
             cycles.append(Cycle(
-                current[0].start_ms, current[-1].end_ms, label,
+                c_start, c_end, label,
                 self._oscillation_count(current),
+                self._cycle_amplitude(c_start, c_end),
             ))
 
         return cycles
@@ -209,7 +221,7 @@ class FunscriptAnalyzer:
     def _detect_phrases(self, patterns: List[Pattern]) -> List[Phrase]:
         all_cycles = sorted(
             [
-                (c.start_ms, c.end_ms, p.pattern_label, c.oscillation_count)
+                (c.start_ms, c.end_ms, p.pattern_label, c.oscillation_count, c.amplitude_range)
                 for p in patterns for c in p.cycles
             ],
             key=lambda x: x[0],
@@ -219,24 +231,73 @@ class FunscriptAnalyzer:
         current: List[tuple] = []
         current_label: Optional[str] = None
         current_oscillations: int = 0
+        current_amp_sum: float = 0.0
 
-        for start, end, label, osc in all_cycles:
+        for start, end, label, osc, amp in all_cycles:
             if not current:
                 current.append((start, end))
                 current_label = label
                 current_oscillations = osc
+                current_amp_sum = amp
                 continue
-            if label == current_label:
+
+            # Break on pattern label change OR significant amplitude shift.
+            label_changed = label != current_label
+            amp_changed = False
+            if amp > 0 and current_amp_sum > 0:
+                current_avg_amp = current_amp_sum / len(current)
+                deviation = abs(amp - current_avg_amp) / max(amp, current_avg_amp)
+                amp_changed = deviation > self.config.amplitude_tolerance
+
+            if not label_changed and not amp_changed:
                 current.append((start, end))
                 current_oscillations += osc
+                current_amp_sum += amp
             else:
                 phrases.append(self._make_phrase(current, current_label, current_oscillations))
                 current = [(start, end)]
                 current_label = label
                 current_oscillations = osc
+                current_amp_sum = amp
 
         if current:
             phrases.append(self._make_phrase(current, current_label, current_oscillations))
+
+        return self._merge_short_phrases(phrases)
+
+    def _merge_short_phrases(self, phrases: List[Phrase]) -> List[Phrase]:
+        """Merge any phrase shorter than min_phrase_duration_ms into its shortest neighbour."""
+        min_dur = self.config.min_phrase_duration_ms
+        if min_dur <= 0 or len(phrases) <= 1:
+            return phrases
+
+        changed = True
+        while changed and len(phrases) > 1:
+            changed = False
+            for i, ph in enumerate(phrases):
+                if (ph.end_ms - ph.start_ms) < min_dur:
+                    # Pick the shorter neighbour to merge into.
+                    if i == 0:
+                        merge_idx = 1
+                    elif i == len(phrases) - 1:
+                        merge_idx = i - 1
+                    else:
+                        prev_dur = phrases[i - 1].end_ms - phrases[i - 1].start_ms
+                        next_dur = phrases[i + 1].end_ms - phrases[i + 1].start_ms
+                        merge_idx = i - 1 if prev_dur <= next_dur else i + 1
+
+                    lo, hi = min(i, merge_idx), max(i, merge_idx)
+                    a, b = phrases[lo], phrases[hi]
+                    merged = Phrase(
+                        a.start_ms, b.end_ms,
+                        a.pattern_label,
+                        a.cycle_count + b.cycle_count,
+                        f"{a.cycle_count + b.cycle_count} cycles",
+                        a.oscillation_count + b.oscillation_count,
+                    )
+                    phrases = phrases[:lo] + [merged] + phrases[hi + 1:]
+                    changed = True
+                    break  # restart scan after each merge
 
         return phrases
 
@@ -314,6 +375,11 @@ class FunscriptAnalyzer:
         vel_b = 1.0 / max(1, dur_b)
         if abs(vel_a - vel_b) > cfg.velocity_tolerance * max(vel_a, vel_b):
             return False
+        # Cycles with significantly different stroke depths are distinct patterns.
+        if a.amplitude_range > 0 and b.amplitude_range > 0:
+            amp_ratio = min(a.amplitude_range, b.amplitude_range) / max(a.amplitude_range, b.amplitude_range)
+            if amp_ratio < (1.0 - cfg.amplitude_tolerance):
+                return False
         return True
 
     @staticmethod
@@ -330,3 +396,13 @@ class FunscriptAnalyzer:
         """Count up-down pairs (oscillations) in a list of phases."""
         active = sum(1 for p in phases if self._phase_direction(p.label) != "flat")
         return active // 2
+
+    def _cycle_amplitude(self, start_ms: int, end_ms: int) -> float:
+        """Position range (max - min) of actions within [start_ms, end_ms]."""
+        positions = [
+            a["pos"] for a in self._actions
+            if start_ms <= a["at"] <= end_ms
+        ]
+        if not positions:
+            return 0.0
+        return float(max(positions) - min(positions))
