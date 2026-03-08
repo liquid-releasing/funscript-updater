@@ -131,28 +131,45 @@ class FunscriptAnalyzer:
     # ------------------------------------------------------------------
 
     def _detect_cycles(self, phases: List[Phase]) -> List[Cycle]:
+        """Group phases into cycles.
+
+        A cycle closes once it has accumulated at least one active (non-flat)
+        direction change in each direction (i.e. a complete up→down oscillation).
+        When the *next* direction change would start a new oscillation, the
+        accumulated phases are emitted as a cycle and a fresh one begins.
+        """
         cycles: List[Cycle] = []
         current: List[Phase] = []
-        current_dir: Optional[str] = None
 
         for ph in phases:
             ph_dir = self._phase_direction(ph.label)
+
             if not current:
                 current.append(ph)
-                current_dir = ph_dir
                 continue
 
-            if ph_dir != current_dir:
+            last_dir = self._phase_direction(current[-1].label)
+
+            if ph_dir == last_dir:
+                # consecutive same direction — extend the current segment
                 current.append(ph)
-                current_dir = ph_dir
             else:
-                label = " → ".join(self._phase_direction(p.label) for p in current)
-                cycles.append(Cycle(
-                    current[0].start_ms, current[-1].end_ms, label,
-                    self._oscillation_count(current),
-                ))
-                current = [ph]
-                current_dir = ph_dir
+                # direction changed — check if current already has both active directions
+                active_dirs = {
+                    self._phase_direction(p.label)
+                    for p in current
+                    if self._phase_direction(p.label) != "flat"
+                }
+                if len(active_dirs) >= 2:
+                    # completed a full oscillation; close and start fresh
+                    label = " → ".join(self._phase_direction(p.label) for p in current)
+                    cycles.append(Cycle(
+                        current[0].start_ms, current[-1].end_ms, label,
+                        self._oscillation_count(current),
+                    ))
+                    current = [ph]
+                else:
+                    current.append(ph)
 
         if current:
             label = " → ".join(self._phase_direction(p.label) for p in current)
