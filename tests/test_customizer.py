@@ -109,7 +109,7 @@ class TestWindowCustomizer(unittest.TestCase):
         try:
             c.load_manual_overrides(perf_path=perf_path)
             self.assertEqual(len(c._perf_windows), 1)
-            self.assertEqual(c._perf_windows[0], (500, 3000))
+            self.assertEqual(c._perf_windows[0], (500, 3000, {}))
         finally:
             os.unlink(perf_path)
 

@@ -125,14 +125,16 @@ class WorkItem:
     # Serialisation
     # ------------------------------------------------------------------
 
-    def to_window_dict(self) -> Dict[str, str]:
+    def to_window_dict(self) -> Dict[str, Any]:
         """Return a window dict compatible with the customizer's JSON input."""
-        d: Dict[str, str] = {
+        d: Dict[str, Any] = {
             "start": self.start_ts,
             "end": self.end_ts,
         }
         if self.label:
             d["label"] = self.label
+        if self.config:
+            d["config"] = self.config
         return d
 
     def to_dict(self) -> Dict[str, Any]:
