@@ -57,40 +57,13 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None, l
     # Ensure phrases are always shown even if view_state has them toggled off.
     view_state.show_phrases = True
 
-    # ------------------------------------------------------------------
-    # Controls: colour mode + scroll/zoom
-    # ------------------------------------------------------------------
-    _render_controls(view_state, duration_ms, phrases)
+    from ui.streamlit.panels import phrase_detail
 
-    # ------------------------------------------------------------------
-    # Phrase Selector chart — full width, pan mode
-    # ------------------------------------------------------------------
-    import time as _time
-    n_actions = len(original_actions)
-    spinner_msg = (
-        f"Building chart ({n_actions} actions — using fast rendering)…"
-        if n_actions > large_funscript_threshold
-        else f"Building chart ({n_actions} actions)…"
-    )
-    _t0 = _time.time()
-    with st.spinner(spinner_msg):
-        series = compute_chart_data(original_actions)
-        chart  = FunscriptChart(series, bands, "", duration_ms, large_funscript_threshold=large_funscript_threshold)
-        ev     = chart.render_streamlit(view_state, key="chart_phrase_sel", height=380)
-    st.caption(f"Chart built in {_time.time() - _t0:.1f}s")
-    _handle_chart_event(ev, view_state, phrases)
-
-    # ------------------------------------------------------------------
-    # Phrase quick-jump buttons
-    # ------------------------------------------------------------------
-    _render_phrase_bar(phrases, view_state)
-
-    # ------------------------------------------------------------------
-    # Selected phrase info + detail panel
-    # ------------------------------------------------------------------
     if view_state.has_selection():
+        # ------------------------------------------------------------------
+        # Detail mode: hide phrase selector, show only phrase detail panel
+        # ------------------------------------------------------------------
         _render_phrase_info(view_state, phrases)
-        from ui.streamlit.panels import phrase_detail
         phrase_detail.render(
             phrases=phrases,
             original_actions=original_actions,
@@ -98,6 +71,28 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None, l
             duration_ms=duration_ms,
             bpm_threshold=st.session_state.get("bpm_threshold", 120.0),
         )
+    else:
+        # ------------------------------------------------------------------
+        # Selector mode: controls + chart + phrase bar
+        # ------------------------------------------------------------------
+        _render_controls(view_state, duration_ms, phrases)
+
+        import time as _time
+        n_actions = len(original_actions)
+        spinner_msg = (
+            f"Building chart ({n_actions} actions — using fast rendering)…"
+            if n_actions > large_funscript_threshold
+            else f"Building chart ({n_actions} actions)…"
+        )
+        _t0 = _time.time()
+        with st.spinner(spinner_msg):
+            series = compute_chart_data(original_actions)
+            chart  = FunscriptChart(series, bands, "", duration_ms, large_funscript_threshold=large_funscript_threshold)
+            ev     = chart.render_streamlit(view_state, key="chart_phrase_sel", height=380)
+        st.caption(f"Chart built in {_time.time() - _t0:.1f}s")
+        _handle_chart_event(ev, view_state, phrases)
+
+        _render_phrase_bar(phrases, view_state)
 
 
 # ------------------------------------------------------------------

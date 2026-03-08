@@ -8,17 +8,24 @@ Layout (when a phrase is selected)
   ├─────────────────────────────────│  controls    │
   │  Preview — {Transform Name}     │              │
   │  Preview chart (fixed x-axis)   │  ⏮ Prev  Next ⏭ │
+  │                                 │  💾 Save  ✕ Cancel │
   └─────────────────────────────────┴──────────────┘
 
-Both charts share the same x-axis viewport (phrase + one neighbour each
-side) and have the modebar removed so the timescale cannot be changed.
+Both charts share the same fixed-width x-axis viewport (centered on the
+selected phrase, sized to show the longest phrase in the funscript so that
+BPM and velocity are visually comparable across all phrase views).
 
-Navigation buttons live at the bottom-right, inline with the preview chart.
+Areas outside the selected phrase are dimmed with a semi-transparent overlay
+so context is visible but focus stays on the phrase being edited.
+
+Navigation and Save/Cancel buttons live at the bottom-right.
 """
 
 from __future__ import annotations
 
 import copy
+import json
+import os
 from typing import Any, Dict, List, Optional
 
 
@@ -53,16 +60,10 @@ def render(
     st.divider()
 
     # ------------------------------------------------------------------
-    # Viewport: phrase + one neighbour each side + small pad
+    # Fixed viewport: sized to the longest phrase + padding so all phrase
+    # detail views share the same time-scale (velocity is comparable).
     # ------------------------------------------------------------------
-    prev_phrase = phrases[phrase_idx - 1] if phrase_idx > 0 else None
-    next_phrase = phrases[phrase_idx + 1] if phrase_idx < len(phrases) - 1 else None
-
-    win_start = prev_phrase["start_ms"] if prev_phrase else sel_start
-    win_end   = next_phrase["end_ms"]   if next_phrase else sel_end
-    pad = max((sel_end - sel_start) // 10, 1_000)
-    win_start = max(0, win_start - pad)
-    win_end   = min(duration_ms, win_end + pad)
+    win_start, win_end = _fixed_viewport(phrases, phrase, duration_ms)
 
     # ------------------------------------------------------------------
     # Resolve current transform selection (from session state or default)
@@ -111,14 +112,50 @@ def render(
         # --- Transform controls (top) ---
         _render_transform_controls(phrase, bpm_threshold, phrase_idx)
 
-        # --- Prev / Next navigation (bottom) ---
+        # --- Prev / Next navigation ---
         st.write("")
         st.write("")
         _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
 
+        # --- Save / Cancel ---
+        st.write("")
+        _render_save_cancel(phrases, original_actions, view_state)
+
 
 # ------------------------------------------------------------------
-# Chart renderer (fixed viewport, no modebar)
+# Fixed viewport calculation
+# ------------------------------------------------------------------
+
+def _fixed_viewport(phrases: list, phrase: dict, duration_ms: int):
+    """Return (win_start, win_end) that is the same width for all phrases.
+
+    Width = longest phrase duration + padding on each side, so that BPM
+    and stroke velocity are visually comparable across phrase detail views.
+    """
+    max_phrase_dur = max(
+        (ph["end_ms"] - ph["start_ms"]) for ph in phrases
+    ) if phrases else 60_000
+
+    # Padding: at least 10 s each side, or one-third of the longest phrase
+    side_pad = max(max_phrase_dur // 3, 10_000)
+    half_win = max_phrase_dur // 2 + side_pad
+
+    phrase_center = (phrase["start_ms"] + phrase["end_ms"]) // 2
+    win_start = max(0, phrase_center - half_win)
+    win_end   = min(duration_ms, phrase_center + half_win)
+
+    # If we hit an edge, keep the window the same total width
+    total_width = 2 * half_win
+    if win_start == 0 and win_end < total_width:
+        win_end = min(duration_ms, total_width)
+    if win_end == duration_ms and (win_end - win_start) < total_width:
+        win_start = max(0, duration_ms - total_width)
+
+    return win_start, win_end
+
+
+# ------------------------------------------------------------------
+# Chart renderer (fixed viewport, no modebar, dimmed outside phrase)
 # ------------------------------------------------------------------
 
 def _render_chart(
@@ -163,6 +200,24 @@ def _render_chart(
         def has_selection(self): return True
 
     fig = chart._build_figure(_LocalVS(), height=260)
+
+    # Dim areas outside the selected phrase so context is visible but muted
+    try:
+        import plotly.graph_objects as go
+        _DIM = "rgba(15,15,20,0.65)"
+        if win_start < sel_phrase["start_ms"]:
+            fig.add_vrect(
+                x0=win_start, x1=sel_phrase["start_ms"],
+                fillcolor=_DIM, layer="above", line_width=0,
+            )
+        if sel_phrase["end_ms"] < win_end:
+            fig.add_vrect(
+                x0=sel_phrase["end_ms"], x1=win_end,
+                fillcolor=_DIM, layer="above", line_width=0,
+            )
+    except Exception:
+        pass
+
     # Render without modebar so the timescale is locked
     st.plotly_chart(fig, key=chart_key, config={"displayModeBar": False})
 
@@ -277,6 +332,103 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
             _select_and_zoom(target, view_state, duration_ms)
             st.rerun()
 
+
+# ------------------------------------------------------------------
+# Save / Cancel buttons
+# ------------------------------------------------------------------
+
+def _render_save_cancel(phrases: list, original_actions: list, view_state) -> None:
+    """Save applies all stored transforms and downloads the result.
+    Cancel discards all stored transforms and returns to phrase selector.
+    """
+    import streamlit as st
+
+    st.divider()
+
+    # Build edited actions from all stored phrase transforms
+    edited_actions = _build_edited_actions(phrases, original_actions)
+
+    # Load the original funscript JSON to preserve metadata (version, range, etc.)
+    funscript_path = st.session_state.project.funscript_path
+    try:
+        with open(funscript_path) as f:
+            raw = json.load(f)
+    except Exception:
+        raw = {}
+    raw["actions"] = sorted(edited_actions, key=lambda a: a["at"])
+    edited_bytes = json.dumps(raw, indent=2).encode()
+
+    # Derive download filename: strip .original suffix if present
+    stem = os.path.splitext(os.path.basename(funscript_path))[0]
+    if stem.endswith(".original"):
+        stem = stem[:-9]
+    download_name = f"{stem}.edited.funscript"
+
+    col_save, col_cancel = st.columns(2)
+    with col_save:
+        if st.download_button(
+            "💾 Save",
+            data=edited_bytes,
+            file_name=download_name,
+            mime="application/json",
+            key="pd_save",
+            use_container_width=True,
+            help=f"Download as {download_name} and return to phrase selector",
+        ):
+            _clear_transform_state()
+            view_state.clear_selection()
+            st.rerun()
+
+    with col_cancel:
+        if st.button(
+            "✕ Cancel",
+            key="pd_cancel",
+            use_container_width=True,
+            help="Discard all unsaved transforms and return to phrase selector",
+        ):
+            _clear_transform_state()
+            view_state.clear_selection()
+            st.rerun()
+
+
+def _build_edited_actions(phrases: list, original_actions: list) -> list:
+    """Apply all stored phrase transforms to original_actions and return result."""
+    import streamlit as st
+    from suggested_updates.phrase_transforms import TRANSFORM_CATALOG
+
+    result = copy.deepcopy(original_actions)
+    for idx, phrase in enumerate(phrases):
+        transform_state = st.session_state.get(f"phrase_transform_{idx}", {})
+        transform_key   = transform_state.get("transform_key")
+        if not transform_key or transform_key == "passthrough":
+            continue
+        param_values = transform_state.get("param_values", {})
+        spec = TRANSFORM_CATALOG.get(transform_key)
+        if not spec:
+            continue
+        phrase_start = phrase["start_ms"]
+        phrase_end   = phrase["end_ms"]
+        phrase_slice = [a for a in result if phrase_start <= a["at"] <= phrase_end]
+        transformed  = spec.apply(phrase_slice, param_values)
+        t_to_pos     = {a["at"]: a["pos"] for a in transformed}
+        for a in result:
+            if a["at"] in t_to_pos:
+                a["pos"] = t_to_pos[a["at"]]
+
+    return result
+
+
+def _clear_transform_state() -> None:
+    """Remove all phrase_transform_* keys from session state."""
+    import streamlit as st
+    keys_to_del = [k for k in st.session_state if k.startswith("phrase_transform_")]
+    for k in keys_to_del:
+        del st.session_state[k]
+
+
+# ------------------------------------------------------------------
+# Shared helpers
+# ------------------------------------------------------------------
 
 def _select_and_zoom(phrase: dict, view_state, duration_ms: int) -> None:
     view_state.set_selection(phrase["start_ms"], phrase["end_ms"])
