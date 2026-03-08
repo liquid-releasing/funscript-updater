@@ -11,10 +11,11 @@ Sidebar
   • Export buttons
 
 Main area  (tabs)
-  1. Assessment  — pipeline output inspection
-  2. Work Items  — interactive section tagger
-  3. Edit        — detail panel for the selected item
-  4. Export      — summary of output files
+  1. Viewer      — three-panel colour-coded chart with assessment navigator
+  2. Assessment  — pipeline output inspection
+  3. Work Items  — interactive section tagger
+  4. Edit        — detail panel for the selected item
+  5. Export      — summary of output files
 """
 
 from __future__ import annotations
@@ -30,9 +31,12 @@ if _ROOT not in sys.path:
 import streamlit as st
 
 from ui.common.project import Project
+from ui.common.view_state import ViewState
 from ui.common.work_items import ItemType, WorkItem
 from ui.streamlit.panels import assessment as assessment_panel
+from ui.streamlit.panels import assessment_nav as assessment_nav_panel
 from ui.streamlit.panels import detail as detail_panel
+from ui.streamlit.panels import viewer as viewer_panel
 from ui.streamlit.panels import work_items as work_items_panel
 
 # ------------------------------------------------------------------
@@ -55,6 +59,12 @@ if "project" not in st.session_state:
 
 if "output_dir" not in st.session_state:
     st.session_state.output_dir = os.path.join(_ROOT, "output")
+
+if "view_state" not in st.session_state:
+    st.session_state.view_state = ViewState()
+
+if "proposed_actions" not in st.session_state:
+    st.session_state.proposed_actions = None
 
 # ------------------------------------------------------------------
 # Sidebar
@@ -197,9 +207,12 @@ def _main() -> None:
         )
         return
 
-    tab_assessment, tab_work_items, tab_edit, tab_export = st.tabs(
-        ["Assessment", "Work Items", "Edit", "Export"]
+    tab_viewer, tab_assessment, tab_work_items, tab_edit, tab_export = st.tabs(
+        ["Viewer", "Assessment", "Work Items", "Edit", "Export"]
     )
+
+    with tab_viewer:
+        _render_viewer_tab(project)
 
     with tab_assessment:
         assessment_panel.render(project)
@@ -212,6 +225,54 @@ def _main() -> None:
 
     with tab_export:
         _render_export_tab(project)
+
+
+def _render_viewer_tab(project: Project) -> None:
+    view_state = st.session_state.view_state
+
+    left, right = st.columns([3, 1])
+
+    with right:
+        st.subheader("Navigate")
+        assessment_nav_panel.render(project, view_state)
+
+    with left:
+        committed = viewer_panel.render(
+            project,
+            view_state,
+            proposed_actions=st.session_state.proposed_actions,
+        )
+        if committed is not None:
+            # User pressed Commit — re-run assessment on committed actions
+            _commit_actions(project, committed)
+
+
+def _commit_actions(project: Project, committed_actions: list) -> None:
+    """Replace the project's funscript data with committed_actions and re-assess."""
+    import json
+    import tempfile
+    import streamlit as st
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".funscript", delete=False, mode="w"
+    ) as tmp:
+        with open(project.funscript_path) as src:
+            data = json.load(src)
+        data["actions"] = committed_actions
+        json.dump(data, tmp)
+        tmp_path = tmp.name
+
+    with st.spinner("Re-assessing…"):
+        updated = Project.from_funscript(tmp_path)
+        # Carry the funscript path back so future loads still work
+        updated.funscript_path = project.funscript_path
+        st.session_state.project = updated
+        st.session_state.proposed_actions = None
+        st.session_state.view_state = ViewState()
+
+    os.unlink(tmp_path)
+    st.success("Committed. Assessment rebuilt.")
+    st.rerun()
 
 
 def _render_export_tab(project: Project) -> None:
