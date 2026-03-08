@@ -104,16 +104,16 @@ and is independent of the bulk pipeline transformer.
 
 ### Transform catalog
 
-| Key | Name | Description |
-| --- | --- | --- |
-| `passthrough` | Passthrough | Keep original positions unchanged |
-| `amplitude_scale` | Amplitude Scale | Scale stroke depth around midpoint (50) |
-| `normalize` | Normalize Range | Expand positions to fill a target range |
-| `smooth` | Smooth | Low-pass filter to reduce jitter |
-| `clamp_upper` | Clamp Upper Half | Compress into 50–100 zone |
-| `clamp_lower` | Clamp Lower Half | Compress into 0–50 zone |
-| `invert` | Invert | Mirror positions around 50 |
-| `boost_contrast` | Boost Contrast | Push toward 0 and 100 extremes |
+| Key | Name | What it does | When to use |
+| --- | --- | --- | --- |
+| `passthrough` | Passthrough | No change — positions returned as-is | Phrase is already well-shaped; safe default |
+| `amplitude_scale` | Amplitude Scale | Stretches/compresses stroke depth around the midpoint (50). Scale >1 = deeper, <1 = shallower | Fast phrases that need more intensity; default suggestion for high-BPM regular patterns |
+| `normalize` | Normalize Range | Expands positions to fill a target range — maps the phrase's actual min/max to 0–100 (or a custom range) | Phrases where the signal is compressed into a narrow band; opens up the full stroke range |
+| `smooth` | Smooth | Low-pass filter that reduces rapid micro-movements and jitter | Transition/break phrases with noisy or chaotic data; softens harsh edges |
+| `clamp_upper` | Clamp Upper Half | Remaps all positions into the upper half (50–100) | Intense sections where motion should stay in the high-amplitude zone only |
+| `clamp_lower` | Clamp Lower Half | Remaps all positions into the lower half (0–50) | Gentle or rest-style sections; reduces overall intensity |
+| `invert` | Invert | Flips positions around 50 (pos = 100 − pos) | Corrects a phrase that is phase-inverted relative to the rest of the script |
+| `boost_contrast` | Boost Contrast | Pushes positions toward 0 and 100, away from the midpoint | Flat-feeling phrases where peaks/troughs don't reach the extremes |
 
 ### Programmatic use
 
