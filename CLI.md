@@ -141,7 +141,7 @@ Edit the generated JSON, then pass it back with `--config` (or
 
 ## Tests
 
-Run all 130 tests (core pipeline + UI common layer):
+Run all 151 tests (core pipeline + CLI + UI common layer):
 
 ```bash
 python cli.py test
@@ -150,7 +150,7 @@ python cli.py test
 Or via unittest directly:
 
 ```bash
-# Core tests only (85)
+# Core + CLI tests (106)
 python -m unittest discover -s tests -v
 
 # UI common-layer tests only (45)
