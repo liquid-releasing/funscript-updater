@@ -75,6 +75,9 @@ if "large_funscript_threshold" not in st.session_state:
 if "last_assessment_elapsed" not in st.session_state:
     st.session_state.last_assessment_elapsed = None
 
+if "bpm_threshold" not in st.session_state:
+    st.session_state.bpm_threshold = 120.0
+
 if "last_loaded_cfg" not in st.session_state:
     st.session_state.last_loaded_cfg = None
 
@@ -119,7 +122,7 @@ def _sidebar() -> None:
             help="How much stroke-depth change triggers a new phrase.",
         )
 
-    # --- Chart settings ---
+    # --- Chart / transform settings ---
     with st.sidebar.expander("Chart settings"):
         large_funscript_threshold = st.number_input(
             "Fast rendering threshold (actions)",
@@ -133,7 +136,19 @@ def _sidebar() -> None:
                 "coloured lines that match the dot colours."
             ),
         )
+        bpm_threshold = st.number_input(
+            "Transform BPM threshold",
+            min_value=40,
+            max_value=300,
+            value=120,
+            step=5,
+            help=(
+                "Phrases at or above this BPM are suggested the Amplitude Scale "
+                "transform; phrases below are suggested Passthrough."
+            ),
+        )
     st.session_state.large_funscript_threshold = int(large_funscript_threshold)
+    st.session_state.bpm_threshold = float(bpm_threshold)
 
     amp_tol_map = {"Low (0.35)": 0.35, "Medium (0.30)": 0.30, "High (0.25)": 0.25}
 

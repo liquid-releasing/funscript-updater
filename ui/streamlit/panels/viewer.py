@@ -86,10 +86,18 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None, l
     _render_phrase_bar(phrases, view_state)
 
     # ------------------------------------------------------------------
-    # Selected phrase info / editor placeholder
+    # Selected phrase info + detail panel
     # ------------------------------------------------------------------
     if view_state.has_selection():
         _render_phrase_info(view_state, phrases)
+        from ui.streamlit.panels import phrase_detail
+        phrase_detail.render(
+            phrases=phrases,
+            original_actions=original_actions,
+            view_state=view_state,
+            duration_ms=duration_ms,
+            bpm_threshold=st.session_state.get("bpm_threshold", 120.0),
+        )
 
 
 # ------------------------------------------------------------------
