@@ -2,7 +2,7 @@
 
 User-defined window customization of funscripts (Pipeline Stage 3).
 
-The customizer layers on top of the transformer output.  The user defines
+The customizer layers on top of the transformer output. The user defines
 time windows using human-readable `HH:MM:SS.mmm` timestamps in JSON files
 and calls `customize()` to apply per-window processing.
 
@@ -15,10 +15,14 @@ and calls `customize()` to apply per-window processing.
 | 3 | **Break** | Positions pulled toward centre (50), amplitude reduced |
 | — | (everywhere) | Cycle-aware dynamics and beat accents outside raw windows |
 
+Raw windows take absolute priority: any action inside a raw window is
+restored from the original funscript and no other processing is applied to it.
+
 ## Window JSON format
 
-Each window file is a JSON array.  The `"config"` key is optional; omit it
-to use the global `CustomizerConfig` values for that window.
+Each window file is a JSON array. The `"label"` and `"config"` keys are
+optional; omit `"config"` to use the global `CustomizerConfig` values for
+that window.
 
 ```json
 [
@@ -32,7 +36,9 @@ to use the global `CustomizerConfig` values for that window.
 ```
 
 Keys allowed in `"config"` match the `CustomizerConfig` field names for the
-relevant window type (see table below).
+relevant window type (see tables below). Per-window overrides are merged
+on top of the global config, so you only need to specify the fields you
+want to change.
 
 ## Configuration — `CustomizerConfig`
 
@@ -40,31 +46,35 @@ relevant window type (see table below).
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `max_velocity` | `0.32` | Maximum allowed velocity (pos/ms) |
-| `reversal_soften` | `0.62` | Fraction of reversal magnitude to soften |
-| `height_blend` | `0.75` | Blend weight toward original after softening |
-| `compress_bottom` | `15` | Minimum position after compression |
-| `compress_top` | `92` | Maximum position after compression |
-| `lpf_performance` | `0.16` | Low-pass filter strength for perf windows |
-| `timing_jitter_ms` | `3` | Minimum ms between consecutive actions |
+| `max_velocity` | `0.32` | Maximum allowed velocity (position units per ms) |
+| `reversal_soften` | `0.62` | Fraction of reversal magnitude to soften at direction changes |
+| `height_blend` | `0.75` | Blend weight toward original position after softening |
+| `compress_bottom` | `15` | Minimum position after compression (0–100) |
+| `compress_top` | `92` | Maximum position after compression (0–100) |
+| `lpf_performance` | `0.16` | Low-pass filter strength applied after performance transform |
+| `timing_jitter_ms` | `3` | Minimum milliseconds enforced between consecutive actions |
 
 ### Break window fields
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `break_amplitude_reduce` | `0.40` | Fraction of distance to centre applied |
-| `lpf_break` | `0.30` | Low-pass filter strength for break windows |
+| `break_amplitude_reduce` | `0.40` | Fraction of the distance to centre (50) pulled per action |
+| `lpf_break` | `0.30` | Low-pass filter strength applied after break transform |
 
-### Global dynamics fields
+### Global dynamics fields (applied outside raw windows)
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `cycle_dynamics_strength` | `0.10` | Amplitude of cycle-phase modulation |
-| `cycle_dynamics_center` | `50` | Centre position for cycle dynamics |
-| `beat_accent_radius_ms` | `40` | Radius around beat times for accent |
-| `beat_accent_amount` | `4` | Position nudge applied at beat accents |
+| `cycle_dynamics_strength` | `0.10` | Amplitude of sinusoidal cycle-phase modulation |
+| `cycle_dynamics_center` | `50` | Centre position for cycle-phase modulation |
+| `beat_accent_radius_ms` | `40` | Half-width of the window around beat times for accents |
+| `beat_accent_amount` | `4` | Position nudge applied at beat accent points |
 
-Config can be saved/loaded as JSON:
+**Beat accents** are only active when a beats JSON file is loaded via
+`load_beats_from_file()`. Actions within `beat_accent_radius_ms` of a
+beat time are nudged away from centre by `beat_accent_amount` positions.
+
+Config can be saved and loaded as JSON:
 
 ```python
 from user_customization import CustomizerConfig
@@ -73,6 +83,8 @@ cfg = CustomizerConfig(max_velocity=0.25)
 cfg.save("customizer_config.json")
 cfg2 = CustomizerConfig.load("customizer_config.json")
 ```
+
+Unknown keys in the JSON file are silently ignored.
 
 ## Usage
 
@@ -89,16 +101,20 @@ customizer.load_manual_overrides(
     break_path="break.json",
     raw_path="raw.json",
 )
-customizer.load_beats_from_file("beats.json")  # optional
+customizer.load_beats_from_file("beats.json")  # optional — enables beat accents
 customizer.customize()
 customizer.save("customized.funscript")
 ```
 
+If a window file path does not exist, that window type is treated as
+empty (no error is raised).
+
 ### Via the UI
 
 The Streamlit app exports window JSON files automatically from the user's
-work items.  Use `Project.export_windows()` or `ui/common/pipeline.py` to
-run the full chain in one call.
+tagged work items. Use the **Export** tab or the sidebar **Export window JSONs**
+button to write the files, then run the pipeline from CLI or call
+`Project.export_windows()` / `ui/common/pipeline.py` to execute the full chain.
 
 ### Via CLI
 
@@ -124,8 +140,3 @@ python cli.py customize transformed.funscript \
 ```bash
 python -m unittest tests.test_customizer -v
 ```
-
-12 tests covering: load funscript + assessment, customize output shape,
-positions in `[0, 100]`, save → valid JSON, performance window loaded
-correctly (3-tuple with config dict), missing window file treated as empty,
-log output, and config round-trip / save-load / unknown-key handling.

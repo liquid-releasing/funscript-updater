@@ -51,10 +51,108 @@ _ASSESSMENT = {
 
 
 class TestComputeChartData(unittest.TestCase):
-    def test_empty_actions(self):
+
+    # --- Spec-named tests ---
+
+    def test_compute_chart_data_empty(self):
+        """Empty actions list returns empty PointSeries."""
         result = compute_chart_data([])
+        self.assertIsInstance(result, PointSeries)
         self.assertEqual(result.times_ms, [])
         self.assertEqual(result.positions, [])
+        self.assertEqual(result.velocities, [])
+        self.assertEqual(result.velocity_norm, [])
+        self.assertEqual(result.amplitude_norm, [])
+        self.assertEqual(result.colors_velocity, [])
+        self.assertEqual(result.colors_amplitude, [])
+
+    def test_compute_chart_data_basic(self):
+        """A few actions produce correct times, positions, velocities, and normalised arrays."""
+        result = compute_chart_data(_ACTIONS)
+        n = len(_ACTIONS)
+
+        # Times and positions round-trip cleanly
+        self.assertEqual(result.times_ms, [0, 100, 200, 300, 400])
+        self.assertEqual(result.positions, [10.0, 90.0, 10.0, 90.0, 10.0])
+
+        # All arrays have the right length
+        self.assertEqual(len(result.velocities),     n)
+        self.assertEqual(len(result.velocity_norm),  n)
+        self.assertEqual(len(result.amplitude_norm), n)
+
+        # Velocity values are non-negative
+        for v in result.velocities:
+            self.assertGreaterEqual(v, 0.0)
+
+        # Normalised velocity is in [0, 1]
+        for v in result.velocity_norm:
+            self.assertGreaterEqual(v, 0.0)
+            self.assertLessEqual(v, 1.0)
+
+        # Amplitude normalised = pos / 100
+        for pos, amp in zip(result.positions, result.amplitude_norm):
+            self.assertAlmostEqual(amp, pos / 100.0)
+
+    def test_compute_chart_data_colors(self):
+        """colors_velocity and colors_amplitude are hex strings of correct length."""
+        result = compute_chart_data(_ACTIONS)
+        self.assertEqual(len(result.colors_velocity),  len(_ACTIONS))
+        self.assertEqual(len(result.colors_amplitude), len(_ACTIONS))
+        for c in result.colors_velocity + result.colors_amplitude:
+            self.assertIsInstance(c, str)
+            self.assertTrue(c.startswith("#"), f"Not a hex color: {c!r}")
+            self.assertEqual(len(c), 7, f"Hex color has wrong length: {c!r}")
+
+    def test_slice_series_range(self):
+        """slice_series returns only points within [start, end]."""
+        series = compute_chart_data(_ACTIONS)
+        sliced = slice_series(series, 100, 300)
+        self.assertEqual(sliced.times_ms, [100, 200, 300])
+        self.assertEqual(sliced.positions, [90.0, 10.0, 90.0])
+        # All parallel arrays have matching length
+        self.assertEqual(len(sliced.velocities),      3)
+        self.assertEqual(len(sliced.velocity_norm),   3)
+        self.assertEqual(len(sliced.amplitude_norm),  3)
+        self.assertEqual(len(sliced.colors_velocity), 3)
+        self.assertEqual(len(sliced.colors_amplitude),3)
+
+    def test_slice_series_empty(self):
+        """Slice outside range returns empty PointSeries."""
+        series = compute_chart_data(_ACTIONS)
+        sliced = slice_series(series, 1000, 2000)
+        self.assertIsInstance(sliced, PointSeries)
+        self.assertEqual(sliced.times_ms, [])
+        self.assertEqual(sliced.positions, [])
+        self.assertEqual(sliced.velocities, [])
+
+    def test_slice_bands_overlap(self):
+        """slice_bands returns only bands overlapping the range."""
+        # Build bands spanning 0–400; test a range that doesn't overlap anything
+        bands = compute_annotation_bands(_ASSESSMENT)
+        sliced_in = slice_bands(bands, 50, 150)
+        for b in sliced_in:
+            self.assertTrue(
+                b.end_ms >= 50 and b.start_ms <= 150,
+                f"Band [{b.start_ms}, {b.end_ms}] not in [50, 150]",
+            )
+        # Range well beyond the data should return nothing
+        sliced_out = slice_bands(bands, 10_000, 20_000)
+        self.assertEqual(sliced_out, [])
+
+    def test_compute_annotation_bands_phrases(self):
+        """compute_annotation_bands produces phrase bands from assessment dict."""
+        bands = compute_annotation_bands(_ASSESSMENT)
+        phrase_bands = [b for b in bands if b.kind == "phrase"]
+        self.assertEqual(len(phrase_bands), 1)
+        pb = phrase_bands[0]
+        self.assertEqual(pb.start_ms, 0)
+        self.assertEqual(pb.end_ms, 400)
+        self.assertIn("120", pb.label)          # BPM appears in label
+        self.assertIn("pattern A", pb.label)    # pattern_label appears in label
+        self.assertIsInstance(pb.color, str)
+        self.assertTrue(pb.color.startswith("rgba("))
+
+    # --- Additional coverage retained from original test suite ---
 
     def test_output_lengths(self):
         result = compute_chart_data(_ACTIONS)
@@ -66,29 +164,6 @@ class TestComputeChartData(unittest.TestCase):
         self.assertEqual(len(result.amplitude_norm),  n)
         self.assertEqual(len(result.colors_velocity), n)
         self.assertEqual(len(result.colors_amplitude),n)
-
-    def test_times_and_positions_correct(self):
-        result = compute_chart_data(_ACTIONS)
-        self.assertEqual(result.times_ms, [0, 100, 200, 300, 400])
-        self.assertEqual(result.positions, [10.0, 90.0, 10.0, 90.0, 10.0])
-
-    def test_velocity_norm_in_range(self):
-        result = compute_chart_data(_ACTIONS)
-        for v in result.velocity_norm:
-            self.assertGreaterEqual(v, 0.0)
-            self.assertLessEqual(v, 1.0)
-
-    def test_amplitude_norm_in_range(self):
-        result = compute_chart_data(_ACTIONS)
-        for a in result.amplitude_norm:
-            self.assertGreaterEqual(a, 0.0)
-            self.assertLessEqual(a, 1.0)
-
-    def test_colors_are_hex_strings(self):
-        result = compute_chart_data(_ACTIONS)
-        for c in result.colors_velocity + result.colors_amplitude:
-            self.assertTrue(c.startswith("#"), f"Not a hex color: {c}")
-            self.assertEqual(len(c), 7)
 
     def test_single_action(self):
         result = compute_chart_data([{"at": 0, "pos": 50}])
@@ -165,7 +240,6 @@ class TestSliceBands(unittest.TestCase):
         self.assertEqual(len(sliced), len(self.bands))
 
     def test_narrow_range_excludes_non_overlapping(self):
-        # Only include bands that overlap [50, 150]
         sliced = slice_bands(self.bands, 50, 150)
         for b in sliced:
             self.assertTrue(b.end_ms >= 50 and b.start_ms <= 150)

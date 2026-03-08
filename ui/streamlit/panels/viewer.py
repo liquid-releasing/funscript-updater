@@ -65,16 +65,19 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None, l
     # ------------------------------------------------------------------
     # Phrase Selector chart — full width, pan mode
     # ------------------------------------------------------------------
+    import time as _time
     n_actions = len(original_actions)
     spinner_msg = (
         f"Building chart ({n_actions} actions — using fast rendering)…"
         if n_actions > large_funscript_threshold
         else f"Building chart ({n_actions} actions)…"
     )
+    _t0 = _time.time()
     with st.spinner(spinner_msg):
         series = compute_chart_data(original_actions)
         chart  = FunscriptChart(series, bands, "", duration_ms, large_funscript_threshold=large_funscript_threshold)
         ev     = chart.render_streamlit(view_state, key="chart_phrase_sel", height=380)
+    st.caption(f"Chart built in {_time.time() - _t0:.1f}s")
     _handle_chart_event(ev, view_state, phrases)
 
     # ------------------------------------------------------------------

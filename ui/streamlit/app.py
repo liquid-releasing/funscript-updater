@@ -72,6 +72,9 @@ if "last_loaded_file" not in st.session_state:
 if "large_funscript_threshold" not in st.session_state:
     st.session_state.large_funscript_threshold = 10_000
 
+if "last_assessment_elapsed" not in st.session_state:
+    st.session_state.last_assessment_elapsed = None
+
 if "last_loaded_cfg" not in st.session_state:
     st.session_state.last_loaded_cfg = None
 
@@ -147,11 +150,14 @@ def _sidebar() -> None:
     )
 
     if needs_load or st.sidebar.button("Re-analyse", type="primary"):
+        import time
         with st.spinner("Running assessment…"):
+            _t0 = time.time()
             st.session_state.project = Project.from_funscript(
                 funscript_path,
                 analyzer_config=analyzer_cfg,
             )
+            st.session_state.last_assessment_elapsed = time.time() - _t0
             st.session_state.last_loaded_cfg  = cfg_key
             st.session_state.last_loaded_file = selected_file
             st.session_state.view_state       = ViewState()
@@ -164,8 +170,10 @@ def _sidebar() -> None:
     if project and project.is_loaded:
         s = project.summary()
         st.sidebar.markdown(f"**{s['name']}**")
+        elapsed = st.session_state.last_assessment_elapsed
+        timing_str = f"  |  assessed in {elapsed:.1f}s" if elapsed is not None else ""
         st.sidebar.caption(
-            f"Duration: {s['duration']}  |  Avg BPM: {s['bpm']:.1f}\n\n"
+            f"Duration: {s['duration']}  |  Avg BPM: {s['bpm']:.1f}{timing_str}\n\n"
             f"{s['phrases']} phrases  •  {s['bpm_transitions']} transitions"
         )
 
