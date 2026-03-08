@@ -7,10 +7,15 @@ Layout (when a phrase is selected)
   │  Original chart (fixed x-axis)  │  Transform   │
   ├─────────────────────────────────│  controls    │
   │  Preview — {Transform Name}     │              │
-  │  Preview chart (fixed x-axis)   │  ⏮ Prev      │
-  │  [preview stats table]          │     Next ⏭   │
-  │  *(not saved)*                  │  💾 Save      │
-  └─────────────────────────────────│  ✕ Cancel    │
+  │  Preview chart (fixed x-axis)   │              │
+  │  [preview stats table]          │              │
+  │  *(not saved)*                  │              │
+  └─────────────────────────────────┴──────────────┘
+                                    ┌──────────────┐
+                                    │  ⏮ Prev      │
+                                    │     Next ⏭   │
+                                    │  💾 Save      │
+                                    │  ✕ Cancel    │
                                     └──────────────┘
 
 Both charts share the same fixed-width x-axis viewport (centered on the
@@ -19,6 +24,9 @@ BPM and velocity are visually comparable across all phrase views).
 
 Areas outside the selected phrase are dimmed with a semi-transparent overlay
 so context is visible but focus stays on the phrase being edited.
+
+Nav and Save/Cancel are rendered OUTSIDE the @st.fragment so that transform
+slider reruns (fragment-only) never cause button echo or flicker.
 """
 
 from __future__ import annotations
@@ -29,6 +37,8 @@ import os
 from typing import Any, Dict, List, Optional
 
 import streamlit as st  # needed at module level for @st.fragment
+
+from utils import ms_to_timestamp
 
 
 # ------------------------------------------------------------------
@@ -56,11 +66,12 @@ def render(
 
     phrase = phrases[phrase_idx]
 
-    st.divider()
-
     win_start, win_end = _fixed_viewport(phrases, phrase, duration_ms)
     funscript_path = st.session_state.project.funscript_path
 
+    # Fragment: charts + transform controls only.
+    # Nav and save/cancel are outside so fragment reruns (slider changes)
+    # cannot cause button echo.
     _detail_fragment(
         funscript_path=funscript_path,
         phrases=phrases,
@@ -71,11 +82,21 @@ def render(
         duration_ms=duration_ms,
     )
 
+    # Nav + save/cancel — always outside the fragment.
+    # Align them under the right column (1/4 width, right-hand side).
+    with open(funscript_path) as f:
+        original_actions = json.load(f)["actions"]
+
+    _col_sp, col_actions = st.columns([3, 1])
+    with col_actions:
+        _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
+        st.write("")
+        _render_save_cancel(phrases, original_actions, view_state)
+
 
 # ------------------------------------------------------------------
-# Detail fragment — chart + controls isolated so transform slider
-# interactions rerun only this section, not the whole app.
-# Nav/save/cancel use st.rerun(scope="app") for mode switches.
+# Detail fragment — charts + transform controls only.
+# Slider/selectbox interactions rerun only this section.
 # ------------------------------------------------------------------
 
 @st.fragment
@@ -120,7 +141,7 @@ def _detail_fragment(
     preview_actions = _apply_transform_to_window(original_actions, phrase, spec, param_values)
 
     # ------------------------------------------------------------------
-    # Two-column layout: charts (left 3) | controls + nav + save (right 1)
+    # Two-column layout: charts (left 3) | transform controls (right 1)
     # ------------------------------------------------------------------
     col_charts, col_right = st.columns([3, 1])
 
@@ -151,11 +172,6 @@ def _detail_fragment(
 
     with col_right:
         _render_transform_controls(phrase, bpm_threshold, phrase_idx)
-        st.write("")
-        st.write("")
-        _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
-        st.write("")
-        _render_save_cancel(phrases, original_actions, view_state)
 
 
 # ------------------------------------------------------------------
@@ -208,12 +224,6 @@ def _render_chart(
     # window-relative colour normalisation for better detail.
     window_actions = [a for a in actions if win_start <= a["at"] <= win_end]
     s = compute_chart_data(window_actions)
-
-    assessment_stub = {
-        "phrases": phrases, "phases": [], "cycles": [],
-        "patterns": [], "bpm_transitions": [],
-    }
-    visible_bands = slice_bands(compute_annotation_bands(assessment_stub), win_start, win_end)
 
     # Pass no bands — avoids hit-target traces that extend beyond win_start/win_end
     # and cause Plotly to auto-range to the full funscript extent.
@@ -268,7 +278,7 @@ def _render_chart(
 # ------------------------------------------------------------------
 
 def _render_preview_stats(preview_actions: list, phrase: dict) -> None:
-    """Show a compact position-stats row for the preview phrase slice."""
+    """Show phrase metadata + position stats for the transformed phrase slice."""
     import pandas as pd
 
     phrase_start = phrase["start_ms"]
@@ -280,13 +290,20 @@ def _render_preview_stats(preview_actions: list, phrase: dict) -> None:
     positions = [a["pos"] for a in slice_acts]
     lo, hi    = min(positions), max(positions)
     mean_pos  = sum(positions) / len(positions)
+    dur_ms    = phrase_end - phrase_start
 
     row = {
-        "Min":     lo,
-        "Max":     hi,
-        "Range":   hi - lo,
-        "Mean":    f"{mean_pos:.1f}",
-        "Actions": len(slice_acts),
+        "Start":    ms_to_timestamp(phrase_start),
+        "End":      ms_to_timestamp(phrase_end),
+        "Duration": f"{dur_ms / 1000:.1f} s",
+        "BPM":      f"{phrase.get('bpm', 0):.1f}",
+        "Pattern":  phrase.get("pattern_label", "—"),
+        "Cycles":   phrase.get("cycle_count", "—"),
+        "Min":      lo,
+        "Max":      hi,
+        "Range":    hi - lo,
+        "Mean":     f"{mean_pos:.1f}",
+        "Actions":  len(slice_acts),
     }
     st.dataframe(pd.DataFrame([row]), hide_index=True, width="stretch")
 
@@ -328,7 +345,6 @@ def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: i
     keys   = list(TRANSFORM_CATALOG.keys())
     labels = [TRANSFORM_CATALOG[k].name for k in keys]
 
-    # Default to passthrough; show the rule-based suggestion as guidance only
     passthrough_idx = keys.index("passthrough") if "passthrough" in keys else 0
 
     st.markdown("**Transform**")
@@ -389,14 +405,14 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
                      disabled=(phrase_idx == 0),
                      width="stretch"):
             _select_and_zoom(phrases[phrase_idx - 1], view_state, duration_ms)
-            st.rerun(scope="app")   # full rerun → switches to adjacent phrase
+            st.rerun(scope="app")
 
     with col_n:
         if st.button("Next ⏭", key="pd_phrase_next",
                      disabled=(phrase_idx >= n - 1),
                      width="stretch"):
             _select_and_zoom(phrases[phrase_idx + 1], view_state, duration_ms)
-            st.rerun(scope="app")   # full rerun → switches to adjacent phrase
+            st.rerun(scope="app")
 
 
 # ------------------------------------------------------------------
@@ -407,8 +423,6 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
     """Save applies all stored transforms and downloads the result.
     Cancel discards all stored transforms and returns to phrase selector.
     """
-    st.divider()
-
     edited_actions = _build_edited_actions(phrases, original_actions)
 
     funscript_path = st.session_state.project.funscript_path
@@ -449,18 +463,13 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
 
 
 def _return_to_selector(view_state) -> None:
-    """Clear transforms + selection and force a fresh phrase-selector chart.
-
-    Incrementing ``phrase_sel_chart_instance`` changes the Plotly widget key
-    so Streamlit discards the old chart (and its stale browser-side selection
-    state) rather than reusing it.
-    """
+    """Clear transforms + selection and force a fresh phrase-selector chart."""
     _clear_transform_state()
     view_state.clear_selection()
     st.session_state.phrase_sel_chart_instance = (
         st.session_state.get("phrase_sel_chart_instance", 0) + 1
     )
-    st.rerun(scope="app")   # full rerun → returns to phrase selector mode
+    st.rerun(scope="app")
 
 
 def _build_edited_actions(phrases: list, original_actions: list) -> list:
