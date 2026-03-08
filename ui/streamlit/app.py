@@ -66,6 +66,15 @@ if "view_state" not in st.session_state:
 if "proposed_actions" not in st.session_state:
     st.session_state.proposed_actions = None
 
+if "last_loaded_file" not in st.session_state:
+    st.session_state.last_loaded_file = None
+
+if "large_funscript_threshold" not in st.session_state:
+    st.session_state.large_funscript_threshold = 10_000
+
+if "last_loaded_cfg" not in st.session_state:
+    st.session_state.last_loaded_cfg = None
+
 # ------------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------------
@@ -95,44 +104,57 @@ def _sidebar() -> None:
     funscript_path = os.path.join(funscript_dir, selected_file)
 
     # --- Phrase detection parameters ---
-    with st.sidebar.expander("Phrase detection settings", expanded=False):
+    with st.sidebar.expander("Phrase detection settings", expanded=True):
         min_phrase_s = st.slider(
-            "Min phrase length (s)", min_value=5, max_value=60, value=20, step=5,
+            "Min phrase length (s)", min_value=5, max_value=120, value=20, step=5,
             help="Phrases shorter than this are merged into a neighbour.",
         )
         amp_sensitivity = st.select_slider(
             "Amplitude sensitivity",
-            options=["low (0.35)", "medium (0.30)", "high (0.25)"],
-            value="medium (0.30)",
+            options=["Low (0.35)", "Medium (0.30)", "High (0.25)"],
+            value="Medium (0.30)",
             help="How much stroke-depth change triggers a new phrase.",
         )
-        amp_tol_map = {"low (0.35)": 0.35, "medium (0.30)": 0.30, "high (0.25)": 0.25}
+
+    # --- Chart settings ---
+    with st.sidebar.expander("Chart settings"):
+        large_funscript_threshold = st.number_input(
+            "Fast rendering threshold (actions)",
+            min_value=100,
+            max_value=100_000,
+            value=10_000,
+            step=500,
+            help=(
+                "Funscripts with more actions than this use a single grey "
+                "connecting line for speed.  Smaller funscripts use per-segment "
+                "coloured lines that match the dot colours."
+            ),
+        )
+    st.session_state.large_funscript_threshold = int(large_funscript_threshold)
+
+    amp_tol_map = {"Low (0.35)": 0.35, "Medium (0.30)": 0.30, "High (0.25)": 0.25}
 
     from assessment.analyzer import AnalyzerConfig
     analyzer_cfg = AnalyzerConfig(
         min_phrase_duration_ms=min_phrase_s * 1000,
         amplitude_tolerance=amp_tol_map[amp_sensitivity],
     )
+    cfg_key = (funscript_path, min_phrase_s, amp_sensitivity)
 
-    # Check for a cached assessment JSON.
-    base = os.path.splitext(selected_file)[0]
-    cached_assessment = os.path.join(st.session_state.output_dir, f"{base}.assessment.json")
-    use_cached = (
-        os.path.exists(cached_assessment)
-        and st.sidebar.checkbox("Use cached assessment", value=True)
+    # Auto-load when the file or settings change.
+    needs_load = (
+        cfg_key != st.session_state.last_loaded_cfg
     )
 
-    if st.sidebar.button("Load / Analyse", type="primary"):
+    if needs_load or st.sidebar.button("Re-analyse", type="primary"):
         with st.spinner("Running assessment…"):
             st.session_state.project = Project.from_funscript(
                 funscript_path,
                 analyzer_config=analyzer_cfg,
-                existing_assessment_path=cached_assessment if use_cached else None,
             )
-            if not use_cached:
-                os.makedirs(st.session_state.output_dir, exist_ok=True)
-                st.session_state.project.save_assessment(cached_assessment)
-        st.success("Loaded!")
+            st.session_state.last_loaded_cfg  = cfg_key
+            st.session_state.last_loaded_file = selected_file
+            st.session_state.view_state       = ViewState()
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -254,7 +276,7 @@ def _main() -> None:
 
 def _render_viewer_tab(project: Project) -> None:
     view_state = st.session_state.view_state
-    viewer_panel.render(project, view_state)
+    viewer_panel.render(project, view_state, large_funscript_threshold=st.session_state.large_funscript_threshold)
 
 
 def _commit_actions(project: Project, committed_actions: list) -> None:

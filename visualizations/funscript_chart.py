@@ -11,7 +11,7 @@ Requirements
 from __future__ import annotations
 
 from math import ceil
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from visualizations.chart_data import (
     AnnotationBand,
@@ -27,12 +27,13 @@ except ImportError:
     HAS_PLOTLY = False
 
 
-# When the zoom window contains more action points than this threshold,
-# fall back to coloured markers only (no per-segment traces).
-# Below the threshold, each segment is drawn as its own coloured trace,
-# giving a full velocity/amplitude heatmap on the line itself.
-# 600 comfortably covers a 60-second zoomed phrase at typical funscript density.
+# Viewport segment threshold: used only to scale dot size.
 _MAX_SEGMENT_TRACES = 600
+
+# Funscripts with more total actions than this use the fast grey-line rendering
+# (grey line + coloured dots) in all views.  Smaller funscripts use per-segment
+# coloured lines so line and dot colours match throughout.
+_LARGE_FUNSCRIPT_THRESHOLD = 2500
 
 
 class FunscriptChart:
@@ -57,11 +58,13 @@ class FunscriptChart:
         bands: List[AnnotationBand],
         title: str = "",
         duration_ms: int = 0,
+        large_funscript_threshold: int = _LARGE_FUNSCRIPT_THRESHOLD,
     ) -> None:
         self.series = series
         self.bands = bands
         self.title = title
         self.duration_ms = duration_ms
+        self.large_funscript_threshold = large_funscript_threshold
 
     # ------------------------------------------------------------------
     # Streamlit rendering
@@ -84,17 +87,7 @@ class FunscriptChart:
             return None
 
         fig = self._build_figure(view_state, height)
-        try:
-            event = st.plotly_chart(
-                fig,
-                key=key,
-                on_select="rerun",
-                selection_mode=["points", "box"],
-                use_container_width=True,
-            )
-        except TypeError:
-            # Newer Streamlit removed use_container_width from plotly_chart
-            event = st.plotly_chart(
+        event = st.plotly_chart(
                 fig,
                 key=key,
                 on_select="rerun",
@@ -107,127 +100,112 @@ class FunscriptChart:
     # ------------------------------------------------------------------
 
     def _build_figure(self, view_state, height: int) -> "go.Figure":
-        zoom_start = view_state.zoom_start_ms
-        zoom_end   = view_state.zoom_end_ms
         color_mode = view_state.color_mode
 
-        # Slice data to zoom window
+        full_start = self.series.times_ms[0]  if self.series.times_ms else 0
+        full_end   = self.series.times_ms[-1] if self.series.times_ms else self.duration_ms
+
+        # X viewport: use zoom window if set, otherwise show full funscript
         if view_state.has_zoom():
-            s = slice_series(self.series, zoom_start, zoom_end)
-            visible_bands = slice_bands(self.bands, zoom_start, zoom_end)
+            x_start = view_state.zoom_start_ms
+            x_end   = view_state.zoom_end_ms
+            s = slice_series(self.series, x_start, x_end)
+            visible_bands = slice_bands(self.bands, x_start, x_end)
         else:
+            x_start = full_start
+            x_end   = full_end
             s = self.series
             visible_bands = self.bands
-            zoom_start = s.times_ms[0]  if s.times_ms else 0
-            zoom_end   = s.times_ms[-1] if s.times_ms else self.duration_ms
 
         colors = s.colors_velocity if color_mode == "velocity" else s.colors_amplitude
 
+        has_selection = view_state.has_selection()
         fig = go.Figure()
 
-        # --- Annotation bands ---
-        enabled_kinds = view_state.enabled_kinds()
-        # Phrases are always shown as boxed regions
-        enabled_with_phrases = set(enabled_kinds) | {"phrase"}
-
+        # --- Phrase bounding boxes ---
         for band in visible_bands:
-            if band.kind not in enabled_with_phrases:
+            if band.kind != "phrase":
                 continue
-
-            if band.kind == "phrase":
-                # Highlight selected phrase differently
-                is_selected = (
-                    view_state.has_selection()
-                    and view_state.selection_start_ms == band.start_ms
-                    and view_state.selection_end_ms   == band.end_ms
-                )
-                border = "rgba(255,220,50,0.9)"  if is_selected else "rgba(218,112,214,0.55)"
-                fill   = "rgba(255,220,50,0.07)" if is_selected else "rgba(218,112,214,0.07)"
-                fig.add_vrect(
-                    x0=band.start_ms, x1=band.end_ms,
-                    fillcolor=fill,
-                    line_width=1, line_color=border,
-                    layer="below",
-                    annotation_text=band.label[:30],
-                    annotation_position="top left",
-                    annotation_font_size=9,
-                    annotation_font_color=border,
-                )
-
-            elif band.kind == "transition":
-                fig.add_vline(
-                    x=band.start_ms,
-                    line_width=1, line_dash="dash",
-                    line_color="rgba(255,99,71,0.65)",
-                    annotation_text=band.label,
-                    annotation_position="top right",
-                    annotation_font_size=8,
-                )
-
+            is_selected = (
+                has_selection
+                and view_state.selection_start_ms == band.start_ms
+                and view_state.selection_end_ms   == band.end_ms
+            )
+            if is_selected:
+                border = "rgba(255,220,50,1.0)"
+                fill   = "rgba(255,220,50,0.15)"
+            elif has_selection:
+                # Dim unselected phrases when another is active
+                border = "rgba(218,112,214,0.40)"
+                fill   = "rgba(60,60,80,0.45)"
             else:
-                fig.add_vrect(
-                    x0=band.start_ms, x1=band.end_ms,
-                    fillcolor=band.color, layer="below",
-                    line_width=0,
-                    annotation_text=band.label[:20],
-                    annotation_position="top left",
-                    annotation_font_size=8,
-                )
+                border = "rgba(218,112,214,0.85)"
+                fill   = "rgba(218,112,214,0.12)"
+            fig.add_vrect(
+                x0=band.start_ms, x1=band.end_ms,
+                fillcolor=fill,
+                line_width=2, line_color=border,
+                layer="below",
+            )
 
-        # --- Selection dim (outside selection) ---
-        if view_state.has_selection():
-            sel_s = view_state.selection_start_ms
-            sel_e = view_state.selection_end_ms
-            if sel_s > zoom_start:
-                fig.add_vrect(
-                    x0=zoom_start, x1=sel_s,
-                    fillcolor="rgba(0,0,0,0.25)", layer="above", line_width=0,
-                )
-            if sel_e < zoom_end:
-                fig.add_vrect(
-                    x0=sel_e, x1=zoom_end,
-                    fillcolor="rgba(0,0,0,0.25)", layer="above", line_width=0,
-                )
+        # --- Invisible phrase hit targets (allow clicking anywhere inside a phrase box) ---
+        # Place a grid of transparent markers across each phrase so any click inside
+        # the bounding box registers as a point event and triggers phrase selection.
+        _HIT_STEP_MS = 1_000   # one column of hit targets per second
+        _HIT_Y_LEVELS = [20, 50, 80]
+        for band in visible_bands:
+            if band.kind != "phrase":
+                continue
+            xs = list(range(band.start_ms, band.end_ms + _HIT_STEP_MS, _HIT_STEP_MS))
+            hit_x = xs * len(_HIT_Y_LEVELS)
+            hit_y = [y for y in _HIT_Y_LEVELS for _ in xs]
+            fig.add_trace(go.Scatter(
+                x=hit_x,
+                y=hit_y,
+                mode="markers",
+                marker=dict(color="rgba(0,0,0,0)", size=18, line=dict(width=0)),
+                hoverinfo="skip",
+                showlegend=False,
+            ))
 
-        # --- Motion line ---
+        # --- Motion line + dots ---
         n = len(s.times_ms)
+        dot_size = 5 if (n - 1) <= _MAX_SEGMENT_TRACES else 3
+        large = len(self.series.times_ms) > self.large_funscript_threshold
 
-        if n > 1 and (n - 1) <= _MAX_SEGMENT_TRACES:
-            # Per-segment coloured lines — each segment gets the colour of
-            # its start point, giving a velocity/amplitude heat-map effect.
-            for i in range(n - 1):
+        if n > 0:
+            if large:
+                # Large funscript: single grey line for speed, coloured dots on top
                 fig.add_trace(go.Scatter(
-                    x=[s.times_ms[i], s.times_ms[i + 1]],
-                    y=[s.positions[i], s.positions[i + 1]],
+                    x=s.times_ms,
+                    y=s.positions,
                     mode="lines",
-                    line=dict(color=colors[i], width=2),
+                    line=dict(color="rgba(200,200,200,0.55)", width=1),
                     showlegend=False,
                     hoverinfo="skip",
                 ))
-            # Markers on top for hover and point-click detection
+            else:
+                # Small funscript: per-segment coloured lines match dot colours
+                for i in range(n - 1):
+                    fig.add_trace(go.Scatter(
+                        x=[s.times_ms[i], s.times_ms[i + 1]],
+                        y=[s.positions[i], s.positions[i + 1]],
+                        mode="lines",
+                        line=dict(color=colors[i], width=2),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ))
             fig.add_trace(go.Scatter(
                 x=s.times_ms,
                 y=s.positions,
                 mode="markers",
-                marker=dict(color=colors, size=5, line=dict(width=0)),
-                hovertemplate="t=%{x} ms  pos=%{y}<extra></extra>",
-                name=self.title,
-            ))
-
-        elif n > 0:
-            # Full-view fallback: coloured markers only — too many points for
-            # per-segment traces, but coloured dots still show the heatmap.
-            fig.add_trace(go.Scatter(
-                x=s.times_ms,
-                y=s.positions,
-                mode="markers",
-                marker=dict(color=colors, size=4, line=dict(width=0)),
+                marker=dict(color=colors, size=dot_size, line=dict(width=0)),
                 hovertemplate="t=%{x} ms  pos=%{y}<extra></extra>",
                 name=self.title,
             ))
 
         # --- Layout ---
-        tickvals, ticktext = _compute_ticks(zoom_start, zoom_end)
+        tickvals, ticktext = _compute_ticks(x_start, x_end)
 
         fig.update_layout(
             title=dict(text=self.title, font=dict(size=12)) if self.title else None,
@@ -238,21 +216,23 @@ class FunscriptChart:
             font=dict(color="#cccccc"),
             xaxis=dict(
                 title=None,
-                range=[zoom_start, zoom_end],
+                range=[x_start, x_end],
                 color="#aaaaaa",
-                gridcolor="#2a2d35",
+                showgrid=False,
                 tickvals=tickvals,
                 ticktext=ticktext,
                 tickangle=0,
+                fixedrange=True,
             ),
             yaxis=dict(
                 title="pos",
-                range=[-2, 102],
+                range=[0, 100],
                 color="#aaaaaa",
-                gridcolor="#2a2d35",
+                showgrid=False,
+                fixedrange=True,
             ),
             showlegend=False,
-            dragmode="pan",   # drag to scroll left/right; click a point to select phrase
+            dragmode=False,
         )
 
         return fig
