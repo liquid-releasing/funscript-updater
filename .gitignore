@@ -222,3 +222,6 @@ __marimo__/
 test.txt
 test_funscript/LongandCut_hdr.mp4
 test_funscript/Timeline1.mov
+
+# output artifacts
+output/

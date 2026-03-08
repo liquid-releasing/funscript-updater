@@ -1,0 +1,256 @@
+"""Project session state for the Funscript Updater UI.
+
+A Project holds everything needed to drive one editing session:
+  - which funscript is loaded
+  - the assessment result for that funscript
+  - the user's work items (tagged time windows)
+
+It is framework-agnostic; Streamlit, Flask, and local-desktop code all
+import from here.
+
+Typical workflow
+----------------
+1. ``project = Project.from_funscript("path/to/file.funscript")``
+2. User reviews ``project.work_items`` and calls ``set_item_type()``.
+3. ``project.export_windows("output/")`` writes JSON files for the customizer.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+
+# Allow imports from the project root regardless of CWD.
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
+from models import AssessmentResult
+from ui.common.work_items import (
+    ItemType,
+    WorkItem,
+    items_from_bpm_transitions,
+    items_from_phrases,
+)
+
+
+@dataclass
+class Project:
+    """All state for one funscript editing session.
+
+    Attributes
+    ----------
+    funscript_path:
+        Absolute or relative path to the source ``.funscript`` file.
+    assessment:
+        Parsed ``AssessmentResult`` (populated after ``run_assessment()``).
+    work_items:
+        The user's reviewed and typed time windows.
+    selected_item_id:
+        ID of the currently selected work item in the UI (optional).
+    """
+
+    funscript_path: str = ""
+    assessment: Optional[AssessmentResult] = None
+    work_items: List[WorkItem] = field(default_factory=list)
+    selected_item_id: Optional[str] = None
+
+    # ------------------------------------------------------------------
+    # Construction helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_funscript(
+        cls,
+        path: str,
+        analyzer_config: Optional[AnalyzerConfig] = None,
+        existing_assessment_path: Optional[str] = None,
+    ) -> "Project":
+        """Create a Project and run (or load) the assessment.
+
+        Parameters
+        ----------
+        path:
+            Path to the ``.funscript`` source file.
+        analyzer_config:
+            Optional custom analyzer settings.
+        existing_assessment_path:
+            If provided, load the assessment JSON instead of re-running it.
+        """
+        project = cls(funscript_path=path)
+        if existing_assessment_path and os.path.exists(existing_assessment_path):
+            project.assessment = AssessmentResult.load(existing_assessment_path)
+        else:
+            project.run_assessment(analyzer_config)
+        project._init_work_items()
+        return project
+
+    # ------------------------------------------------------------------
+    # Assessment
+    # ------------------------------------------------------------------
+
+    def run_assessment(
+        self, config: Optional[AnalyzerConfig] = None
+    ) -> AssessmentResult:
+        """Run the analyzer on the loaded funscript and cache the result."""
+        analyzer = FunscriptAnalyzer(config=config or AnalyzerConfig())
+        analyzer.load(self.funscript_path)
+        self.assessment = analyzer.analyze()
+        return self.assessment
+
+    def save_assessment(self, output_path: str) -> None:
+        """Persist the assessment JSON to disk."""
+        if self.assessment is None:
+            raise RuntimeError("No assessment — call run_assessment() first.")
+        self.assessment.save(output_path)
+
+    # ------------------------------------------------------------------
+    # Work item management
+    # ------------------------------------------------------------------
+
+    def _init_work_items(self) -> None:
+        """Populate work_items from the assessment (called once on load)."""
+        if self.assessment is None:
+            return
+        ad = self.assessment.to_dict()
+        phrases = ad.get("phrases", [])
+        transitions = ad.get("bpm_transitions", [])
+
+        if transitions:
+            self.work_items = items_from_bpm_transitions(transitions, phrases)
+        else:
+            self.work_items = items_from_phrases(phrases)
+
+    def get_item(self, item_id: str) -> Optional[WorkItem]:
+        """Return the work item with the given ID, or None."""
+        for item in self.work_items:
+            if item.id == item_id:
+                return item
+        return None
+
+    def set_item_type(self, item_id: str, item_type: ItemType) -> None:
+        """Update the type of a work item (resets its config to defaults)."""
+        item = self.get_item(item_id)
+        if item:
+            item.set_type(item_type)
+
+    def update_item_config(self, item_id: str, key: str, value) -> None:
+        """Set a single config key on a work item."""
+        item = self.get_item(item_id)
+        if item:
+            item.config[key] = value
+
+    def update_item_times(
+        self, item_id: str, start_ms: int, end_ms: int
+    ) -> None:
+        """Adjust the time window of a work item."""
+        item = self.get_item(item_id)
+        if item:
+            item.start_ms = start_ms
+            item.end_ms = end_ms
+
+    def add_item(self, item: WorkItem) -> None:
+        """Insert a new work item (e.g. manually drawn)."""
+        self.work_items.append(item)
+        self.work_items.sort(key=lambda w: w.start_ms)
+
+    def remove_item(self, item_id: str) -> None:
+        """Delete a work item by ID."""
+        self.work_items = [w for w in self.work_items if w.id != item_id]
+        if self.selected_item_id == item_id:
+            self.selected_item_id = None
+
+    # ------------------------------------------------------------------
+    # Derived window lists (for the customizer)
+    # ------------------------------------------------------------------
+
+    def performance_windows(self) -> List[Dict]:
+        return [w.to_window_dict() for w in self.work_items if w.item_type == ItemType.PERFORMANCE]
+
+    def break_windows(self) -> List[Dict]:
+        return [w.to_window_dict() for w in self.work_items if w.item_type == ItemType.BREAK]
+
+    def raw_windows(self) -> List[Dict]:
+        return [w.to_window_dict() for w in self.work_items if w.item_type == ItemType.RAW]
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
+    def export_windows(self, output_dir: str) -> Dict[str, str]:
+        """Write customizer-ready JSON window files to *output_dir*.
+
+        Returns a dict mapping window type → file path for each non-empty
+        category.
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.funscript_path))[0]
+        written: Dict[str, str] = {}
+
+        for type_name, windows in [
+            ("performance", self.performance_windows()),
+            ("break", self.break_windows()),
+            ("raw", self.raw_windows()),
+        ]:
+            if windows:
+                path = os.path.join(output_dir, f"{base}.{type_name}.json")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(windows, f, indent=2)
+                written[type_name] = path
+
+        return written
+
+    def export_project(self, path: str) -> None:
+        """Save the full project state (work items) to a JSON file."""
+        data = {
+            "funscript_path": self.funscript_path,
+            "work_items": [w.to_dict() for w in self.work_items],
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def load_project(cls, path: str) -> "Project":
+        """Restore a project from a previously saved JSON file."""
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        project = cls(funscript_path=data.get("funscript_path", ""))
+        project.work_items = [
+            WorkItem.from_dict(d) for d in data.get("work_items", [])
+        ]
+        return project
+
+    # ------------------------------------------------------------------
+    # Convenience
+    # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Friendly display name derived from the funscript filename."""
+        return os.path.splitext(os.path.basename(self.funscript_path))[0]
+
+    @property
+    def is_loaded(self) -> bool:
+        return bool(self.funscript_path) and self.assessment is not None
+
+    def summary(self) -> Dict:
+        """Return a plain-dict summary suitable for display."""
+        if not self.assessment:
+            return {}
+        ad = self.assessment.to_dict()
+        meta = ad.get("meta", {})
+        return {
+            "name": self.name,
+            "duration": meta.get("duration_ts", ""),
+            "bpm": meta.get("bpm", 0.0),
+            "actions": meta.get("action_count", 0),
+            "phases": len(ad.get("phases", [])),
+            "cycles": len(ad.get("cycles", [])),
+            "patterns": len(ad.get("patterns", [])),
+            "phrases": len(ad.get("phrases", [])),
+            "bpm_transitions": len(ad.get("bpm_transitions", [])),
+        }
