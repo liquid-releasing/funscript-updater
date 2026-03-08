@@ -28,9 +28,11 @@ except ImportError:
 
 
 # When the zoom window contains more action points than this threshold,
-# fall back to a single trace (coloured markers + faint grey line).
-# Below the threshold, each segment is drawn as its own coloured trace.
-_MAX_SEGMENT_TRACES = 400
+# fall back to coloured markers only (no per-segment traces).
+# Below the threshold, each segment is drawn as its own coloured trace,
+# giving a full velocity/amplitude heatmap on the line itself.
+# 600 comfortably covers a 60-second zoomed phrase at typical funscript density.
+_MAX_SEGMENT_TRACES = 600
 
 
 class FunscriptChart:
@@ -213,14 +215,13 @@ class FunscriptChart:
             ))
 
         elif n > 0:
-            # Full-view fallback: single trace with coloured markers and
-            # a faint grey connecting line for shape context.
+            # Full-view fallback: coloured markers only — too many points for
+            # per-segment traces, but coloured dots still show the heatmap.
             fig.add_trace(go.Scatter(
                 x=s.times_ms,
                 y=s.positions,
-                mode="lines+markers",
-                marker=dict(color=colors, size=3, line=dict(width=0)),
-                line=dict(color="rgba(160,160,160,0.3)", width=1),
+                mode="markers",
+                marker=dict(color=colors, size=4, line=dict(width=0)),
                 hovertemplate="t=%{x} ms  pos=%{y}<extra></extra>",
                 name=self.title,
             ))
