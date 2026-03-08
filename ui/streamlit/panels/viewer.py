@@ -1,15 +1,12 @@
 """viewer.py — Phrase Selector panel.
 
-The Phrase Selector gives a full-width, scrollable/zoomable view of the
-funscript with each phrase drawn as a labelled, bordered box.
+Shows the full funscript as a fixed chart with phrase bounding boxes.
 
 Interaction
 -----------
-* Drag left/right  — pan (scroll) the visible window.
-* Scroll wheel     — zoom in/out (Plotly native).
 * Click a point    — selects the enclosing phrase; shows phrase info below.
 * Phrase buttons   — P1, P2, … below the chart jump directly to a phrase.
-* Zoom controls    — manual timestamp entry + scroll-step buttons.
+* Color toggle     — switch between velocity and amplitude colour mode.
 
 Selected phrase info (start, end, duration, BPM, pattern, cycle count) is
 displayed below.  A phrase editor will appear here in the next version.
@@ -22,7 +19,7 @@ from typing import List, Optional
 from utils import ms_to_timestamp, parse_timestamp
 
 
-def render(project, view_state, proposed_actions: Optional[List[dict]] = None) -> None:
+def render(project, view_state, proposed_actions: Optional[List[dict]] = None, large_funscript_threshold: int = 10_000) -> None:
     """Render the Phrase Selector.
 
     Parameters
@@ -61,16 +58,23 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None) -
     view_state.show_phrases = True
 
     # ------------------------------------------------------------------
-    # Colour mode + scroll/zoom controls (compact, above the chart)
+    # Controls: colour mode + scroll/zoom
     # ------------------------------------------------------------------
-    _render_controls(view_state, duration_ms)
+    _render_controls(view_state, duration_ms, phrases)
 
     # ------------------------------------------------------------------
     # Phrase Selector chart — full width, pan mode
     # ------------------------------------------------------------------
-    series = compute_chart_data(original_actions)
-    chart  = FunscriptChart(series, bands, "", duration_ms)
-    ev     = chart.render_streamlit(view_state, key="chart_phrase_sel", height=380)
+    n_actions = len(original_actions)
+    spinner_msg = (
+        f"Building chart ({n_actions} actions — using fast rendering)…"
+        if n_actions > large_funscript_threshold
+        else f"Building chart ({n_actions} actions)…"
+    )
+    with st.spinner(spinner_msg):
+        series = compute_chart_data(original_actions)
+        chart  = FunscriptChart(series, bands, "", duration_ms, large_funscript_threshold=large_funscript_threshold)
+        ev     = chart.render_streamlit(view_state, key="chart_phrase_sel", height=380)
     _handle_chart_event(ev, view_state, phrases)
 
     # ------------------------------------------------------------------
@@ -82,7 +86,6 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None) -
     # Selected phrase info / editor placeholder
     # ------------------------------------------------------------------
     if view_state.has_selection():
-        st.divider()
         _render_phrase_info(view_state, phrases)
 
 
@@ -90,17 +93,58 @@ def render(project, view_state, proposed_actions: Optional[List[dict]] = None) -
 # Controls bar
 # ------------------------------------------------------------------
 
-def _render_controls(view_state, duration_ms: int) -> None:
-    """Colour-mode toggle + zoom/scroll controls in a single compact row."""
+def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
+    """Colour mode + time range display + scroll/zoom controls + phrase prev/next."""
     import streamlit as st
 
-    col_mode, col_start, col_end, col_apply, col_reset, col_left, col_right = st.columns(
-        [2, 2, 2, 1, 1, 1, 1]
+    zoom_start = view_state.zoom_start_ms or 0
+    zoom_end   = view_state.zoom_end_ms   or duration_ms
+    span       = zoom_end - zoom_start
+    scroll_step = max(span // 3, 1_000)
+
+    # --- Phrase prev / next (own row so they aren't squeezed) ---
+    cur_idx = None
+    if view_state.has_selection() and phrases:
+        for i, ph in enumerate(phrases):
+            if ph["start_ms"] == view_state.selection_start_ms and ph["end_ms"] == view_state.selection_end_ms:
+                cur_idx = i
+                break
+
+    nav_label = f"Phrase {cur_idx + 1} of {len(phrases)}" if cur_idx is not None else f"{len(phrases)} phrases"
+    col_prev, col_next, col_nav_label, col_spacer = st.columns([1, 1, 3, 7])
+
+    with col_prev:
+        prev_disabled = not phrases or cur_idx is None or cur_idx == 0
+        if st.button("⏮ Prev", key="phrase_prev", disabled=prev_disabled, use_container_width=True):
+            target = phrases[cur_idx - 1]
+            _select_phrase(target, view_state)
+            _zoom_to_phrase(target, view_state, duration_ms)
+            st.rerun()
+
+    with col_next:
+        next_disabled = not phrases
+        if st.button("Next ⏭", key="phrase_next", disabled=next_disabled, use_container_width=True):
+            if cur_idx is None:
+                target = phrases[0]
+            elif cur_idx < len(phrases) - 1:
+                target = phrases[cur_idx + 1]
+            else:
+                target = None
+            if target:
+                _select_phrase(target, view_state)
+                _zoom_to_phrase(target, view_state, duration_ms)
+                st.rerun()
+
+    with col_nav_label:
+        st.caption(nav_label)
+
+    col_mode, col_t0, col_t1, col_left, col_right, col_all, col_zin, col_zout = st.columns(
+        [2, 2, 2, 1, 1, 1, 1, 1]
     )
 
     with col_mode:
         view_state.color_mode = st.radio(
-            "Color",
+            "Color mode",
             ["velocity", "amplitude"],
             index=0 if view_state.color_mode == "velocity" else 1,
             horizontal=True,
@@ -108,60 +152,63 @@ def _render_controls(view_state, duration_ms: int) -> None:
             label_visibility="collapsed",
         )
 
-    zoom_start = view_state.zoom_start_ms or 0
-    zoom_end   = view_state.zoom_end_ms   or duration_ms
-    span       = zoom_end - zoom_start
-
-    with col_start:
-        z_start = st.text_input(
-            "Start",
-            value=ms_to_timestamp(zoom_start),
-            key="zoom_start_input",
+    # Keys include the current zoom values so the widgets re-initialize
+    # (with the correct default) whenever a scroll/zoom button changes the viewport.
+    with col_t0:
+        t0_val = st.text_input(
+            "From", value=ms_to_timestamp(zoom_start),
+            key=f"ctrl_t0_{zoom_start}",
+            label_visibility="collapsed",
             placeholder="M:SS",
         )
 
-    with col_end:
-        z_end = st.text_input(
-            "End",
-            value=ms_to_timestamp(zoom_end),
-            key="zoom_end_input",
+    with col_t1:
+        t1_val = st.text_input(
+            "To", value=ms_to_timestamp(zoom_end),
+            key=f"ctrl_t1_{zoom_end}",
+            label_visibility="collapsed",
             placeholder="M:SS",
         )
 
-    with col_apply:
-        st.write("")  # vertical spacer
-        if st.button("Apply", key="apply_zoom"):
-            try:
-                s = parse_timestamp(z_start)
-                e = parse_timestamp(z_end)
-                view_state.set_zoom(s, e)
-                st.rerun()
-            except Exception:
-                st.error("Bad timestamp.")
-
-    with col_reset:
-        st.write("")
-        if st.button("All", key="reset_zoom", help="Show full funscript"):
-            view_state.reset_zoom()
-            view_state.clear_selection()
+    # Apply typed timestamps only if both parse cleanly and differ from current viewport.
+    try:
+        t0_ms = parse_timestamp(t0_val)
+        t1_ms = parse_timestamp(t1_val)
+        if t0_ms != zoom_start or t1_ms != zoom_end:
+            view_state.set_zoom(t0_ms, t1_ms)
             st.rerun()
-
-    scroll_step = max(span // 3, 1_000)  # scroll by 1/3 of current window
+    except Exception:
+        pass
 
     with col_left:
-        st.write("")
-        if st.button("◀", key="scroll_left", help="Scroll left"):
+        if st.button("◀", key="scroll_left", help="Scroll left", use_container_width=True):
             new_start = max(0, zoom_start - scroll_step)
-            new_end   = new_start + span
-            view_state.set_zoom(new_start, min(new_end, duration_ms))
+            view_state.set_zoom(new_start, new_start + span)
             st.rerun()
 
     with col_right:
-        st.write("")
-        if st.button("▶", key="scroll_right", help="Scroll right"):
-            new_end   = min(duration_ms, zoom_end + scroll_step)
-            new_start = max(0, new_end - span)
-            view_state.set_zoom(new_start, new_end)
+        if st.button("▶", key="scroll_right", help="Scroll right", use_container_width=True):
+            new_end = min(duration_ms, zoom_end + scroll_step)
+            view_state.set_zoom(new_end - span, new_end)
+            st.rerun()
+
+    with col_all:
+        if st.button("All", key="reset_zoom", help="Show full funscript", use_container_width=True):
+            view_state.reset_zoom()
+            st.rerun()
+
+    with col_zin:
+        if st.button("＋", key="zoom_in", help="Zoom in (halve window)", use_container_width=True):
+            mid  = (zoom_start + zoom_end) // 2
+            half = max(span // 4, 5_000)
+            view_state.set_zoom(max(0, mid - half), min(duration_ms, mid + half))
+            st.rerun()
+
+    with col_zout:
+        if st.button("－", key="zoom_out", help="Zoom out (double window)", use_container_width=True):
+            mid  = (zoom_start + zoom_end) // 2
+            half = min(span, duration_ms)
+            view_state.set_zoom(max(0, mid - half), min(duration_ms, mid + half))
             st.rerun()
 
 
@@ -247,48 +294,40 @@ def _render_phrase_bar(phrases: list, view_state) -> None:
 # ------------------------------------------------------------------
 
 def _render_phrase_info(view_state, phrases: list) -> None:
-    """Show metadata for the selected phrase and a placeholder editor."""
+    """Show a compact table row for the selected phrase."""
     import streamlit as st
 
     start = view_state.selection_start_ms
     end   = view_state.selection_end_ms
 
-    phrase = next(
-        (ph for ph in phrases
+    phrase_idx = next(
+        (i for i, ph in enumerate(phrases)
          if ph["start_ms"] == start and ph["end_ms"] == end),
         None,
     )
+    if phrase_idx is None:
+        return
+    phrase = phrases[phrase_idx]
 
-    if phrase:
-        duration_ms = end - start
-        bpm         = phrase.get("bpm", 0)
-        pattern     = phrase.get("pattern_label", "—")
-        cycles      = phrase.get("cycle_count", "—")
-
-        st.subheader("Selected Phrase")
-
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("Start",    ms_to_timestamp(start))
-        m2.metric("End",      ms_to_timestamp(end))
-        m3.metric("Duration", f"{duration_ms / 1000:.1f} s")
-        m4.metric("BPM",      f"{bpm:.1f}")
-        m5.metric("Pattern",  pattern)
-        m6.metric("Cycles",   cycles)
-
-        st.info(
-            "Phrase editor coming in the next version — "
-            "will show a zoomed chart of this phrase with transformation controls."
-        )
-    else:
-        st.subheader("Selection")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Start",    ms_to_timestamp(start))
-        c2.metric("End",      ms_to_timestamp(end))
-        c3.metric("Duration", f"{(end - start) / 1000:.1f} s")
-
-    if st.button("Clear selection", key="clear_sel"):
-        view_state.clear_selection()
-        st.rerun()
+    duration_ms = end - start
+    col_label, col_a, col_b = st.columns([1, 10, 1])
+    with col_label:
+        st.markdown(f"### P{phrase_idx + 1}")
+    with col_a:
+        import pandas as pd
+        row = {
+            "Start":    ms_to_timestamp(start),
+            "End":      ms_to_timestamp(end),
+            "Duration": f"{duration_ms / 1000:.1f} s",
+            "BPM":      f"{phrase.get('bpm', 0):.1f}",
+            "Pattern":  phrase.get("pattern_label", "—"),
+            "Cycles":   phrase.get("cycle_count", "—"),
+        }
+        st.dataframe(pd.DataFrame([row]), hide_index=True, width="stretch")
+    with col_b:
+        if st.button("✕", key="clear_sel", help="Clear selection"):
+            view_state.clear_selection()
+            st.rerun()
 
 
 # ------------------------------------------------------------------
@@ -303,7 +342,12 @@ def _find_phrase_at(time_ms: int, phrases: list):
 
 
 def _select_phrase(phrase: dict, view_state) -> None:
-    start, end = phrase["start_ms"], phrase["end_ms"]
-    padding = min(2_000, (end - start) // 8)
-    view_state.set_selection(start, end)
-    view_state.set_zoom(max(0, start - padding), end + padding)
+    view_state.set_selection(phrase["start_ms"], phrase["end_ms"])
+
+
+def _zoom_to_phrase(phrase: dict, view_state, duration_ms: int) -> None:
+    """Scroll the viewport to show the phrase with a small padding on each side."""
+    start = phrase["start_ms"]
+    end   = phrase["end_ms"]
+    pad   = max((end - start) // 5, 2_000)
+    view_state.set_zoom(max(0, start - pad), min(duration_ms, end + pad))
