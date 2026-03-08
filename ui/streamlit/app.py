@@ -94,6 +94,26 @@ def _sidebar() -> None:
     )
     funscript_path = os.path.join(funscript_dir, selected_file)
 
+    # --- Phrase detection parameters ---
+    with st.sidebar.expander("Phrase detection settings", expanded=False):
+        min_phrase_s = st.slider(
+            "Min phrase length (s)", min_value=5, max_value=60, value=20, step=5,
+            help="Phrases shorter than this are merged into a neighbour.",
+        )
+        amp_sensitivity = st.select_slider(
+            "Amplitude sensitivity",
+            options=["low (0.35)", "medium (0.30)", "high (0.25)"],
+            value="medium (0.30)",
+            help="How much stroke-depth change triggers a new phrase.",
+        )
+        amp_tol_map = {"low (0.35)": 0.35, "medium (0.30)": 0.30, "high (0.25)": 0.25}
+
+    from assessment.analyzer import AnalyzerConfig
+    analyzer_cfg = AnalyzerConfig(
+        min_phrase_duration_ms=min_phrase_s * 1000,
+        amplitude_tolerance=amp_tol_map[amp_sensitivity],
+    )
+
     # Check for a cached assessment JSON.
     base = os.path.splitext(selected_file)[0]
     cached_assessment = os.path.join(st.session_state.output_dir, f"{base}.assessment.json")
@@ -106,6 +126,7 @@ def _sidebar() -> None:
         with st.spinner("Running assessment…"):
             st.session_state.project = Project.from_funscript(
                 funscript_path,
+                analyzer_config=analyzer_cfg,
                 existing_assessment_path=cached_assessment if use_cached else None,
             )
             if not use_cached:
