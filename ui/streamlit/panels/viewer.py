@@ -152,31 +152,31 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
         pass
 
     with col_left:
-        if st.button("◀", key="scroll_left", help="Scroll left", use_container_width=True):
+        if st.button("◀", key="scroll_left", help="Scroll left", width="stretch"):
             new_start = max(0, zoom_start - scroll_step)
             view_state.set_zoom(new_start, new_start + span)
             st.rerun()
 
     with col_right:
-        if st.button("▶", key="scroll_right", help="Scroll right", use_container_width=True):
+        if st.button("▶", key="scroll_right", help="Scroll right", width="stretch"):
             new_end = min(duration_ms, zoom_end + scroll_step)
             view_state.set_zoom(new_end - span, new_end)
             st.rerun()
 
     with col_all:
-        if st.button("All", key="reset_zoom", help="Show full funscript", use_container_width=True):
+        if st.button("All", key="reset_zoom", help="Show full funscript", width="stretch"):
             view_state.reset_zoom()
             st.rerun()
 
     with col_zin:
-        if st.button("＋", key="zoom_in", help="Zoom in (halve window)", use_container_width=True):
+        if st.button("＋", key="zoom_in", help="Zoom in (halve window)", width="stretch"):
             mid  = (zoom_start + zoom_end) // 2
             half = max(span // 4, 5_000)
             view_state.set_zoom(max(0, mid - half), min(duration_ms, mid + half))
             st.rerun()
 
     with col_zout:
-        if st.button("－", key="zoom_out", help="Zoom out (double window)", use_container_width=True):
+        if st.button("－", key="zoom_out", help="Zoom out (double window)", width="stretch"):
             mid  = (zoom_start + zoom_end) // 2
             half = min(span, duration_ms)
             view_state.set_zoom(max(0, mid - half), min(duration_ms, mid + half))
