@@ -13,6 +13,8 @@ Individual steps:
   Step 1 — Assess
     python cli.py assess path/to/input.funscript [--output assessment.json]
                         [--config analyzer_config.json]
+                        [--min-phrase-duration SECONDS]
+                        [--amplitude-tolerance FRACTION]
 
   Step 2 — Review (human step — open assessment.json, review bpm_transitions and phrase BPMs)
 
@@ -53,8 +55,26 @@ sys.path.insert(0, os.path.dirname(__file__))
 # Command implementations
 # ------------------------------------------------------------------
 
+def _build_analyzer_config(args):
+    """Build an AnalyzerConfig from CLI args and optional --config file."""
+    from assessment.analyzer import AnalyzerConfig
+    config = AnalyzerConfig()
+    if getattr(args, "config", None):
+        with open(args.config) as f:
+            d = json.load(f)
+        config = AnalyzerConfig(**{
+            k: v for k, v in d.items()
+            if k in AnalyzerConfig.__dataclass_fields__
+        })
+    if getattr(args, "min_phrase_duration", None) is not None:
+        config.min_phrase_duration_ms = int(args.min_phrase_duration * 1000)
+    if getattr(args, "amplitude_tolerance", None) is not None:
+        config.amplitude_tolerance = args.amplitude_tolerance
+    return config
+
+
 def cmd_pipeline(args):
-    from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
+    from assessment.analyzer import FunscriptAnalyzer
     from suggested_updates.config import TransformerConfig
     from user_customization.config import CustomizerConfig
     from user_customization.customizer import WindowCustomizer
@@ -68,7 +88,7 @@ def cmd_pipeline(args):
     base = os.path.splitext(os.path.basename(args.funscript))[0]
 
     # Stage 1 — Assess
-    analyzer = FunscriptAnalyzer()
+    analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
     analyzer.load(args.funscript)
     assessment = analyzer.analyze()
     assessment_path = os.path.join(output_dir, f"{base}.assessment.json")
@@ -106,18 +126,9 @@ def cmd_pipeline(args):
 
 
 def cmd_assess(args):
-    from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
+    from assessment.analyzer import FunscriptAnalyzer
 
-    config = None
-    if args.config:
-        with open(args.config) as f:
-            d = json.load(f)
-        config = AnalyzerConfig(**{
-            k: v for k, v in d.items()
-            if k in AnalyzerConfig.__dataclass_fields__
-        })
-
-    analyzer = FunscriptAnalyzer(config=config)
+    analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
     analyzer.load(args.funscript)
     result = analyzer.analyze()
 
@@ -272,12 +283,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_pipe.add_argument("--beats", help="Beats JSON (enables beat accents)")
     p_pipe.add_argument("--transformer-config", help="Transformer config JSON")
     p_pipe.add_argument("--customizer-config", help="Customizer config JSON")
+    p_pipe.add_argument(
+        "--min-phrase-duration", type=float, metavar="SECONDS",
+        help="Merge phrases shorter than this many seconds (default: 20)",
+    )
+    p_pipe.add_argument(
+        "--amplitude-tolerance", type=float, metavar="FRACTION",
+        help="Phrase break sensitivity fraction (lower = more sensitive; default: 0.30)",
+    )
 
     # --- assess ---
     p_assess = sub.add_parser("assess", help="Step 1: analyze a funscript")
     p_assess.add_argument("funscript", help="Path to input .funscript file")
     p_assess.add_argument("--output", help="Path for the assessment JSON output")
     p_assess.add_argument("--config", help="Path to analyzer config JSON (optional)")
+    p_assess.add_argument(
+        "--min-phrase-duration", type=float, metavar="SECONDS",
+        help="Merge phrases shorter than this many seconds into neighbours (default: 20)",
+    )
+    p_assess.add_argument(
+        "--amplitude-tolerance", type=float, metavar="FRACTION",
+        help="Phrase break sensitivity: fraction of amplitude deviation to trigger a new phrase "
+             "(lower = more sensitive, e.g. 0.25; default: 0.30)",
+    )
 
     # --- transform ---
     p_tx = sub.add_parser("transform", help="Step 3: BPM-threshold transform")
