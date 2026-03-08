@@ -147,6 +147,7 @@ def _detail_fragment(
 
     with col_charts:
         st.subheader(f"P{phrase_idx + 1} — Phrase Detail")
+        st.caption(_phrase_description(phrase))
         _render_chart(
             actions=original_actions,
             phrases=phrases,
@@ -172,6 +173,43 @@ def _detail_fragment(
 
     with col_right:
         _render_transform_controls(phrase, bpm_threshold, phrase_idx)
+
+
+# ------------------------------------------------------------------
+# Phrase description (rule-based, no LLM required)
+# ------------------------------------------------------------------
+
+def _phrase_description(phrase: dict) -> str:
+    """Return a short descriptor like 'Fast, wide regular pattern — 145 BPM · 12 cycles · 32 s'."""
+    bpm   = phrase.get("bpm", 0)
+    span  = phrase.get("amplitude_span", 0)
+    label = phrase.get("pattern_label", "").strip() or "pattern"
+    cycles = phrase.get("cycle_count")
+    dur_s  = (phrase.get("end_ms", 0) - phrase.get("start_ms", 0)) / 1000
+
+    if bpm < 80:
+        tempo = "Slow"
+    elif bpm < 120:
+        tempo = "Moderate"
+    elif bpm < 160:
+        tempo = "Fast"
+    else:
+        tempo = "Very fast"
+
+    if span < 30:
+        amplitude = "narrow"
+    elif span < 60:
+        amplitude = "moderate"
+    else:
+        amplitude = "wide"
+
+    parts = [f"{tempo}, {amplitude} {label}"]
+    parts.append(f"{bpm:.0f} BPM")
+    if cycles is not None:
+        parts.append(f"{cycles} cycles")
+    parts.append(f"{dur_s:.0f} s")
+
+    return f"{parts[0]} — " + " · ".join(parts[1:])
 
 
 # ------------------------------------------------------------------
