@@ -490,75 +490,13 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
 
     edited_actions = _build_edited_actions(phrases, original_actions)
 
-    # ------------------------------------------------------------------
-    # Finalize options — collapsed by default, always applied on save.
-    # ------------------------------------------------------------------
-    with st.expander("⚙ Finalize options", expanded=False):
-        st.caption("Applied to the full script before download.")
-
-        apply_seams = st.checkbox(
-            "Blend seams",
-            value=True,
-            key="fin_blend_seams",
-            help="Smooth high-velocity transitions at phrase boundaries.",
-        )
-        apply_smooth = st.checkbox(
-            "Final smooth",
-            value=True,
-            key="fin_final_smooth",
-            help="Light global LPF finishing pass.",
-        )
-
-        seam_params   = {}
-        smooth_params = {}
-
-        if apply_seams:
-            sp = TRANSFORM_CATALOG["blend_seams"].params
-            seam_params["max_velocity"] = st.slider(
-                sp["max_velocity"].label,
-                min_value=float(sp["max_velocity"].min_val),
-                max_value=float(sp["max_velocity"].max_val),
-                value=float(sp["max_velocity"].default),
-                step=float(sp["max_velocity"].step),
-                help=sp["max_velocity"].help,
-                key="fin_seam_vel",
-            )
-            seam_params["max_strength"] = st.slider(
-                sp["max_strength"].label,
-                min_value=float(sp["max_strength"].min_val),
-                max_value=float(sp["max_strength"].max_val),
-                value=float(sp["max_strength"].default),
-                step=float(sp["max_strength"].step),
-                help=sp["max_strength"].help,
-                key="fin_seam_str",
-            )
-
-        if apply_smooth:
-            fp = TRANSFORM_CATALOG["final_smooth"].params
-            smooth_params["strength"] = st.slider(
-                fp["strength"].label,
-                min_value=float(fp["strength"].min_val),
-                max_value=float(fp["strength"].max_val),
-                value=float(fp["strength"].default),
-                step=float(fp["strength"].step),
-                help=fp["strength"].help,
-                key="fin_smooth_str",
-            )
-
-    # Apply finalize passes to the full action list before serialising.
-    finalized = copy.deepcopy(edited_actions)
-    if apply_seams:
-        finalized = TRANSFORM_CATALOG["blend_seams"].apply(finalized, seam_params or None)
-    if apply_smooth:
-        finalized = TRANSFORM_CATALOG["final_smooth"].apply(finalized, smooth_params or None)
-
     funscript_path = st.session_state.project.funscript_path
     try:
         with open(funscript_path) as f:
             raw = json.load(f)
     except Exception:
         raw = {}
-    raw["actions"] = sorted(finalized, key=lambda a: a["at"])
+    raw["actions"] = sorted(edited_actions, key=lambda a: a["at"])
     edited_bytes = json.dumps(raw, indent=2).encode()
 
     stem = os.path.splitext(os.path.basename(funscript_path))[0]
@@ -577,7 +515,8 @@ def _render_save_cancel(phrases: list, original_actions: list, view_state) -> No
             width="stretch",
             help=f"Download as {download_name}",
         ):
-            _return_to_selector(view_state)
+            st.session_state.goto_tab = 5
+            st.rerun(scope="app")
 
     with col_cancel:
         if st.button(

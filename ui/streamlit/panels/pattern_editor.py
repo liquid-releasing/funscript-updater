@@ -634,21 +634,22 @@ def _render_controls(
         key=f"pe_apply_{selected_label}_{inst_idx}_single",
         use_container_width=True,
         type="primary",
-        help="Mark this instance as done in Work Items.",
+        help="Mark this instance as done and go to Export.",
     ):
         _proj = st.session_state.get("project")
         if _proj and _proj.is_loaded:
             for wi in _proj.work_items:
                 if wi.start_ms == cycle["start_ms"]:
                     _proj.set_item_status(wi.id, "done")
-        st.success(f"Instance #{inst_idx + 1} marked done.")
+        st.session_state.goto_tab = 5
+        st.rerun(scope="app")
 
     # Apply this instance's transform to all other instances
     if st.button(
         "Apply to all",
         key=f"pe_apply_all_{selected_label}_{inst_idx}",
         use_container_width=True,
-        help=f"Copy this transform to all {n_instances} instances of '{selected_label}'.",
+        help=f"Copy this transform to all {n_instances} instances of '{selected_label}' and go to Export.",
     ):
         _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
         # Mark every matching work item as done
@@ -658,6 +659,7 @@ def _render_controls(
             for wi in _proj.work_items:
                 if wi.start_ms in cycle_starts:
                     _proj.set_item_status(wi.id, "done")
+        st.session_state.goto_tab = 5
         st.rerun(scope="app")
 
     st.divider()
@@ -973,82 +975,23 @@ def _render_finalize_and_download(
     original_actions: List[dict],
     funscript_path: str,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    # Build download only on explicit request — not on every slider tick
+    if st.button(
+        "Build download",
+        key=f"pe_build_{selected_label}",
+        use_container_width=True,
+        help="Compile all transforms into a downloadable funscript.",
+    ):
+        edited = _build_all_transforms(cycles, selected_label, original_actions)
 
-    with st.expander("Finalize options", expanded=False):
-        st.caption("Applied to the full script before download.")
+        try:
+            with open(funscript_path) as f:
+                raw = json.load(f)
+        except Exception:
+            raw = {}
 
-        apply_seams  = st.checkbox(
-            "Blend seams", value=True,
-            key=f"pe_fin_blend_seams_{selected_label}",
-            help="Smooth high-velocity transitions at segment/cycle boundaries.",
-        )
-        apply_smooth = st.checkbox(
-            "Final smooth", value=True,
-            key=f"pe_fin_final_smooth_{selected_label}",
-            help="Light global LPF finishing pass.",
-        )
-
-        seam_params:   dict = {}
-        smooth_params: dict = {}
-
-        if apply_seams:
-            sp = TRANSFORM_CATALOG["blend_seams"].params
-            seam_params["max_velocity"] = st.slider(
-                sp["max_velocity"].label,
-                min_value=float(sp["max_velocity"].min_val),
-                max_value=float(sp["max_velocity"].max_val),
-                value=float(sp["max_velocity"].default),
-                step=float(sp["max_velocity"].step),
-                help=sp["max_velocity"].help,
-                key=f"pe_fin_seam_vel_{selected_label}",
-            )
-            seam_params["max_strength"] = st.slider(
-                sp["max_strength"].label,
-                min_value=float(sp["max_strength"].min_val),
-                max_value=float(sp["max_strength"].max_val),
-                value=float(sp["max_strength"].default),
-                step=float(sp["max_strength"].step),
-                help=sp["max_strength"].help,
-                key=f"pe_fin_seam_str_{selected_label}",
-            )
-
-        if apply_smooth:
-            fp = TRANSFORM_CATALOG["final_smooth"].params
-            smooth_params["strength"] = st.slider(
-                fp["strength"].label,
-                min_value=float(fp["strength"].min_val),
-                max_value=float(fp["strength"].max_val),
-                value=float(fp["strength"].default),
-                step=float(fp["strength"].step),
-                help=fp["strength"].help,
-                key=f"pe_fin_smooth_str_{selected_label}",
-            )
-
-        st.divider()
-
-        # Build download only on explicit request — not on every slider tick
-        if st.button(
-            "Build download",
-            key=f"pe_build_{selected_label}",
-            use_container_width=True,
-            help="Compile all transforms + finalize passes into a downloadable funscript.",
-        ):
-            edited    = _build_all_transforms(cycles, selected_label, original_actions)
-            finalized = copy.deepcopy(edited)
-            if apply_seams:
-                finalized = TRANSFORM_CATALOG["blend_seams"].apply(finalized, seam_params or None)
-            if apply_smooth:
-                finalized = TRANSFORM_CATALOG["final_smooth"].apply(finalized, smooth_params or None)
-
-            try:
-                with open(funscript_path) as f:
-                    raw = json.load(f)
-            except Exception:
-                raw = {}
-
-            raw["actions"] = sorted(finalized, key=lambda a: a["at"])
-            st.session_state[f"pe_download_bytes_{selected_label}"] = json.dumps(raw, indent=2).encode()
+        raw["actions"] = sorted(edited, key=lambda a: a["at"])
+        st.session_state[f"pe_download_bytes_{selected_label}"] = json.dumps(raw, indent=2).encode()
 
     # Download button — shown once bytes have been built
     dl_bytes = st.session_state.get(f"pe_download_bytes_{selected_label}")
