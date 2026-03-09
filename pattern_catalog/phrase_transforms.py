@@ -857,6 +857,30 @@ TRANSFORM_CATALOG: Dict[str, PhraseTransform] = {
 
 
 # ------------------------------------------------------------------
+# Canonical display order (matches Transform Catalog UI groups)
+# ------------------------------------------------------------------
+
+TRANSFORM_ORDER: List[str] = [
+    # Passthrough
+    "passthrough",
+    # Amplitude Shaping
+    "amplitude_scale", "normalize", "boost_contrast",
+    # Position Adjustment
+    "shift", "recenter", "clamp_upper", "clamp_lower", "invert",
+    # Smoothing & Filtering
+    "smooth", "blend_seams", "final_smooth",
+    # Break / Recovery
+    "break",
+    # Performance / Device Realism
+    "performance",
+    # Rhythmic Patterns
+    "beat_accent", "three_one",
+    # Structural — Tempo
+    "halve_tempo",
+]
+
+
+# ------------------------------------------------------------------
 # Suggestion logic
 # ------------------------------------------------------------------
 
