@@ -36,6 +36,7 @@ from ui.common.work_items import ItemType, WorkItem
 from ui.streamlit.panels import assessment as assessment_panel
 from ui.streamlit.panels import assessment_nav as assessment_nav_panel
 from ui.streamlit.panels import detail as detail_panel
+from ui.streamlit.panels import pattern_editor as pattern_editor_panel
 from ui.streamlit.panels import viewer as viewer_panel
 from ui.streamlit.panels import work_items as work_items_panel
 
@@ -273,8 +274,8 @@ def _main() -> None:
         )
         return
 
-    tab_viewer, tab_assessment, tab_nav, tab_work_items, tab_edit, tab_export = st.tabs(
-        ["Phrase Selector", "Assessment", "Navigator", "Work Items", "Edit", "Export"]
+    tab_viewer, tab_assessment, tab_nav, tab_work_items, tab_edit, tab_pattern, tab_export = st.tabs(
+        ["Phrase Selector", "Assessment", "Navigator", "Work Items", "Edit", "Pattern Editor", "Export"]
     )
 
     with tab_viewer:
@@ -292,6 +293,9 @@ def _main() -> None:
 
     with tab_edit:
         detail_panel.render(project)
+
+    with tab_pattern:
+        pattern_editor_panel.render(project)
 
     with tab_export:
         _render_export_tab(project)
