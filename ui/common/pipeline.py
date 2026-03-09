@@ -32,7 +32,7 @@ _ROOT = os.path.dirname(
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from suggested_updates import FunscriptTransformer, TransformerConfig
+from pattern_catalog import FunscriptTransformer, TransformerConfig
 from user_customization import WindowCustomizer, CustomizerConfig
 
 
@@ -83,7 +83,7 @@ def run_pipeline(
         Directory where output files are written (created if absent).
     transformer_config:
         Optional custom settings for Stage 2.  Defaults to
-        :class:`~suggested_updates.TransformerConfig` defaults.
+        :class:`~pattern_catalog.TransformerConfig` defaults.
     customizer_config:
         Optional custom settings for Stage 3.  Defaults to
         :class:`~user_customization.CustomizerConfig` defaults.

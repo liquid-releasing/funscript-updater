@@ -34,7 +34,21 @@ Individual steps:
         [--raw raw_windows.json] \\
         [--beats beats.json]
 
+  Step 2b — Phrase Transform (catalog transform on individual phrases)
+    python cli.py phrase-transform path/to/input.funscript \\
+        --assessment assessment.json \\
+        --transform smooth --phrase 3 [--param strength=0.25]    # one phrase
+        --transform normalize --all                               # all phrases
+        --suggest [--bpm-threshold 120]                          # auto-pick per phrase
+        --dry-run                                                # print plan only
+
 Additional commands:
+
+  python cli.py finalize path/to/transformed.funscript          # blend seams + final smooth, then save
+      [--output finalized.funscript]
+      [--param seam_max_velocity=0.3]   # blend_seams param override
+      [--param smooth_strength=0.05]    # final_smooth param override
+      [--skip-seams] [--skip-smooth]    # disable either pass
 
   python cli.py visualize path/to/input.funscript --assessment assessment.json [--output viz.png]
   python cli.py config --output transformer_config.json        # dump default transformer config
@@ -76,10 +90,10 @@ def _build_analyzer_config(args):
 
 def cmd_pipeline(args):
     from assessment.analyzer import FunscriptAnalyzer
-    from suggested_updates.config import TransformerConfig
+    from pattern_catalog.config import TransformerConfig
     from user_customization.config import CustomizerConfig
     from user_customization.customizer import WindowCustomizer
-    from suggested_updates.transformer import FunscriptTransformer
+    from pattern_catalog.transformer import FunscriptTransformer
     import tempfile, os
 
     output_dir = args.output_dir or os.path.join(
@@ -158,8 +172,8 @@ def cmd_assess(args):
 
 
 def cmd_transform(args):
-    from suggested_updates.transformer import FunscriptTransformer
-    from suggested_updates.config import TransformerConfig
+    from pattern_catalog.transformer import FunscriptTransformer
+    from pattern_catalog.config import TransformerConfig
 
     config = TransformerConfig.load(args.config) if args.config else TransformerConfig()
     transformer = FunscriptTransformer(config)
@@ -243,12 +257,179 @@ def cmd_config(args):
             json.dump(dataclasses.asdict(cfg), f, indent=2)
         print(f"Default analyzer config written: {output}")
     else:
-        from suggested_updates.config import TransformerConfig
+        from pattern_catalog.config import TransformerConfig
         cfg = TransformerConfig()
         output = args.output or "transformer_config.json"
         cfg.save(output)
         print(f"Default transformer config written: {output}")
     print("Edit the values then pass with --config when running the command.")
+
+
+def _coerce(v: str):
+    """Parse a string value as int, float, or str."""
+    try:
+        i = int(v); f = float(v)
+        return i if i == f else f
+    except ValueError:
+        return v
+
+
+def cmd_phrase_transform(args):
+    """Apply a catalog transform to one or all phrases of a funscript."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from models import AssessmentResult
+    import copy
+
+    # --- load inputs ---
+    with open(args.funscript) as f:
+        data = json.load(f)
+    actions = data["actions"]
+    assessment = AssessmentResult.load(args.assessment)
+    phrases = [p.__dict__ if hasattr(p, "__dict__") else p for p in assessment.phrases]
+    # Normalise to plain dicts with the keys phrase_detail expects
+    phrase_dicts = []
+    for p in assessment.phrases:
+        d = p if isinstance(p, dict) else {
+            "start_ms":      p.start_ms,
+            "end_ms":        p.end_ms,
+            "bpm":           getattr(p, "bpm", 0),
+            "pattern_label": getattr(p, "pattern_label", ""),
+            "amplitude_span": getattr(p, "amplitude_span", 100),
+            "cycle_count":   getattr(p, "cycle_count", None),
+        }
+        phrase_dicts.append(d)
+
+    if not phrase_dicts:
+        print("No phrases found in assessment — nothing to transform.")
+        sys.exit(1)
+
+    # --- resolve which phrases to process ---
+    if args.all or args.suggest:
+        indices = list(range(len(phrase_dicts)))
+    elif args.phrase:
+        indices = []
+        for n in args.phrase:
+            idx = n - 1   # user-facing is 1-based
+            if idx < 0 or idx >= len(phrase_dicts):
+                print(f"Error: --phrase {n} is out of range (1–{len(phrase_dicts)}).")
+                sys.exit(1)
+            indices.append(idx)
+    else:
+        print("Error: specify --phrase N, --all, or --suggest.")
+        sys.exit(1)
+
+    # --- parse --param key=value pairs ---
+    extra_params = {}
+    for kv in (args.param or []):
+        if "=" not in kv:
+            print(f"Error: --param must be key=value, got: {kv!r}")
+            sys.exit(1)
+        k, v = kv.split("=", 1)
+        extra_params[k.strip()] = _coerce(v.strip())
+
+    # --- build transform plan ---
+    bpm_threshold = args.bpm_threshold or 120.0
+    plan = []   # list of (phrase_idx, transform_key, param_values)
+    for idx in indices:
+        phrase = phrase_dicts[idx]
+        if args.suggest:
+            key = suggest_transform(phrase, bpm_threshold)
+        else:
+            key = args.transform
+            if key not in TRANSFORM_CATALOG:
+                print(f"Error: unknown transform {key!r}. "
+                      f"Available: {', '.join(TRANSFORM_CATALOG)}")
+                sys.exit(1)
+        spec = TRANSFORM_CATALOG[key]
+        params = {k: v.default for k, v in spec.params.items()}
+        params.update(extra_params)
+        plan.append((idx, key, params))
+
+    # --- print plan ---
+    print(f"Phrase-transform plan ({len(plan)} phrase{'s' if len(plan) != 1 else ''}):")
+    for idx, key, params in plan:
+        ph = phrase_dicts[idx]
+        param_str = "  ".join(f"{k}={v}" for k, v in params.items()) if params else "-"
+        label = ph.get('pattern_label', '').encode('ascii', errors='replace').decode('ascii')
+        print(f"  P{idx + 1:>2}  {key:<18}  params: {param_str}"
+              f"  ({ph.get('bpm', 0):.0f} BPM, {label})")
+
+    if args.dry_run:
+        print("\n--dry-run: no file written.")
+        return
+
+    # --- apply ---
+    result = copy.deepcopy(actions)
+    for idx, key, params in plan:
+        spec  = TRANSFORM_CATALOG[key]
+        ph    = phrase_dicts[idx]
+        start = ph["start_ms"]
+        end   = ph["end_ms"]
+        slice_ = [a for a in result if start <= a["at"] <= end]
+        transformed = spec.apply(slice_, params)
+        if spec.structural:
+            # Replace the phrase slice with the new (potentially shorter) actions
+            result = [a for a in result if not (start <= a["at"] <= end)]
+            result = sorted(result + transformed, key=lambda a: a["at"])
+        else:
+            t_map = {a["at"]: a["pos"] for a in transformed}
+            for a in result:
+                if a["at"] in t_map:
+                    a["pos"] = t_map[a["at"]]
+
+    # --- save ---
+    data["actions"] = result
+    output = args.output or _default_path(args.funscript, "_phrase_transformed.funscript")
+    with open(output, "w") as f:
+        json.dump(data, f, indent=2)
+    print(f"\nSaved: {output}")
+
+
+def cmd_finalize(args):
+    """Apply blend_seams + final_smooth to the full action list, then save."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    import copy
+
+    with open(args.funscript) as f:
+        data = json.load(f)
+
+    result = copy.deepcopy(data["actions"])
+
+    seam_spec   = TRANSFORM_CATALOG["blend_seams"]
+    smooth_spec = TRANSFORM_CATALOG["final_smooth"]
+
+    # Build optional param overrides from --param seam_* / smooth_* prefixes
+    seam_params   = {}
+    smooth_params = {}
+    for kv in (args.param or []):
+        if "=" not in kv:
+            print(f"Error: --param must be key=value, got: {kv!r}")
+            sys.exit(1)
+        k, v = kv.split("=", 1)
+        k = k.strip()
+        val = _coerce(v.strip())
+        if k.startswith("seam_"):
+            seam_params[k[5:]] = val
+        elif k.startswith("smooth_"):
+            smooth_params[k[7:]] = val
+        else:
+            print(f"Error: --param key must start with seam_ or smooth_, got: {k!r}")
+            sys.exit(1)
+
+    if not args.skip_seams:
+        result = seam_spec.apply(result, seam_params or None)
+        print(f"Applied blend_seams  (max_velocity={seam_spec.params['max_velocity'].default if not seam_params else seam_params.get('max_velocity', seam_spec.params['max_velocity'].default)}, "
+              f"max_strength={seam_params.get('max_strength', seam_spec.params['max_strength'].default)})")
+
+    if not args.skip_smooth:
+        result = smooth_spec.apply(result, smooth_params or None)
+        print(f"Applied final_smooth (strength={smooth_params.get('strength', smooth_spec.params['strength'].default)})")
+
+    data["actions"] = result
+    output = args.output or _default_path(args.funscript, "_finalized.funscript")
+    with open(output, "w") as f:
+        json.dump(data, f, indent=2)
+    print(f"\nSaved: {output}")
 
 
 def cmd_test(_args):
@@ -355,6 +536,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="Dump analyzer config instead of transformer config",
     )
 
+    # --- phrase-transform ---
+    p_pt = sub.add_parser(
+        "phrase-transform",
+        help="Apply a catalog transform to one or all phrases",
+    )
+    p_pt.add_argument("funscript", help="Path to input .funscript file")
+    p_pt.add_argument("--assessment", required=True, help="Path to assessment JSON")
+    p_pt.add_argument("--output", help="Path for output .funscript (default: *_phrase_transformed.funscript)")
+    p_pt.add_argument(
+        "--transform", metavar="KEY",
+        help=f"Transform to apply. One of: {', '.join(['passthrough','amplitude_scale','normalize','smooth','clamp_upper','clamp_lower','invert','boost_contrast','shift','recenter','break','performance','three_one','beat_accent','blend_seams','final_smooth','halve_tempo'])}",
+    )
+    p_pt.add_argument(
+        "--phrase", type=int, metavar="N", action="append",
+        help="1-based phrase index to transform (repeatable). Mutually exclusive with --all.",
+    )
+    p_pt.add_argument(
+        "--all", action="store_true",
+        help="Apply transform to every phrase.",
+    )
+    p_pt.add_argument(
+        "--suggest", action="store_true",
+        help="Use suggest_transform() to pick the best transform per phrase automatically.",
+    )
+    p_pt.add_argument(
+        "--bpm-threshold", type=float, default=120.0, metavar="BPM",
+        help="BPM threshold used by --suggest (default: 120.0).",
+    )
+    p_pt.add_argument(
+        "--param", metavar="key=value", action="append",
+        help="Override a transform parameter, e.g. --param scale=1.8 (repeatable).",
+    )
+    p_pt.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the transform plan without writing any file.",
+    )
+
+    # --- finalize ---
+    p_fin = sub.add_parser(
+        "finalize",
+        help="Apply blend_seams + final_smooth to the full action list before saving",
+    )
+    p_fin.add_argument("funscript", help="Path to input .funscript file")
+    p_fin.add_argument("--output", help="Path for output .funscript (default: *_finalized.funscript)")
+    p_fin.add_argument(
+        "--param", metavar="PREFIX_key=value", action="append",
+        help=(
+            "Override a transform parameter. Prefix with seam_ for blend_seams params "
+            "or smooth_ for final_smooth params. "
+            "E.g. --param seam_max_velocity=0.3  --param smooth_strength=0.05"
+        ),
+    )
+    p_fin.add_argument(
+        "--skip-seams", action="store_true",
+        help="Skip the blend_seams step.",
+    )
+    p_fin.add_argument(
+        "--skip-smooth", action="store_true",
+        help="Skip the final_smooth step.",
+    )
+
     # --- test ---
     sub.add_parser("test", help="Run unit tests")
 
@@ -371,13 +613,15 @@ def main():
     args = parser.parse_args()
 
     dispatch = {
-        "pipeline": cmd_pipeline,
-        "assess": cmd_assess,
-        "transform": cmd_transform,
-        "customize": cmd_customize,
-        "visualize": cmd_visualize,
-        "config": cmd_config,
-        "test": cmd_test,
+        "pipeline":         cmd_pipeline,
+        "assess":           cmd_assess,
+        "transform":        cmd_transform,
+        "phrase-transform": cmd_phrase_transform,
+        "customize":        cmd_customize,
+        "finalize":         cmd_finalize,
+        "visualize":        cmd_visualize,
+        "config":           cmd_config,
+        "test":             cmd_test,
     }
     dispatch[args.command](args)
 

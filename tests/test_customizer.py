@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from assessment.analyzer import FunscriptAnalyzer
-from suggested_updates.transformer import FunscriptTransformer
+from pattern_catalog.transformer import FunscriptTransformer
 from user_customization.customizer import WindowCustomizer
 from user_customization.config import CustomizerConfig
 

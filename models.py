@@ -1,4 +1,4 @@
-"""Shared data models for assessment and suggested_updates."""
+"""Shared data models for assessment and pattern_catalog."""
 
 import json
 from dataclasses import dataclass, field
