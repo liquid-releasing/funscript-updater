@@ -104,7 +104,14 @@ def render(project) -> None:
     # ----------------------------------------------------------------
     # Section 1 — Completed transforms
     # ----------------------------------------------------------------
-    st.markdown("#### Completed transforms")
+    rejected = st.session_state.export_rejected
+    done_active = sum(1 for e in completed_plan if e["phrase_idx"] not in rejected)
+    rec_active  = sum(1 for e in recommended_plan if e["phrase_idx"] not in rejected)
+
+    if done_active:
+        st.markdown(f"#### Completed transforms &nbsp; ✅ {done_active} will be exported")
+    else:
+        st.markdown("#### Completed transforms &nbsp; ⬜ none will be exported")
     _render_completed(completed_plan)
 
     st.divider()
@@ -112,7 +119,10 @@ def render(project) -> None:
     # ----------------------------------------------------------------
     # Section 2 — Recommended transforms
     # ----------------------------------------------------------------
-    st.markdown("#### Recommended transforms")
+    if rec_active:
+        st.markdown(f"#### Recommended transforms &nbsp; ✅ {rec_active} will be exported")
+    else:
+        st.markdown("#### Recommended transforms &nbsp; ⬜ none will be exported")
     _render_recommended(recommended_plan)
 
 
