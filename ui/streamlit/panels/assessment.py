@@ -70,18 +70,19 @@ def render(project: "Project") -> None:
 
 def _render_summary(summary: Dict[str, Any]) -> None:
     st.subheader("Summary")
-    cols = st.columns(8)
+    row1 = st.columns(4)
+    row2 = st.columns(4)
     metrics = [
-        ("Duration", summary.get("duration", "—")),
-        ("Avg BPM", f"{summary.get('bpm', 0):.1f}"),
-        ("Actions", summary.get("actions", 0)),
-        ("Phases", summary.get("phases", 0)),
-        ("Cycles", summary.get("cycles", 0)),
-        ("Patterns", summary.get("patterns", 0)),
-        ("Phrases", summary.get("phrases", 0)),
-        ("BPM transitions", summary.get("bpm_transitions", 0)),
+        ("Duration",        summary.get("duration", "—")),
+        ("Avg BPM",         f"{summary.get('bpm', 0):.1f}"),
+        ("Actions",         f"{summary.get('actions', 0):,}"),
+        ("Phases",          f"{summary.get('phases', 0):,}"),
+        ("Cycles",          f"{summary.get('cycles', 0):,}"),
+        ("Patterns",        f"{summary.get('patterns', 0):,}"),
+        ("Phrases",         f"{summary.get('phrases', 0):,}"),
+        ("BPM transitions", f"{summary.get('bpm_transitions', 0):,}"),
     ]
-    for col, (label, value) in zip(cols, metrics):
+    for col, (label, value) in zip(row1 + row2, metrics):
         col.metric(label, value)
 
 
