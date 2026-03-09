@@ -225,3 +225,11 @@ test_funscript/*.mov
 
 # output artifacts
 output/
+# media — ignore large video/audio files, keep images
+media/*.mp4
+media/*.mkv
+media/*.mov
+media/*.mp3
+media/*.m4a
+media/*.wav
+media/*.ogg
