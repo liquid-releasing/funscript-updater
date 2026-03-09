@@ -54,15 +54,19 @@ def render(project: "Project") -> None:
         return
 
     if not project.work_items:
-        st.warning("No work items.  The assessment found no phrases or BPM transitions.")
+        st.warning("No work items — select phrases in the Assessment tab and click 'Add to Work Items'.")
         return
 
-    st.subheader(f"Work items  ({len(project.work_items)})")
+    n_total = len(project.work_items)
+    n_done  = sum(1 for w in project.work_items if w.completed)
+    st.subheader(f"Work items  ({n_done}/{n_total} done)")
+
+    if n_done == n_total:
+        st.success("All work items completed.")
+    elif n_done > 0:
+        st.progress(n_done / n_total, text=f"{n_done} of {n_total} completed")
+
     _render_legend()
-    st.caption(
-        "Each row is a detected section.  Use the selector to tag it, then click "
-        "**Edit** to adjust timing and type-specific settings."
-    )
     st.divider()
 
     for item in project.work_items:
@@ -91,15 +95,28 @@ def _render_item_row(project: "Project", item) -> None:
     icon = _TYPE_ICONS[item.item_type]
     is_selected = project.selected_item_id == item.id
 
-    # Row container with coloured left border when selected.
-    border = "2px solid #f0c040" if is_selected else f"2px solid {color}"
+    # Dim completed rows slightly
+    opacity = "0.55" if item.completed else "1.0"
+    border  = "2px solid #f0c040" if is_selected else f"2px solid {color}"
     with st.container():
         st.markdown(
-            f'<div style="border-left:{border};padding-left:8px;margin-bottom:2px">',
+            f'<div style="border-left:{border};padding-left:8px;margin-bottom:2px;opacity:{opacity}">',
             unsafe_allow_html=True,
         )
 
-        col_badge, col_time, col_bpm, col_type, col_edit = st.columns([1, 3, 2, 3, 1])
+        col_done, col_badge, col_time, col_bpm, col_type, col_edit = st.columns([0.5, 1, 3, 2, 3, 1])
+
+        # Completion toggle
+        done_label = "✓" if item.completed else "◻"
+        done_help  = "Mark incomplete" if item.completed else "Mark as done"
+        if col_done.button(
+            done_label,
+            key=f"done_{item.id}",
+            help=done_help,
+            use_container_width=True,
+        ):
+            project.set_item_completed(item.id, not item.completed)
+            st.rerun()
 
         # Type badge.
         col_badge.markdown(

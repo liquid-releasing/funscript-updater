@@ -86,6 +86,7 @@ class WorkItem:
     bpm: float = 0.0
     source: str = "manual"
     config: Dict[str, Any] = field(default_factory=dict)
+    completed: bool = False
 
     def __post_init__(self) -> None:
         # Populate config with type defaults if empty.
@@ -147,6 +148,7 @@ class WorkItem:
             "bpm": self.bpm,
             "source": self.source,
             "config": self.config,
+            "completed": self.completed,
         }
 
     @classmethod
@@ -160,6 +162,7 @@ class WorkItem:
             bpm=d.get("bpm", 0.0),
             source=d.get("source", "manual"),
             config=d.get("config", {}),
+            completed=d.get("completed", False),
         )
 
 

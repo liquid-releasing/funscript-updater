@@ -177,6 +177,12 @@ class Project:
             item.start_ms = start_ms
             item.end_ms = end_ms
 
+    def set_item_completed(self, item_id: str, completed: bool) -> None:
+        """Mark a work item as completed (or reopen it)."""
+        item = self.get_item(item_id)
+        if item:
+            item.completed = completed
+
     def add_item(self, item: WorkItem) -> None:
         """Insert a new work item (e.g. manually drawn)."""
         self.work_items.append(item)

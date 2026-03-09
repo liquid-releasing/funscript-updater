@@ -716,6 +716,13 @@ def _render_controls(
         ),
     ):
         _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
+        # Mark every matching work item as complete
+        _proj = st.session_state.get("project")
+        if _proj and _proj.is_loaded:
+            cycle_starts = {cy["start_ms"] for cy in cycles}
+            for wi in _proj.work_items:
+                if wi.start_ms in cycle_starts:
+                    _proj.set_item_completed(wi.id, True)
         st.rerun(scope="app")
 
     st.divider()
