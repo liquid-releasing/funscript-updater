@@ -365,6 +365,11 @@ def _apply_transform_to_window(
     phrase_slice = [a for a in result if phrase_start <= a["at"] <= phrase_end]
     transformed  = spec.apply(phrase_slice, param_values)
 
+    if spec.structural:
+        # Timestamps changed — replace the phrase slice wholesale.
+        outside = [a for a in result if not (phrase_start <= a["at"] <= phrase_end)]
+        return sorted(outside + transformed, key=lambda a: a["at"])
+
     t_to_pos = {a["at"]: a["pos"] for a in transformed}
     for a in result:
         if a["at"] in t_to_pos:
@@ -401,6 +406,24 @@ def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: i
 
     st.caption(spec.description)
 
+    phrase_duration_ms = phrase["end_ms"] - phrase["start_ms"]
+
+    # UI-only overrides for params whose sensible range depends on phrase context.
+    _ui_int_overrides: dict = {}
+    if chosen_key == "beat_accent":
+        _ui_int_overrides["start_at_ms"] = dict(
+            max_value=phrase_duration_ms,
+            step=500,
+        )
+        _ui_int_overrides["max_accents"] = dict(max_value=60)
+
+    # Clamp any stale session-state values that now exceed the override max.
+    for _pk, _ov in _ui_int_overrides.items():
+        _sk = f"param_{phrase_idx}_{_pk}"
+        _cap = _ov.get("max_value")
+        if _cap is not None and st.session_state.get(_sk, 0) > _cap:
+            st.session_state[_sk] = _cap
+
     param_values = {}
     for param_key, param in spec.params.items():
         if param.type == "float":
@@ -414,12 +437,13 @@ def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: i
                 key=f"param_{phrase_idx}_{param_key}",
             )
         elif param.type == "int":
+            overrides = _ui_int_overrides.get(param_key, {})
             param_values[param_key] = st.slider(
                 param.label,
                 min_value=int(param.min_val or 0),
-                max_value=int(param.max_val or 100),
+                max_value=int(overrides.get("max_value", param.max_val or 100)),
                 value=int(param.default),
-                step=int(param.step or 1),
+                step=int(overrides.get("step", param.step or 1)),
                 help=param.help,
                 key=f"param_{phrase_idx}_{param_key}",
             )
@@ -593,10 +617,14 @@ def _build_edited_actions(phrases: list, original_actions: list) -> list:
         phrase_end   = phrase["end_ms"]
         phrase_slice = [a for a in result if phrase_start <= a["at"] <= phrase_end]
         transformed  = spec.apply(phrase_slice, param_values)
-        t_to_pos     = {a["at"]: a["pos"] for a in transformed}
-        for a in result:
-            if a["at"] in t_to_pos:
-                a["pos"] = t_to_pos[a["at"]]
+        if spec.structural:
+            outside = [a for a in result if not (phrase_start <= a["at"] <= phrase_end)]
+            result = sorted(outside + transformed, key=lambda a: a["at"])
+        else:
+            t_to_pos = {a["at"]: a["pos"] for a in transformed}
+            for a in result:
+                if a["at"] in t_to_pos:
+                    a["pos"] = t_to_pos[a["at"]]
 
     return result
 
