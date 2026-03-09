@@ -101,6 +101,12 @@ The Streamlit phrase detail panel lets users apply named transforms to
 individual phrases before saving.  The catalog lives in `phrase_transforms.py`
 and is independent of the bulk pipeline transformer.
 
+The **Save** button in the phrase detail panel includes a collapsed
+**⚙ Finalize options** expander.  Both `blend_seams` and `final_smooth` are
+enabled by default; their parameters can be tuned via sliders.  The transforms
+are applied to the full assembled action list before the `.funscript` file is
+downloaded — equivalent to running `python cli.py finalize` on the result.
+
 ### Transform catalog
 
 | Key | Name | What it does | When to use |

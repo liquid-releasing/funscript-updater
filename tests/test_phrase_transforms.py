@@ -27,8 +27,13 @@ from pattern_catalog.phrase_transforms import (
 # ---------------------------------------------------------------------------
 
 def _actions(positions):
-    """Build a minimal action list from a list of positions (1 ms apart)."""
+    """Build a minimal action list from a list of positions (10 ms apart)."""
     return [{"at": i * 10, "pos": p} for i, p in enumerate(positions)]
+
+
+def _timed_actions(positions, start_ms=0, step_ms=100):
+    """Build an action list with configurable start time and step."""
+    return [{"at": start_ms + i * step_ms, "pos": p} for i, p in enumerate(positions)]
 
 
 _EXPECTED_KEYS = {
@@ -493,6 +498,167 @@ class TestReadmeExamples(unittest.TestCase):
         positions = [a["pos"] for a in result]
         self.assertEqual(min(positions), 20)
         self.assertEqual(max(positions), 80)
+
+    # ------------------------------------------------------------------
+    # shift (README: --transform shift --phrase 2 --param offset=20)
+    # ------------------------------------------------------------------
+    def test_readme_shift_moves_positions_up(self):
+        """README: shift --param offset=20 nudges all positions up."""
+        actions = _actions([20, 50, 70])
+        result = TRANSFORM_CATALOG["shift"].apply(actions, {"offset": 20})
+        self.assertEqual([a["pos"] for a in result], [40, 70, 90])
+
+    # ------------------------------------------------------------------
+    # recenter (README: --transform recenter --param target_center=70)
+    # ------------------------------------------------------------------
+    def test_readme_recenter_midpoint_lands_at_target(self):
+        """README: recenter --param target_center=70 places midpoint at 70."""
+        actions = _actions([30, 50, 70])  # midpoint = 50
+        result = TRANSFORM_CATALOG["recenter"].apply(actions, {"target_center": 70})
+        positions = [a["pos"] for a in result]
+        midpoint = (min(positions) + max(positions)) / 2
+        self.assertAlmostEqual(midpoint, 70, delta=1)
+
+    # ------------------------------------------------------------------
+    # break (README: default and custom reduce/lpf_strength)
+    # ------------------------------------------------------------------
+    def test_readme_break_default_reduces_amplitude(self):
+        """README: break (defaults) pulls all positions toward 50."""
+        actions = _actions([10, 90, 10, 90])
+        result = TRANSFORM_CATALOG["break"].apply(actions, {})
+        positions = [a["pos"] for a in result]
+        self.assertGreater(min(positions), 10)
+        self.assertLess(max(positions), 90)
+
+    def test_readme_break_custom_stronger_reduction(self):
+        """README: break --param reduce=0.60 --param lpf_strength=0.40."""
+        actions = _actions([10, 90, 10, 90])
+        default_result = TRANSFORM_CATALOG["break"].apply(actions, {})
+        custom_result = TRANSFORM_CATALOG["break"].apply(
+            actions, {"reduce": 0.60, "lpf_strength": 0.40}
+        )
+        default_span = max(a["pos"] for a in default_result) - min(a["pos"] for a in default_result)
+        custom_span = max(a["pos"] for a in custom_result) - min(a["pos"] for a in custom_result)
+        self.assertLessEqual(custom_span, default_span)
+
+    # ------------------------------------------------------------------
+    # performance (README: default and custom params)
+    # ------------------------------------------------------------------
+    def test_readme_performance_default_in_range(self):
+        """README: performance (defaults) keeps positions in 0-100."""
+        actions = _actions([0, 50, 100, 50, 0])
+        result = TRANSFORM_CATALOG["performance"].apply(actions, {})
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    def test_readme_performance_custom_range(self):
+        """README: performance --param max_velocity=0.20 --param range_lo=10 --param range_hi=95."""
+        actions = _actions([0, 50, 100, 50, 0])
+        result = TRANSFORM_CATALOG["performance"].apply(
+            actions, {"max_velocity": 0.20, "range_lo": 10, "range_hi": 95}
+        )
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 10)
+            self.assertLessEqual(a["pos"], 95)
+
+    # ------------------------------------------------------------------
+    # three_one (README: default and with amplitude_scale+range)
+    # ------------------------------------------------------------------
+    def test_readme_three_one_default_same_length(self):
+        """README: three_one (defaults) returns same number of actions."""
+        actions = _actions([20, 80] * 4)
+        result = TRANSFORM_CATALOG["three_one"].apply(actions, {})
+        self.assertEqual(len(result), len(actions))
+
+    def test_readme_three_one_custom_range_clamped(self):
+        """README: three_one --param amplitude_scale=1.5 --param range_lo=20 --param range_hi=80."""
+        actions = _actions([20, 80] * 4)
+        result = TRANSFORM_CATALOG["three_one"].apply(
+            actions, {"amplitude_scale": 1.5, "range_lo": 20, "range_hi": 80}
+        )
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 20)
+            self.assertLessEqual(a["pos"], 80)
+
+    # ------------------------------------------------------------------
+    # beat_accent (README: 3 examples)
+    # ------------------------------------------------------------------
+    def test_readme_beat_accent_default_same_length(self):
+        """README: beat_accent (defaults) returns same length."""
+        actions = _actions([20, 80] * 6)
+        result = TRANSFORM_CATALOG["beat_accent"].apply(actions, {})
+        self.assertEqual(len(result), len(actions))
+
+    def test_readme_beat_accent_every_nth_4_stronger(self):
+        """README: beat_accent --param every_nth=4 --param accent_amount=10."""
+        actions = _actions([20, 80] * 8)
+        result = TRANSFORM_CATALOG["beat_accent"].apply(
+            actions, {"every_nth": 4, "accent_amount": 10}
+        )
+        self.assertEqual(len(result), len(actions))
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    def test_readme_beat_accent_start_at_ms_and_max_accents(self):
+        """README: beat_accent --param every_nth=2 --param start_at_ms=... --param max_accents=8."""
+        actions = _timed_actions([20, 80] * 10, start_ms=0, step_ms=100)
+        result = TRANSFORM_CATALOG["beat_accent"].apply(
+            actions, {"every_nth": 2, "start_at_ms": 200, "max_accents": 8}
+        )
+        self.assertEqual(len(result), len(actions))
+
+    # ------------------------------------------------------------------
+    # blend_seams (README: via finalize or phrase-transform)
+    # ------------------------------------------------------------------
+    def test_readme_blend_seams_default_same_length(self):
+        """README: blend_seams (defaults) is non-structural — same length."""
+        actions = _timed_actions([20, 80] * 5, start_ms=0, step_ms=100)
+        result = TRANSFORM_CATALOG["blend_seams"].apply(actions, {})
+        self.assertEqual(len(result), len(actions))
+
+    def test_readme_blend_seams_in_range(self):
+        """README: blend_seams keeps all positions in 0-100."""
+        actions = _timed_actions([0, 100] * 4, start_ms=0, step_ms=50)
+        result = TRANSFORM_CATALOG["blend_seams"].apply(actions, {})
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    # ------------------------------------------------------------------
+    # final_smooth (README: via finalize command)
+    # ------------------------------------------------------------------
+    def test_readme_final_smooth_default_same_length(self):
+        """README: final_smooth (defaults) is non-structural — same length."""
+        actions = _actions([20, 80, 20, 80, 20])
+        result = TRANSFORM_CATALOG["final_smooth"].apply(actions, {})
+        self.assertEqual(len(result), len(actions))
+
+    def test_readme_final_smooth_custom_strength_in_range(self):
+        """README: final_smooth --param smooth_strength=0.05 (via finalize) keeps 0-100."""
+        actions = _actions([0, 100, 0, 100])
+        result = TRANSFORM_CATALOG["final_smooth"].apply(actions, {"strength": 0.05})
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    # ------------------------------------------------------------------
+    # halve_tempo (README: 2 examples)
+    # ------------------------------------------------------------------
+    def test_readme_halve_tempo_fewer_actions(self):
+        """README: halve_tempo --phrase 3 returns fewer actions (structural)."""
+        actions = _timed_actions([20, 80] * 6, start_ms=0, step_ms=100)
+        result = TRANSFORM_CATALOG["halve_tempo"].apply(actions, {})
+        self.assertLess(len(result), len(actions))
+
+    def test_readme_halve_tempo_with_amplitude_scale(self):
+        """README: halve_tempo --all --param amplitude_scale=0.8 compresses amplitude."""
+        actions = _timed_actions([10, 90] * 6, start_ms=0, step_ms=100)
+        original_span = 90 - 10
+        result = TRANSFORM_CATALOG["halve_tempo"].apply(actions, {"amplitude_scale": 0.8})
+        result_span = max(a["pos"] for a in result) - min(a["pos"] for a in result)
+        self.assertLess(result_span, original_span)
 
 
 class TestShift(unittest.TestCase):
