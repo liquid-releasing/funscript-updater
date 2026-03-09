@@ -521,10 +521,10 @@ def _render_controls(
     original_actions: List[dict],
     funscript_path: str,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER
     from utils import ms_to_timestamp
 
-    catalog_keys    = list(TRANSFORM_CATALOG.keys())
+    catalog_keys    = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
     catalog_labels  = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
     passthrough_idx = catalog_keys.index("passthrough") if "passthrough" in catalog_keys else 0
 

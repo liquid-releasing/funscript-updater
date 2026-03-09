@@ -97,7 +97,7 @@ def _detail_fragment(
     bpm_threshold: float,
     duration_ms: int,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER, suggest_transform
 
     view_state = st.session_state.view_state
     phrase     = phrases[phrase_idx]
@@ -109,7 +109,7 @@ def _detail_fragment(
     # Resolve transform — read directly from the selectbox/slider session
     # state keys so the preview is always in sync (not one rerun behind).
     # ------------------------------------------------------------------
-    catalog_keys   = list(TRANSFORM_CATALOG.keys())
+    catalog_keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
     catalog_labels = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
 
     sel_label = st.session_state.get(f"transform_sel_{phrase_idx}")
@@ -383,10 +383,10 @@ def _apply_transform_to_window(
 # ------------------------------------------------------------------
 
 def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: int) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER, suggest_transform
 
     suggested_key = suggest_transform(phrase, bpm_threshold)
-    keys   = list(TRANSFORM_CATALOG.keys())
+    keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
     labels = [TRANSFORM_CATALOG[k].name for k in keys]
 
     passthrough_idx = keys.index("passthrough") if "passthrough" in keys else 0
