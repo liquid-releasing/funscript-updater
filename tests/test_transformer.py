@@ -1,4 +1,4 @@
-"""Unit tests for suggested_updates/transformer.py"""
+"""Unit tests for pattern_catalog/transformer.py"""
 
 import sys
 import os
@@ -9,8 +9,8 @@ import tempfile
 import unittest
 
 from assessment.analyzer import FunscriptAnalyzer
-from suggested_updates.transformer import FunscriptTransformer
-from suggested_updates.config import TransformerConfig
+from pattern_catalog.transformer import FunscriptTransformer
+from pattern_catalog.config import TransformerConfig
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "sample.funscript")
 

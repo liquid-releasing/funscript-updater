@@ -120,7 +120,7 @@ funscript-updater/
 ├── assessment/               # Step 1: structural analysis
 │   ├── analyzer.py           #   FunscriptAnalyzer
 │   └── readme.md
-├── suggested_updates/        # Step 2: BPM-threshold baseline transform
+├── pattern_catalog/        # Step 2: BPM-threshold baseline transform
 │   ├── transformer.py        #   FunscriptTransformer
 │   └── config.py             #   TransformerConfig
 ├── user_customization/       # Step 3: window-based fine-tuning
