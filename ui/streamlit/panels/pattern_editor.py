@@ -15,6 +15,13 @@ Layout
   - Selector chart: full funscript, matching phrases highlighted
   - Instance buttons (one per matching phrase)
   - Detail area: [original (2) | preview (2) | controls (1)]
+
+Performance notes
+-----------------
+- original_actions cached in session state (no re-read on every slider tick)
+- Preview computed on the window slice only (no deepcopy of full action list)
+- Instance charts use minimal raw Plotly lines (no FunscriptChart overhead)
+- Download bytes only built when user clicks "Build download"
 """
 
 from __future__ import annotations
@@ -141,8 +148,8 @@ def _detail_fragment(
     duration_ms: int,
 ) -> None:
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
-
     from assessment.classifier import TAGS
+
     n_instances = len(cycles)
     meta = TAGS.get(selected_label)
     display_name = meta.label if meta else selected_label.replace("_", " ").title()
@@ -163,12 +170,17 @@ def _detail_fragment(
                 f"· span {cs['span_min']}–{cs['span_max']}"
             )
 
-    # Load original actions once for the whole fragment
-    with open(funscript_path) as f:
-        original_actions: List[dict] = json.load(f)["actions"]
+    # ------------------------------------------------------------------
+    # Cache original actions — read once per funscript path, not every rerun
+    # ------------------------------------------------------------------
+    cache_key = f"pe_actions_{funscript_path}"
+    if cache_key not in st.session_state:
+        with open(funscript_path) as f:
+            st.session_state[cache_key] = json.load(f)["actions"]
+    original_actions: List[dict] = st.session_state[cache_key]
 
     # ------------------------------------------------------------------
-    # Selector chart — full funscript with instance vrects
+    # Selector chart — full funscript with instance overlays
     # ------------------------------------------------------------------
     _draw_selector_chart(
         actions=original_actions,
@@ -211,10 +223,10 @@ def _detail_fragment(
 
     cycle = cycles[phrase_idx]
     start_ms: int = cycle["start_ms"]
-    end_ms: int = cycle["end_ms"]
+    end_ms: int   = cycle["end_ms"]
     inst_idx: int = phrase_idx
 
-    # Resolve transform from session state (read immediately, not one rerun behind)
+    # Resolve transform from session state
     catalog_keys = list(TRANSFORM_CATALOG.keys())
     catalog_labels = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
 
@@ -234,8 +246,9 @@ def _detail_fragment(
         sv = st.session_state.get(f"pe_tx_{selected_label}_{inst_idx}_{pk}")
         param_values[pk] = sv if sv is not None else param.default
 
-    # Compute preview
-    preview_actions = _apply_transform_to_cycle(original_actions, cycle, spec, param_values)
+    # Compute preview window only — no deepcopy of full action list
+    original_window = [a for a in original_actions if start_ms <= a["at"] <= end_ms]
+    preview_window  = _apply_transform_to_window(original_window, cycle, spec, param_values)
 
     # Three-column layout: original | preview | controls
     col_orig, col_prev, col_ctrl = st.columns([2, 2, 1])
@@ -243,10 +256,9 @@ def _detail_fragment(
     with col_orig:
         st.caption(f"**Original — #{inst_idx + 1}**")
         _draw_instance_chart(
-            actions=original_actions,
+            actions=original_window,
             start_ms=start_ms,
             end_ms=end_ms,
-            duration_ms=duration_ms,
             key=f"pe_orig_{selected_label}_{inst_idx}_{transform_key}",
             height=220,
         )
@@ -254,11 +266,10 @@ def _detail_fragment(
     with col_prev:
         st.caption(f"**Preview — {spec.name}**")
         _draw_instance_chart(
-            actions=preview_actions,
+            actions=preview_window,
             start_ms=start_ms,
             end_ms=end_ms,
-            duration_ms=duration_ms,
-            key=f"pe_prev_{selected_label}_{inst_idx}_{transform_key}",
+            key=f"pe_prev_{selected_label}_{inst_idx}_{transform_key}_{'_'.join(str(v) for v in param_values.values())}",
             height=220,
         )
         st.caption("*(not saved)*")
@@ -356,7 +367,7 @@ def _draw_selector_chart(
 
 
 # ------------------------------------------------------------------
-# Instance chart (cycle window only)
+# Instance chart (window only) — minimal raw Plotly, no FunscriptChart
 # ------------------------------------------------------------------
 
 
@@ -364,68 +375,68 @@ def _draw_instance_chart(
     actions: List[dict],
     start_ms: int,
     end_ms: int,
-    duration_ms: int,
     key: str,
     height: int = 220,
 ) -> None:
-    from visualizations.chart_data import compute_chart_data
-    from visualizations.funscript_chart import FunscriptChart
+    import plotly.graph_objects as go
 
-    window_actions = [a for a in actions if start_ms <= a["at"] <= end_ms]
-    series = compute_chart_data(window_actions)
+    if not actions:
+        st.caption("*(no actions in window)*")
+        return
 
-    chart = FunscriptChart(
-        series, [],
-        "",
-        end_ms - start_ms,
-        large_funscript_threshold=10_000_000,
+    xs = [a["at"] for a in actions]
+    ys = [a["pos"] for a in actions]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=xs, y=ys,
+        mode="lines+markers",
+        line=dict(color="rgba(200,200,200,0.85)", width=1.5),
+        marker=dict(size=3, color="rgba(200,200,200,0.7)"),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    _BG = "rgba(14,14,18,1)"
+    fig.update_layout(
+        height=height,
+        margin=dict(l=0, r=0, t=4, b=24),
+        paper_bgcolor=_BG, plot_bgcolor=_BG,
+        xaxis=dict(
+            range=[start_ms, end_ms], autorange=False,
+            showgrid=False, zeroline=False,
+            tickfont=dict(color="rgba(180,180,180,0.6)", size=9),
+        ),
+        yaxis=dict(
+            range=[0, 100], showgrid=False, zeroline=False,
+            showticklabels=False,
+        ),
     )
-
-    class _VS:
-        zoom_start_ms = start_ms
-        zoom_end_ms = end_ms
-        color_mode = "amplitude"
-        show_phrases = False
-        selection_start_ms = None
-        selection_end_ms = None
-        def has_zoom(self): return True
-        def has_selection(self): return False
-
-    fig = chart._build_figure(_VS(), height=height)
-    fig.update_xaxes(range=[start_ms, end_ms], autorange=False)
 
     st.plotly_chart(fig, key=key, config={"displayModeBar": False})
 
 
 # ------------------------------------------------------------------
-# Transform application
+# Transform application — operates on window slice only
 # ------------------------------------------------------------------
 
 
-def _apply_transform_to_cycle(
-    original_actions: List[dict],
+def _apply_transform_to_window(
+    window_actions: List[dict],
     cycle: dict,
     spec,
     param_values: dict,
 ) -> List[dict]:
-    """Return a deep-copied action list with the transform applied to the cycle window."""
-    c_start = cycle["start_ms"]
-    c_end = cycle["end_ms"]
+    """Apply *spec* to *window_actions* (already filtered to the cycle window).
 
-    result = copy.deepcopy(original_actions)
-    cycle_slice = [a for a in result if c_start <= a["at"] <= c_end]
-    transformed = spec.apply(cycle_slice, param_values)
+    Returns a list of actions covering the same window with the transform applied.
+    Only the window slice is copied — the full action list is never touched.
+    """
+    if not window_actions:
+        return []
 
-    if spec.structural:
-        outside = [a for a in result if not (c_start <= a["at"] <= c_end)]
-        return sorted(outside + transformed, key=lambda a: a["at"])
-
-    t_to_pos = {a["at"]: a["pos"] for a in transformed}
-    for a in result:
-        if a["at"] in t_to_pos:
-            a["pos"] = t_to_pos[a["at"]]
-
-    return result
+    slice_copy = copy.deepcopy(window_actions)
+    transformed = spec.apply(slice_copy, param_values)
+    return transformed
 
 
 # ------------------------------------------------------------------
@@ -632,40 +643,51 @@ def _render_finalize_and_download(
                 key=f"pe_fin_smooth_str_{selected_label}",
             )
 
-    # Build fully-edited action list: apply all stored instance transforms
-    edited = _build_all_transforms(cycles, selected_label, original_actions)
+        st.divider()
 
-    # Apply finalize passes
-    finalized = copy.deepcopy(edited)
-    if apply_seams:
-        finalized = TRANSFORM_CATALOG["blend_seams"].apply(finalized, seam_params or None)
-    if apply_smooth:
-        finalized = TRANSFORM_CATALOG["final_smooth"].apply(finalized, smooth_params or None)
+        # Build download only on explicit request — not on every slider tick
+        if st.button(
+            "Build download",
+            key=f"pe_build_{selected_label}",
+            use_container_width=True,
+            help="Compile all transforms + finalize passes into a downloadable funscript.",
+        ):
+            edited = _build_all_transforms(cycles, selected_label, original_actions)
 
-    # Load original funscript JSON envelope
-    try:
-        with open(funscript_path) as f:
-            raw = json.load(f)
-    except Exception:
-        raw = {}
+            finalized = copy.deepcopy(edited)
+            if apply_seams:
+                finalized = TRANSFORM_CATALOG["blend_seams"].apply(finalized, seam_params or None)
+            if apply_smooth:
+                finalized = TRANSFORM_CATALOG["final_smooth"].apply(finalized, smooth_params or None)
 
-    raw["actions"] = sorted(finalized, key=lambda a: a["at"])
-    edited_bytes = json.dumps(raw, indent=2).encode()
+            try:
+                with open(funscript_path) as f:
+                    raw = json.load(f)
+            except Exception:
+                raw = {}
 
-    stem = os.path.splitext(os.path.basename(funscript_path))[0]
-    if stem.endswith(".original"):
-        stem = stem[:-9]
-    download_name = f"{stem}_pattern_edited.funscript"
+            raw["actions"] = sorted(finalized, key=lambda a: a["at"])
+            st.session_state[f"pe_download_bytes_{selected_label}"] = json.dumps(raw, indent=2).encode()
 
-    st.download_button(
-        "Download",
-        data=edited_bytes,
-        file_name=download_name,
-        mime="application/json",
-        key=f"pe_download_{selected_label}",
-        use_container_width=True,
-        help=f"Download as {download_name}",
-    )
+    # Download button — shown once bytes have been built
+    dl_bytes = st.session_state.get(f"pe_download_bytes_{selected_label}")
+    if dl_bytes:
+        stem = os.path.splitext(os.path.basename(funscript_path))[0]
+        if stem.endswith(".original"):
+            stem = stem[:-9]
+        download_name = f"{stem}_pattern_edited.funscript"
+
+        st.download_button(
+            "Download",
+            data=dl_bytes,
+            file_name=download_name,
+            mime="application/json",
+            key=f"pe_download_{selected_label}",
+            use_container_width=True,
+            help=f"Download as {download_name}",
+        )
+    else:
+        st.caption("Open *Finalize options* and click **Build download** to prepare the file.")
 
 
 # ------------------------------------------------------------------
@@ -696,7 +718,7 @@ def _build_all_transforms(
         c_start = cycle["start_ms"]
         c_end = cycle["end_ms"]
         cycle_slice = [a for a in result if c_start <= a["at"] <= c_end]
-        transformed = spec.apply(cycle_slice, param_values)
+        transformed = spec.apply(copy.deepcopy(cycle_slice), param_values)
 
         if spec.structural:
             outside = [a for a in result if not (c_start <= a["at"] <= c_end)]
