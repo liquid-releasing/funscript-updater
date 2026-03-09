@@ -1,8 +1,8 @@
 # tests
 
-Unit tests for the core pipeline modules.
+Unit tests for the core pipeline modules and UI-panel split logic.
 
-151 core tests + 21 CLI tests + 45 UI-layer tests = **217 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+394 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **454 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -83,6 +83,17 @@ python -m unittest discover -s ui/common/tests -v
 | --- | --- |
 | `TestPatternCatalog` | Empty summary, add_assessment (tagged vs untagged, replace, duration stored), save/load round-trip, corrupted file fallback, remove, get_tag_stats (count, funscripts, BPM range, all keys), get_phrases_for_tag (filter, _funscript key), funscript_names, summary tags sorted |
 
+### `test_pattern_editor_splits.py` — Pattern Editor split-segment logic
+
+| Class | What it covers |
+| --- | --- |
+| `TestSegmentHelpers` | `_get_segments` with 0/1/2 splits, contiguous segments, unsorted input sorted, `_get_active_seg` default + clamping |
+| `TestTransformState` | `_get_seg_transform` empty/legacy/new-key fallback, precedence; `_set_seg_transform` new key, legacy key sync for seg 0, no cross-seg contamination |
+| `TestAddSplitPoint` | Boundary validation (start/end/before/after/duplicate), 2-segment creation, right-half inherits left transform, subsequent segments renumbered +1, multiple accumulating splits |
+| `TestRemoveSplitBoundary` | Only-split removal, first/last boundary removal, merged segment keeps left transform, subsequent segments renumbered -1, no-splits and invalid-index rejection |
+| `TestCopyInstanceToAll` | No-splits copies transform only, proportional split scaling, all segment transforms copied, source unchanged, dest splits cleared when source has none, split points clamped to dest bounds |
+| `TestBuildAllTransforms` | No transforms → unchanged, Apply=False skips instance, invert applied, passthrough unchanged, two segments with independent transforms, multiple instances each transformed, out-of-cycle actions unchanged, result length preserved |
+
 ### `test_integration.py` — full pipeline chain
 
 | Class | What it covers |
@@ -104,7 +115,9 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_utils.py` | 24 |
 | `test_classifier.py` | 36 |
 | `test_pattern_catalog.py` | 29 |
+| `test_pattern_editor_splits.py` | 47 |
 | `test_integration.py` | 9 |
 | `test_cli.py` | 21 |
-| `ui/common/tests/` | 45 |
-| **Total** | **216** |
+| other modules | *(see `tests/` directory)* |
+| `ui/common/tests/` | 60 |
+| **Total** | **454** |
