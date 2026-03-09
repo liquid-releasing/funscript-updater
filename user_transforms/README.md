@@ -32,9 +32,16 @@ A file may contain a single object or a JSON array of objects.
 
 ### Available step keys
 
-Any key from `TRANSFORM_CATALOG` — run `python cli.py config` or open the
-**Transform Catalog** tab in the UI to see all options with their parameter
-names and defaults.
+Any key from `TRANSFORM_CATALOG`.  To see all available keys with parameter
+names and defaults, run:
+
+```bash
+python cli.py list-transforms
+python cli.py list-transforms --verbose    # also shows each param's range and default
+python cli.py list-transforms --user-only  # your recipes + plugins only
+```
+
+Or open the **Transform Catalog** tab in the UI.
 
 ### Notes
 
