@@ -42,6 +42,9 @@ _EXPECTED_KEYS = {
     "boost_contrast",
     "shift",
     "recenter",
+    "break",
+    "performance",
+    "three_one",
     "halve_tempo",
 }
 
@@ -566,6 +569,223 @@ class TestRecenter(unittest.TestCase):
         original = [a["pos"] for a in actions]
         TRANSFORM_CATALOG["recenter"].apply(actions, {"target_center": 70})
         self.assertEqual([a["pos"] for a in actions], original)
+
+
+class TestBreak(unittest.TestCase):
+    """Tests for the break amplitude-reduce + LPF transform."""
+
+    def test_same_length_and_timestamps(self):
+        actions = _actions([0, 100, 0, 100])
+        result = TRANSFORM_CATALOG["break"].apply(actions)
+        self.assertEqual(len(result), len(actions))
+        self.assertEqual([a["at"] for a in result], [a["at"] for a in actions])
+
+    def test_positions_pulled_toward_center(self):
+        """With reduce=0.40, pos=0 → 20 and pos=100 → 80."""
+        actions = _actions([0, 100])
+        result = TRANSFORM_CATALOG["break"].apply(actions, {"reduce": 0.40, "lpf_strength": 0.0})
+        self.assertEqual(result[0]["pos"], 20)   # 0 + (50-0)*0.40
+        self.assertEqual(result[1]["pos"], 80)   # 100 + (50-100)*0.40
+
+    def test_reduce_zero_is_passthrough(self):
+        actions = _actions([10, 50, 90])
+        result = TRANSFORM_CATALOG["break"].apply(actions, {"reduce": 0.0, "lpf_strength": 0.0})
+        self.assertEqual([a["pos"] for a in result], [10, 50, 90])
+
+    def test_reduce_one_collapses_to_center(self):
+        actions = _actions([0, 100])
+        result = TRANSFORM_CATALOG["break"].apply(actions, {"reduce": 1.0, "lpf_strength": 0.0})
+        for a in result:
+            self.assertEqual(a["pos"], 50)
+
+    def test_lpf_reduces_range(self):
+        actions = _actions([0, 100, 0, 100, 0, 100])
+        no_lpf   = TRANSFORM_CATALOG["break"].apply(
+            [dict(a) for a in actions], {"reduce": 0.0, "lpf_strength": 0.0}
+        )
+        with_lpf = TRANSFORM_CATALOG["break"].apply(
+            [dict(a) for a in actions], {"reduce": 0.0, "lpf_strength": 0.3}
+        )
+        range_no  = max(a["pos"] for a in no_lpf)  - min(a["pos"] for a in no_lpf)
+        range_lpf = max(a["pos"] for a in with_lpf) - min(a["pos"] for a in with_lpf)
+        self.assertLessEqual(range_lpf, range_no)
+
+    def test_does_not_mutate_input(self):
+        actions = _actions([0, 100, 0, 100])
+        original = [a["pos"] for a in actions]
+        TRANSFORM_CATALOG["break"].apply(actions)
+        self.assertEqual([a["pos"] for a in actions], original)
+
+    def test_matches_six_task_defaults(self):
+        """Default params should match BREAK_AMPLITUDE_REDUCE=0.40, LPF_BREAK=0.30."""
+        spec = TRANSFORM_CATALOG["break"]
+        self.assertAlmostEqual(spec.params["reduce"].default, 0.40)
+        self.assertAlmostEqual(spec.params["lpf_strength"].default, 0.30)
+
+
+class TestPerformance(unittest.TestCase):
+    """Tests for the performance velocity-cap + reversal-softening transform."""
+
+    def _ramp(self, n=20, period_ms=50):
+        """Alternating 0-100 wave with `n` half-cycles."""
+        actions = []
+        for i in range(n):
+            actions.append({"at": i * period_ms, "pos": 0 if i % 2 == 0 else 100})
+        return actions
+
+    def test_same_length_and_timestamps(self):
+        actions = self._ramp()
+        result = TRANSFORM_CATALOG["performance"].apply(actions)
+        self.assertEqual(len(result), len(actions))
+        self.assertEqual([a["at"] for a in result], [a["at"] for a in actions])
+
+    def test_velocity_cap_limits_change(self):
+        """With a very tight velocity cap, no step should exceed cap × dt."""
+        actions = self._ramp(n=20, period_ms=50)
+        max_vel = 0.20
+        result = TRANSFORM_CATALOG["performance"].apply(actions, {
+            "max_velocity": max_vel, "reversal_soften": 0.0,
+            "height_blend": 1.0, "range_lo": 0, "range_hi": 100, "lpf_strength": 0.0,
+        })
+        for i in range(1, len(result)):
+            dt = max(1, result[i]["at"] - result[i-1]["at"])
+            delta = abs(result[i]["pos"] - result[i-1]["pos"])
+            self.assertLessEqual(delta, max_vel * dt + 1,  # +1 for int rounding
+                                 f"Velocity exceeded cap at index {i}")
+
+    def test_range_compress_applied(self):
+        """All output positions must be within [range_lo, range_hi]."""
+        actions = self._ramp()
+        result = TRANSFORM_CATALOG["performance"].apply(actions, {
+            "max_velocity": 1.0, "reversal_soften": 0.0, "height_blend": 1.0,
+            "range_lo": 15, "range_hi": 92, "lpf_strength": 0.0,
+        })
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 15)
+            self.assertLessEqual(a["pos"], 92)
+
+    def test_reversal_soften_reduces_overshoot(self):
+        """With high reversal_soften, direction-change positions should be pulled in."""
+        # One sharp reversal: go up to 100, then try to snap to 0
+        actions = [
+            {"at": 0,   "pos": 50},
+            {"at": 50,  "pos": 100},
+            {"at": 100, "pos": 0},   # sharp reversal here
+        ]
+        hard = TRANSFORM_CATALOG["performance"].apply(
+            [dict(a) for a in actions],
+            {"max_velocity": 1.0, "reversal_soften": 0.0, "height_blend": 1.0,
+             "range_lo": 0, "range_hi": 100, "lpf_strength": 0.0},
+        )
+        soft = TRANSFORM_CATALOG["performance"].apply(
+            [dict(a) for a in actions],
+            {"max_velocity": 1.0, "reversal_soften": 0.8, "height_blend": 0.5,
+             "range_lo": 0, "range_hi": 100, "lpf_strength": 0.0},
+        )
+        # Softened reversal should land higher than 0 (less extreme snap-back)
+        self.assertGreater(soft[2]["pos"], hard[2]["pos"])
+
+    def test_lpf_reduces_jitter(self):
+        """LPF should reduce the peak-to-trough range."""
+        actions = self._ramp(n=20, period_ms=10)
+        no_lpf  = TRANSFORM_CATALOG["performance"].apply(
+            [dict(a) for a in actions],
+            {"max_velocity": 1.0, "reversal_soften": 0.0, "height_blend": 1.0,
+             "range_lo": 0, "range_hi": 100, "lpf_strength": 0.0},
+        )
+        with_lpf = TRANSFORM_CATALOG["performance"].apply(
+            [dict(a) for a in actions],
+            {"max_velocity": 1.0, "reversal_soften": 0.0, "height_blend": 1.0,
+             "range_lo": 0, "range_hi": 100, "lpf_strength": 0.3},
+        )
+        range_no  = max(a["pos"] for a in no_lpf)  - min(a["pos"] for a in no_lpf)
+        range_lpf = max(a["pos"] for a in with_lpf) - min(a["pos"] for a in with_lpf)
+        self.assertLessEqual(range_lpf, range_no)
+
+    def test_short_phrase_passthrough(self):
+        actions = _actions([0, 100])
+        result = TRANSFORM_CATALOG["performance"].apply(actions)
+        self.assertEqual(len(result), len(actions))
+
+    def test_does_not_mutate_input(self):
+        actions = self._ramp()
+        original = [{"at": a["at"], "pos": a["pos"]} for a in actions]
+        TRANSFORM_CATALOG["performance"].apply(actions)
+        self.assertEqual(actions, original)
+
+
+class TestThreeOne(unittest.TestCase):
+    """Tests for the three_one pulse transform."""
+
+    def _wave(self, cycles=8, period_ms=100):
+        """Clean alternating wave with `cycles` half-cycles (beats)."""
+        actions = []
+        for c in range(cycles):
+            pos = 0 if c % 2 == 0 else 100
+            actions.append({"at": c * period_ms, "pos": pos})
+        actions.append({"at": cycles * period_ms, "pos": 0})
+        return actions
+
+    def test_same_length_as_input(self):
+        """three_one is positional — action count must not change."""
+        actions = self._wave(cycles=8)
+        result = TRANSFORM_CATALOG["three_one"].apply(actions)
+        self.assertEqual(len(result), len(actions))
+
+    def test_same_timestamps(self):
+        """Timestamps must be identical to input."""
+        actions = self._wave(cycles=8)
+        result = TRANSFORM_CATALOG["three_one"].apply(actions)
+        self.assertEqual([a["at"] for a in result], [a["at"] for a in actions])
+
+    def test_fourth_beat_is_flat(self):
+        """The 4th beat window should be at a single constant (center) position."""
+        actions = self._wave(cycles=8)
+        result = TRANSFORM_CATALOG["three_one"].apply(
+            actions, {"amplitude_scale": 1.0, "range_lo": 0, "range_hi": 100}
+        )
+        from pattern_catalog.phrase_transforms import _find_extrema
+        extrema = _find_extrema(result, min_prominence=10)
+        if len(extrema) >= 4:
+            # Actions in the 4th beat window (extrema[3] to extrema[4])
+            a_start = extrema[3]
+            a_end = extrema[4] if len(extrema) > 4 else len(result)
+            hold_positions = {result[k]["pos"] for k in range(a_start, a_end)}
+            self.assertEqual(len(hold_positions), 1, "4th beat should be flat (single position)")
+
+    def test_positions_clamped_by_range(self):
+        """range_lo / range_hi should cap all output positions."""
+        actions = self._wave(cycles=8)
+        result = TRANSFORM_CATALOG["three_one"].apply(
+            actions, {"amplitude_scale": 2.0, "range_lo": 20, "range_hi": 80}
+        )
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 20)
+            self.assertLessEqual(a["pos"], 80)
+
+    def test_amplitude_scale_1_keeps_stroke_positions(self):
+        """With scale=1 and no range cap, stroke positions should be near original."""
+        actions = self._wave(cycles=8)
+        result = TRANSFORM_CATALOG["three_one"].apply(
+            actions, {"amplitude_scale": 1.0, "range_lo": 0, "range_hi": 100}
+        )
+        from pattern_catalog.phrase_transforms import _find_extrema
+        extrema = _find_extrema(actions, min_prominence=10)
+        # First beat's extremum should be unchanged
+        if extrema:
+            self.assertEqual(result[extrema[0]]["pos"], actions[extrema[0]]["pos"])
+
+    def test_does_not_mutate_input(self):
+        actions = self._wave(cycles=8)
+        original = [{"at": a["at"], "pos": a["pos"]} for a in actions]
+        TRANSFORM_CATALOG["three_one"].apply(actions)
+        self.assertEqual(actions, original)
+
+    def test_short_phrase_passthrough(self):
+        """Fewer than 4 actions returns input unchanged."""
+        actions = _actions([0, 100, 0])
+        result = TRANSFORM_CATALOG["three_one"].apply(actions)
+        self.assertEqual(len(result), len(actions))
 
 
 # ---------------------------------------------------------------------------

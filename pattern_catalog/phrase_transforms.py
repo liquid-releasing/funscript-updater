@@ -203,6 +203,180 @@ class _Recenter(PhraseTransform):
         return actions
 
 
+class _Break(PhraseTransform):
+    """Amplitude reduction toward centre followed by smoothing — for rest/break sections.
+
+    Mirrors the ``TASK 3 BREAK MODE`` from ``six_task_transformer.py``:
+
+    1. **Amplitude reduce** — each position is pulled toward 50 (the centre)
+       by ``reduce`` fraction:
+       ``new_pos = pos + (50 - pos) * reduce``
+       Equivalent to ``amplitude_scale`` with ``scale = 1 - reduce``, but
+       expressed as a fractional pull toward centre so the default (0.40)
+       reads naturally as "reduce to 60% of full stroke".
+
+    2. **LPF smoothing** — a low-pass filter (``lpf_strength``) is applied
+       after the amplitude step to soften any remaining rapid movements.
+
+    Default values match the original ``BREAK_AMPLITUDE_REDUCE = 0.40`` and
+    ``LPF_BREAK = 0.30`` constants.
+    """
+
+    def _transform(self, actions, p):
+        reduce      = p["reduce"]
+        lpf_strength = p["lpf_strength"]
+
+        # Pass 1: pull positions toward centre (50)
+        for a in actions:
+            a["pos"] = int(a["pos"] + (50 - a["pos"]) * reduce)
+
+        # Pass 2: LPF smoothing
+        if lpf_strength > 0.0:
+            positions = [a["pos"] for a in actions]
+            smoothed  = low_pass_filter(positions, [lpf_strength] * len(positions))
+            for a, pos in zip(actions, smoothed):
+                a["pos"] = int(pos)
+
+        return actions
+
+
+class _Performance(PhraseTransform):
+    """Velocity-capped, reversal-softened stroke shaping for intense phrases.
+
+    Applies three successive passes (all positional — timestamps unchanged):
+
+    1. **Velocity cap** — if the position change per millisecond between
+       consecutive actions exceeds ``max_velocity``, the target position is
+       pulled back toward the previous position so the cap is just met.
+
+    2. **Reversal softening** — at each direction change (sign flip in the
+       per-action velocity), the new position is blended:
+       ``softened = prev + Δ × (1 − reversal_soften)``
+       then further blended toward the original target:
+       ``blended = softened × (1 − height_blend) + target × height_blend``
+       This rounds off the hard edges at stroke reversals.
+
+    3. **Range compress + LPF** — positions are clamped to
+       ``[range_lo, range_hi]`` and a light low-pass filter (``lpf_strength``)
+       is applied to smooth any remaining jitter.
+
+    Default values match the ``TASK 2 PERFORMANCE MODE`` settings from the
+    original ``six_task_transformer.py``.
+    """
+
+    def _transform(self, actions, p):
+        if len(actions) < 3:
+            return actions
+
+        max_vel      = p["max_velocity"]
+        rev_soften   = p["reversal_soften"]
+        height_blend = p["height_blend"]
+        range_lo     = p["range_lo"]
+        range_hi     = p["range_hi"]
+        lpf_strength = p["lpf_strength"]
+
+        # --- Pass 1: velocity cap ---
+        for i in range(1, len(actions)):
+            p0 = actions[i - 1]["pos"]
+            p1 = actions[i]["pos"]
+            t0 = actions[i - 1]["at"]
+            t1 = actions[i]["at"]
+            dt = max(1, t1 - t0)
+            vel = (p1 - p0) / dt
+            if abs(vel) > max_vel:
+                capped = p0 + math.copysign(max_vel * dt, vel)
+                actions[i]["pos"] = max(range_lo, min(range_hi, int(capped)))
+
+        # --- Pass 2: reversal softening ---
+        for i in range(2, len(actions)):
+            p_prev2 = actions[i - 2]["pos"]
+            p_prev  = actions[i - 1]["pos"]
+            p_curr  = actions[i]["pos"]
+            dir1 = p_prev - p_prev2
+            dir2 = p_curr - p_prev
+            if dir1 * dir2 < 0:  # direction change
+                softened = p_prev + dir2 * (1.0 - rev_soften)
+                blended  = softened * (1.0 - height_blend) + p_curr * height_blend
+                blended  = max(range_lo, min(range_hi, blended))
+                actions[i]["pos"] = int(blended)
+
+        # --- Pass 3: range compress + LPF ---
+        for a in actions:
+            a["pos"] = max(range_lo, min(range_hi, a["pos"]))
+
+        if lpf_strength > 0.0:
+            positions = [a["pos"] for a in actions]
+            smoothed  = low_pass_filter(positions, [lpf_strength] * len(positions))
+            for a, pos in zip(actions, smoothed):
+                a["pos"] = max(range_lo, min(range_hi, int(pos)))
+
+        return actions
+
+
+class _ThreeOne(PhraseTransform):
+    """Three strokes then one flat hold, repeating across the phrase.
+
+    Groups detected beats (extrema) into blocks of four:
+    - Beats 1–3: strokes, amplitude-scaled around the group's centre.
+    - Beat 4: flat hold — every action in that time window is set to
+              the group's centre position (midpoint of min/max).
+
+    The centre is recalculated per 4-beat group so it tracks local
+    signal changes rather than the global phrase midpoint.  A partial
+    last group (fewer than 4 remaining beats) is left unchanged.
+
+    Optional ``range_lo`` / ``range_hi`` caps hard-limit the output
+    positions after scaling; the centre itself is also clamped.
+    """
+
+    def _transform(self, actions, p):
+        if len(actions) < 4:
+            return actions
+
+        amp_scale = p["amplitude_scale"]
+        range_lo  = p["range_lo"]
+        range_hi  = p["range_hi"]
+
+        extrema_idx = _find_extrema(actions, min_prominence=10)
+        n_ext = len(extrema_idx)
+
+        i = 0  # index into extrema_idx for the current group's first beat
+        while i + 3 < n_ext:
+            # Centre of this 4-beat group
+            group_pos = [actions[extrema_idx[i + k]]["pos"] for k in range(4)]
+            lo = min(group_pos)
+            hi = max(group_pos)
+            center = (lo + hi) / 2.0
+            center_int = max(range_lo, min(range_hi, int(round(center))))
+
+            for beat_num in range(4):
+                beat_idx = i + beat_num
+                a_start = extrema_idx[beat_idx]
+                a_end = (extrema_idx[beat_idx + 1]
+                         if beat_idx + 1 < n_ext else len(actions))
+
+                if beat_num < 3:
+                    # Amplitude-scale strokes around the group centre
+                    for k in range(a_start, a_end):
+                        orig = actions[k]["pos"]
+                        new_pos = center + (orig - center) * amp_scale
+                        actions[k]["pos"] = max(range_lo, min(range_hi,
+                                                               int(round(new_pos))))
+                else:
+                    # Flat hold at centre for the 4th beat
+                    for k in range(a_start, a_end):
+                        actions[k]["pos"] = center_int
+
+            i += 4
+
+        # Final pass: apply range cap to ALL actions (including partial groups)
+        if range_lo > 0 or range_hi < 100:
+            for a in actions:
+                a["pos"] = max(range_lo, min(range_hi, a["pos"]))
+
+        return actions
+
+
 # ------------------------------------------------------------------
 # Helpers for structural transforms
 # ------------------------------------------------------------------
@@ -398,6 +572,82 @@ TRANSFORM_CATALOG: Dict[str, PhraseTransform] = {
                     label="Target center", type="int", default=50,
                     min_val=0, max_val=100, step=5,
                     help="Where the midpoint between the phrase's min and max should land (0–100).",
+                ),
+            },
+        ),
+        _Break(
+            key="break",
+            name="Break",
+            description="Pull positions toward centre (reduce amplitude) then smooth — for rest or recovery sections.",
+            params={
+                "reduce": TransformParam(
+                    label="Amplitude reduce", type="float", default=0.40,
+                    min_val=0.0, max_val=1.0, step=0.05,
+                    help="Fraction to pull each position toward centre 50. 0 = no change, 1 = collapse to 50.",
+                ),
+                "lpf_strength": TransformParam(
+                    label="LPF strength", type="float", default=0.30,
+                    min_val=0.0, max_val=0.5, step=0.01,
+                    help="Low-pass filter strength applied after amplitude reduction. 0 = off.",
+                ),
+            },
+        ),
+        _Performance(
+            key="performance",
+            name="Performance",
+            description="Velocity-capped, reversal-softened strokes with range compression — smooths intense phrases for realistic device movement.",
+            params={
+                "max_velocity": TransformParam(
+                    label="Max velocity (pos/ms)", type="float", default=0.32,
+                    min_val=0.05, max_val=1.0, step=0.01,
+                    help="Maximum position change per millisecond. Lower = slower, gentler movements.",
+                ),
+                "reversal_soften": TransformParam(
+                    label="Reversal soften", type="float", default=0.62,
+                    min_val=0.0, max_val=1.0, step=0.05,
+                    help="How much to pull back at direction changes. 0 = no change, 1 = hold at reversal point.",
+                ),
+                "height_blend": TransformParam(
+                    label="Height blend", type="float", default=0.75,
+                    min_val=0.0, max_val=1.0, step=0.05,
+                    help="After softening, blend back toward the original target position. 1.0 = full target.",
+                ),
+                "range_lo": TransformParam(
+                    label="Range low", type="int", default=15,
+                    min_val=0, max_val=40, step=5,
+                    help="Minimum output position (hard floor).",
+                ),
+                "range_hi": TransformParam(
+                    label="Range high", type="int", default=92,
+                    min_val=60, max_val=100, step=5,
+                    help="Maximum output position (hard ceiling).",
+                ),
+                "lpf_strength": TransformParam(
+                    label="LPF strength", type="float", default=0.16,
+                    min_val=0.0, max_val=0.5, step=0.01,
+                    help="Low-pass filter strength applied after shaping. 0 = off.",
+                ),
+            },
+        ),
+        _ThreeOne(
+            key="three_one",
+            name="Three-One Pulse",
+            description="Three strokes then one flat hold at the group centre, repeating — creates a 3+1 pulse pattern at the original beat timing.",
+            params={
+                "amplitude_scale": TransformParam(
+                    label="Amplitude scale", type="float", default=1.0,
+                    min_val=0.1, max_val=3.0, step=0.1,
+                    help="Scale stroke depth around the group centre. 1.0 = unchanged.",
+                ),
+                "range_lo": TransformParam(
+                    label="Range low", type="int", default=0,
+                    min_val=0, max_val=49, step=5,
+                    help="Hard minimum position after scaling.",
+                ),
+                "range_hi": TransformParam(
+                    label="Range high", type="int", default=100,
+                    min_val=51, max_val=100, step=5,
+                    help="Hard maximum position after scaling.",
                 ),
             },
         ),
