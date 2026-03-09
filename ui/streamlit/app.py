@@ -45,9 +45,10 @@ from ui.streamlit.panels import work_items as work_items_panel
 # Page config (must be the first Streamlit call)
 # ------------------------------------------------------------------
 
+_LOGO = os.path.join(_ROOT, "media", "funscriptforge.png")
 st.set_page_config(
     page_title="Funscript Forge",
-    page_icon="🎵",
+    page_icon=_LOGO if os.path.exists(_LOGO) else "🎵",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -94,7 +95,11 @@ if "last_loaded_cfg" not in st.session_state:
 
 
 def _sidebar() -> None:
-    st.sidebar.title("Funscript Forge")
+    _logo = os.path.join(_ROOT, "media", "funscriptforge.png")
+    if os.path.exists(_logo):
+        st.sidebar.image(_logo, use_container_width=True)
+    else:
+        st.sidebar.title("Funscript Forge")
     st.sidebar.markdown("---")
 
     # --- File selection ---
