@@ -218,6 +218,9 @@ __marimo__/
 # code workspace settings
 .code-workspace
 
+# Claude Code project data (AI session state, personal memory)
+.claude/
+
 # test text
 test.txt
 test_funscript/*.mp4
