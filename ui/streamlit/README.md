@@ -141,7 +141,7 @@ Aggregates all applied transforms from both editors and produces a downloadable 
 
 **Header controls:**
 
-- **Include recommended transforms for untouched phrases** — when enabled, phrases with no manually-applied transform receive the auto-suggested transform (`Amplitude Scale` for high-BPM, `Normalize` for compressed waveforms, `Smooth` for transitions).
+- **Include recommended transforms for untouched phrases** — when enabled, phrases with no manually-applied transform receive the auto-suggested transform from `suggest_transform()`.  Tag-based rules take priority: `frantic` → Halve Tempo; `giggle`/`plateau`/`lazy` → Amplitude Scale (amplify to peak hi ≈ 65); `stingy` → Amplitude Scale (reduce to peak hi ≈ 65); `drift`/`half_stroke` → Recenter (50); `drone` → Beat Accent.  Untagged phrases fall back to BPM rules: transition → Smooth; low BPM → Passthrough; narrow span → Normalize; high BPM → Amplitude Scale.
 - **Add blended seams to reduce abrupt style changes** — runs `blend_seams` over the full action list after all phrase transforms are applied.  Detects high-velocity jumps between differently-styled sections and applies a bilateral low-pass filter symmetrically at those seams, leaving normal strokes untouched.
 - **Conduct final smooth for post process finishing** — runs `final_smooth` (a light LPF at strength 0.10) over the entire result as a final polish pass.  Applied after seam blending when both are enabled.
 - **⬇ Download edited funscript** — builds the result from the current plan (phrase transforms → optional seam blend → optional final smooth) and streams it as a `.funscript` file; disabled when nothing is active.

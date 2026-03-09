@@ -114,6 +114,6 @@ Transform change log showing every planned transform (from Phrase Editor, Patter
 # UI common-layer tests (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# Full test suite (464 tests)
+# Full test suite (482 tests)
 python cli.py test
 ```

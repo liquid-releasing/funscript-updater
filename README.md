@@ -79,6 +79,20 @@ transform name, source (Phrase Editor / Pattern Editor / Recommended), and
 before → after BPM and cycle count where applicable.  Click 🗑 on any row to
 reject that change before downloading.
 
+**Tag-aware auto-suggestions** (`suggest_transform`, checked in priority order):
+
+| Tag | Suggested transform | Notes |
+| --- | --- | --- |
+| `frantic` | `halve_tempo` | BPM > 200 |
+| `giggle`, `plateau`, `lazy` | `amplitude_scale` | Amplify; scale computed to target peak hi ≈ 65 |
+| `stingy` | `amplitude_scale` | Reduce; scale computed to target peak hi ≈ 65 |
+| `drift`, `half_stroke` | `recenter` | `target_center = 50` |
+| `drone` | `beat_accent` | Adds rhythmic variation |
+| *(no tag, transition)* | `smooth` | Pattern label contains "transition" |
+| *(no tag, low BPM)* | `passthrough` | BPM < threshold |
+| *(no tag, narrow span)* | `normalize` | `amplitude_span < 40` |
+| *(no tag, high BPM)* | `amplitude_scale` | Fallback |
+
 Two optional post-processing passes run over the full action list just before
 the file is built:
 
@@ -204,12 +218,12 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline + UI-panel split logic (404 tests)
+# Core pipeline + UI-panel split logic (422 tests)
 python -m unittest discover -s tests -v
 
 # UI layer (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# All at once (464 tests)
+# All at once (482 tests)
 python cli.py test
 ```

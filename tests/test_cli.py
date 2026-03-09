@@ -313,5 +313,62 @@ class TestCliExportPlan(unittest.TestCase):
         self.assertIn("dry-run", stdout)
 
 
+class TestCliFinalize(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        # Provide a transformed funscript to finalize
+        self.assessment = os.path.join(self.tmp, "a.json")
+        self.transformed = os.path.join(self.tmp, "t.funscript")
+        run("assess", FIXTURE, "--output", self.assessment)
+        run("transform", FIXTURE, "--assessment", self.assessment,
+            "--output", self.transformed)
+
+    def test_finalize_exits_zero(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, _, _ = run("finalize", self.transformed, "--output", out)
+        self.assertEqual(rc, 0)
+
+    def test_finalize_writes_valid_funscript(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        run("finalize", self.transformed, "--output", out)
+        self.assertTrue(os.path.exists(out))
+        with open(out) as f:
+            data = json.load(f)
+        self.assertIn("actions", data)
+        for a in data["actions"]:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    def test_finalize_default_output_path(self):
+        import shutil
+        src = os.path.join(self.tmp, "myscore.funscript")
+        shutil.copy(self.transformed, src)
+        rc, _, _ = run("finalize", src)
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(
+            os.path.join(self.tmp, "myscore_finalized.funscript")
+        ))
+
+    def test_finalize_skip_seams(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, stdout, _ = run("finalize", self.transformed, "--output", out, "--skip-seams")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("blend_seams", stdout)
+
+    def test_finalize_skip_smooth(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, stdout, _ = run("finalize", self.transformed, "--output", out, "--skip-smooth")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("final_smooth", stdout)
+
+    def test_finalize_skip_both_still_writes(self):
+        """Skipping both passes still produces an output file (passthrough)."""
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, _, _ = run("finalize", self.transformed, "--output", out,
+                       "--skip-seams", "--skip-smooth")
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(out))
+
+
 if __name__ == "__main__":
     unittest.main()
