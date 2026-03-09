@@ -47,6 +47,7 @@ _EXPECTED_KEYS = {
     "three_one",
     "blend_seams",
     "final_smooth",
+    "beat_accent",
     "halve_tempo",
 }
 
@@ -1040,6 +1041,156 @@ class TestFinalSmooth(unittest.TestCase):
 
     def test_not_structural(self):
         self.assertFalse(TRANSFORM_CATALOG["final_smooth"].structural)
+
+
+# ---------------------------------------------------------------------------
+# beat_accent
+# ---------------------------------------------------------------------------
+
+class TestBeatAccent(unittest.TestCase):
+    """Tests for the beat_accent rhythmic emphasis transform."""
+
+    def _wave(self, half_cycles=8, period_ms=100):
+        """Alternating 20/80 wave; each extremum is a 'beat'.
+        Using 20/80 (not 0/100) so accent boosts are not swallowed by clamping."""
+        return [{"at": i * period_ms, "pos": 20 if i % 2 == 0 else 80}
+                for i in range(half_cycles + 1)]
+
+    # --- basic mechanics ---
+
+    def test_same_length_and_timestamps(self):
+        actions = self._wave()
+        result = TRANSFORM_CATALOG["beat_accent"].apply(actions)
+        self.assertEqual(len(result), len(actions))
+        self.assertEqual([a["at"] for a in result], [a["at"] for a in actions])
+
+    def test_peaks_boosted_up(self):
+        """Accented peaks (pos=80) should be boosted upward."""
+        actions = self._wave(half_cycles=4)
+        result = TRANSFORM_CATALOG["beat_accent"].apply(
+            actions, {"every_nth": 1, "accent_amount": 4, "radius_ms": 40,
+                       "start_at_ms": 0, "max_accents": 0}
+        )
+        for orig, res in zip(actions, result):
+            if orig["pos"] == 80:
+                self.assertGreater(res["pos"], orig["pos"],
+                                   f"Peak at t={orig['at']} should be boosted up")
+
+    def test_troughs_boosted_down(self):
+        """Accented troughs (pos=20) should be boosted downward."""
+        actions = self._wave(half_cycles=4)
+        result = TRANSFORM_CATALOG["beat_accent"].apply(
+            actions, {"every_nth": 1, "accent_amount": 4, "radius_ms": 40,
+                       "start_at_ms": 0, "max_accents": 0}
+        )
+        for orig, res in zip(actions, result):
+            if orig["pos"] == 20:
+                self.assertLess(res["pos"], orig["pos"],
+                                f"Trough at t={orig['at']} should be boosted down")
+
+    def test_positions_stay_in_range(self):
+        actions = self._wave()
+        result = TRANSFORM_CATALOG["beat_accent"].apply(actions)
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    # --- every_nth ---
+
+    def test_every_nth_2_accents_half_as_many(self):
+        """With every_nth=2, roughly half the beats should be changed."""
+        actions = self._wave(half_cycles=8)
+        all_beats = TRANSFORM_CATALOG["beat_accent"].apply(
+            [dict(a) for a in actions],
+            {"every_nth": 1, "accent_amount": 10, "radius_ms": 10,
+             "start_at_ms": 0, "max_accents": 0},
+        )
+        every_2 = TRANSFORM_CATALOG["beat_accent"].apply(
+            [dict(a) for a in actions],
+            {"every_nth": 2, "accent_amount": 10, "radius_ms": 10,
+             "start_at_ms": 0, "max_accents": 0},
+        )
+        changed_all = sum(1 for o, r in zip(actions, all_beats) if o["pos"] != r["pos"])
+        changed_2   = sum(1 for o, r in zip(actions, every_2)   if o["pos"] != r["pos"])
+        self.assertLess(changed_2, changed_all,
+                        "every_nth=2 should change fewer positions than every_nth=1")
+
+    def test_every_nth_4_fewer_than_2(self):
+        actions = self._wave(half_cycles=16)
+        every_2 = TRANSFORM_CATALOG["beat_accent"].apply(
+            [dict(a) for a in actions],
+            {"every_nth": 2, "accent_amount": 10, "radius_ms": 10,
+             "start_at_ms": 0, "max_accents": 0},
+        )
+        every_4 = TRANSFORM_CATALOG["beat_accent"].apply(
+            [dict(a) for a in actions],
+            {"every_nth": 4, "accent_amount": 10, "radius_ms": 10,
+             "start_at_ms": 0, "max_accents": 0},
+        )
+        changed_2 = sum(1 for o, r in zip(actions, every_2) if o["pos"] != r["pos"])
+        changed_4 = sum(1 for o, r in zip(actions, every_4) if o["pos"] != r["pos"])
+        self.assertLess(changed_4, changed_2)
+
+    # --- start_at_ms ---
+
+    def test_start_at_ms_skips_earlier_beats(self):
+        """With start_at_ms set to the middle of the phrase, early beats should be unchanged."""
+        actions = self._wave(half_cycles=8, period_ms=100)
+        # start_at_ms=400 → skip beats at t=0,100,200,300
+        result = TRANSFORM_CATALOG["beat_accent"].apply(
+            actions,
+            {"every_nth": 1, "accent_amount": 10, "radius_ms": 10,
+             "start_at_ms": 400, "max_accents": 0},
+        )
+        # Actions at t=0,100,200,300 should be unchanged (before start)
+        for orig, res in zip(actions[:4], result[:4]):
+            self.assertEqual(orig["pos"], res["pos"],
+                             f"Action at t={orig['at']} should be unchanged before start_at_ms=400")
+
+    # --- max_accents ---
+
+    def test_max_accents_caps_changes(self):
+        """max_accents=2 should change positions near at most 2 beats."""
+        actions = self._wave(half_cycles=8, period_ms=100)
+        result = TRANSFORM_CATALOG["beat_accent"].apply(
+            actions,
+            {"every_nth": 1, "accent_amount": 20, "radius_ms": 10,
+             "start_at_ms": 0, "max_accents": 2},
+        )
+        # With radius_ms=10 and period_ms=100, only the exact extremum ±10ms is boosted
+        # so at most 2 actions should differ from originals (one per accent)
+        changed = [i for i, (o, r) in enumerate(zip(actions, result)) if o["pos"] != r["pos"]]
+        # Allow a small slack because radius can capture an adjacent action
+        self.assertLessEqual(len(changed), 4,
+                             f"Expected at most ~2 beats affected, got {len(changed)}: {changed}")
+
+    # --- edge cases ---
+
+    def test_empty_actions(self):
+        self.assertEqual(TRANSFORM_CATALOG["beat_accent"].apply([]), [])
+
+    def test_single_action(self):
+        actions = [{"at": 0, "pos": 50}]
+        result = TRANSFORM_CATALOG["beat_accent"].apply(actions)
+        self.assertEqual(len(result), 1)
+
+    def test_does_not_mutate_input(self):
+        actions = self._wave()
+        original = [{"at": a["at"], "pos": a["pos"]} for a in actions]
+        TRANSFORM_CATALOG["beat_accent"].apply(actions)
+        self.assertEqual(actions, original)
+
+    def test_not_structural(self):
+        self.assertFalse(TRANSFORM_CATALOG["beat_accent"].structural)
+
+    def test_default_params_match_six_task_transformer(self):
+        """Defaults should match BEAT_ACCENT_AMOUNT=4, BEAT_ACCENT_RADIUS_MS=40."""
+        spec = TRANSFORM_CATALOG["beat_accent"]
+        self.assertEqual(spec.params["accent_amount"].default, 4)
+        self.assertEqual(spec.params["radius_ms"].default, 40)
+        self.assertEqual(spec.params["every_nth"].default, 1)
+        self.assertEqual(spec.params["start_at_ms"].default, 0)
+        self.assertEqual(spec.params["max_accents"].default, 0)
 
 
 if __name__ == "__main__":

@@ -460,6 +460,83 @@ class _BlendSeams(PhraseTransform):
         return actions
 
 
+class _BeatAccent(PhraseTransform):
+    """Boost positions away from centre at regular beat intervals.
+
+    Detects the funscript's own stroke reversals (extrema) as beats, then
+    accents every Nth one — pushing peaks up and troughs down by
+    ``accent_amount`` position units.  Any action within ``radius_ms`` of
+    an accented beat time receives the same boost.
+
+    Parameters
+    ----------
+    every_nth : int
+        Stride through the detected beat list.  1 = every beat,
+        2 = every other, 4 = every 4th, 8 = every 8th, etc.
+    accent_amount : int
+        How many position units to push away from centre (≥50 → up, <50 → down).
+        Matches ``BEAT_ACCENT_AMOUNT = 4`` from *six_task_transformer.py*.
+    radius_ms : int
+        Time window (±ms) around each accented beat.  Actions within this
+        window all receive the boost.  Matches ``BEAT_ACCENT_RADIUS_MS = 40``.
+    start_at_ms : int
+        Absolute timestamp (ms) of the beat to treat as beat 0.
+        0 = use the first detected extremum in the phrase.
+        In the UI, hover over the desired first beat and enter its timestamp here.
+    max_accents : int
+        Maximum number of beats to accent.  0 = no limit (accent until
+        the phrase ends).
+    """
+
+    def _transform(self, actions, p):
+        if not actions:
+            return actions
+
+        every_nth    = max(1, int(p["every_nth"]))
+        accent_amt   = int(p["accent_amount"])
+        radius_ms    = int(p["radius_ms"])
+        start_at_ms  = int(p["start_at_ms"])
+        max_accents  = int(p["max_accents"])
+
+        # --- detect beats (extrema) ---
+        extrema_idx  = _find_extrema(actions, min_prominence=5)
+        beat_times   = [actions[i]["at"] for i in extrema_idx]
+
+        if not beat_times:
+            return actions
+
+        # --- find starting beat ---
+        if start_at_ms > 0:
+            # Nearest extremum at or after start_at_ms
+            start_beat = next(
+                (j for j, bt in enumerate(beat_times) if bt >= start_at_ms), 0
+            )
+        else:
+            start_beat = 0
+
+        # --- collect accented beat times ---
+        accented = []
+        j = start_beat
+        while j < len(beat_times):
+            accented.append(beat_times[j])
+            j += every_nth
+            if max_accents > 0 and len(accented) >= max_accents:
+                break
+
+        if not accented:
+            return actions
+
+        # --- apply boost to actions near each accented beat ---
+        for a in actions:
+            t = a["at"]
+            if any(abs(t - bt) <= radius_ms for bt in accented):
+                pos = a["pos"]
+                boost = accent_amt if pos >= 50 else -accent_amt
+                a["pos"] = max(0, min(100, pos + boost))
+
+        return actions
+
+
 class _HalveTempo(PhraseTransform):
     """Halve the BPM by keeping every other stroke cycle.
 
@@ -727,6 +804,38 @@ TRANSFORM_CATALOG: Dict[str, PhraseTransform] = {
                     label="Smoothing strength", type="float", default=0.10,
                     min_val=0.01, max_val=0.5, step=0.01,
                     help="0.10 is a very light pass (matches LPF_DEFAULT from six_task_transformer). Increase for more smoothing.",
+                ),
+            },
+        ),
+        _BeatAccent(
+            key="beat_accent",
+            name="Beat Accent",
+            description="Boost positions away from centre at every Nth stroke reversal — adds rhythmic emphasis at regular beat intervals.",
+            params={
+                "every_nth": TransformParam(
+                    label="Every Nth beat", type="int", default=1,
+                    min_val=1, max_val=16, step=1,
+                    help="1 = every beat, 2 = every other, 4 = every 4th, 8 = every 8th.",
+                ),
+                "accent_amount": TransformParam(
+                    label="Accent amount", type="int", default=4,
+                    min_val=1, max_val=30, step=1,
+                    help="Position units to boost peaks up / troughs down. Matches BEAT_ACCENT_AMOUNT=4 from six_task_transformer.",
+                ),
+                "radius_ms": TransformParam(
+                    label="Radius (ms)", type="int", default=40,
+                    min_val=5, max_val=200, step=5,
+                    help="Time window around each accented beat. Actions within ±radius_ms receive the boost.",
+                ),
+                "start_at_ms": TransformParam(
+                    label="Start at (ms)", type="int", default=0,
+                    min_val=0, max_val=9999999, step=1,
+                    help="Absolute timestamp of beat 0. 0 = first detected stroke reversal in the phrase. In the UI, hover a beat to find its timestamp.",
+                ),
+                "max_accents": TransformParam(
+                    label="Max accents", type="int", default=0,
+                    min_val=0, max_val=999, step=1,
+                    help="Stop after this many accented beats. 0 = no limit (accent until phrase ends).",
                 ),
             },
         ),

@@ -118,6 +118,7 @@ and is independent of the bulk pipeline transformer.
 | `break` | Break | Pulls all positions toward centre 50 by a `reduce` fraction, then applies LPF smoothing — equivalent to a gentle amplitude_scale + smooth in one step | Rest, recovery, or transition sections; tones down intensity without removing motion entirely |
 | `performance` | Performance | Velocity-capped, reversal-softened strokes with range compression and optional LPF — three passes: (1) cap pos-change/ms, (2) blend direction-change reversals, (3) clamp range + smooth | Intense high-BPM phrases that need realistic device shaping; prevents mechanical overshoot at stroke reversals |
 | `three_one` | Three-One Pulse | Groups beats into blocks of 4: beats 1–3 are strokes (amplitude-scaled around the group centre), beat 4 is a flat hold at the group centre — timestamps unchanged | Fast up-down patterns where you want a rest beat every 4th; optional `range_lo`/`range_hi` caps limit stroke depth |
+| `beat_accent` | Beat Accent | Boosts positions away from centre at every Nth stroke reversal — peaks pushed up, troughs pushed down, by `accent_amount` units within `radius_ms` of each accented beat. Optional `start_at_ms` anchors beat 0; `max_accents` limits repetitions | Add rhythmic emphasis on downbeats, every-other-beat, or sparse 4th-beat accents; hover over a beat in the UI to find its `start_at_ms` |
 | `blend_seams` | Blend Seams | Velocity-adaptive bilateral LPF: concentrates smoothing at high-velocity jumps (seams between differently-styled phrases), leaves normal strokes untouched | Applied globally via `finalize` to smooth inter-phrase boundaries; can also be applied phrase-by-phrase for intra-phrase spikes |
 | `final_smooth` | Final Smooth | Light global LPF finishing pass (default strength 0.10, matching `LPF_DEFAULT` from six_task_transformer) — removes residual harsh edges after all phrase transforms | Last step before saving; automatically run by `finalize` command |
 | `halve_tempo` | Halve Tempo | Keeps every other stroke cycle (temporal decimation), retimed evenly over the same phrase duration — *structural* transform, returns fewer actions | Very fast phrases where you want half the BPM with the same amplitude and duration |
@@ -200,6 +201,23 @@ python cli.py phrase-transform input.funscript \
     --assessment assessment.json \
     --transform three_one --phrase 1 \
     --param amplitude_scale=1.5 --param range_lo=20 --param range_hi=80
+
+# Beat accent on every beat (default: accent_amount=4, radius_ms=40)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform beat_accent --phrase 1
+
+# Accent every 4th beat with a stronger boost (e.g. downbeat emphasis)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform beat_accent --phrase 1 \
+    --param every_nth=4 --param accent_amount=10
+
+# Anchor to a specific beat timestamp (hover in UI to find it) and cap at 8 accents
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform beat_accent --phrase 2 \
+    --param every_nth=2 --param start_at_ms=45200 --param max_accents=8
 
 # Halve the tempo of a very fast phrase (keeps same duration and amplitude)
 python cli.py phrase-transform input.funscript \
