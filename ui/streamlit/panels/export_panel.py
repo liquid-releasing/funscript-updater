@@ -1,9 +1,13 @@
 """export_panel.py — Export tab: transform change log + download.
 
-Shows every planned transform (manually applied in the Phrase Editor or
-Pattern Editor, plus optionally the system-recommended transforms for
-untouched phrases).  Each row in the log can be rejected with the trash
-button.  The Download button builds and streams the edited funscript.
+Two sections
+------------
+1. Completed transforms  — manually applied in Phrase Editor or Pattern Editor.
+   Each row has a 🗑 reject button.
+2. Recommended transforms — auto-suggested for phrases that have no manual transform.
+   Each row has a ✏ edit button (opens Phrase Editor) and a 🗑 reject button.
+
+The Download button applies all non-rejected entries from both lists.
 """
 
 from __future__ import annotations
@@ -16,9 +20,12 @@ import streamlit as st
 
 from utils import ms_to_timestamp
 
-# Log table column widths and headers
-_COL_W   = [0.4, 2.8, 1.0, 2.5, 2.0, 2.0, 1.5, 0.5, 0.5]
-_HEADERS = ["#", "Time", "Dur (s)", "Transform", "Source", "BPM", "Cycles", "", ""]
+# Column widths / headers for each table
+_COL_W_DONE    = [0.4, 2.8, 1.0, 2.8, 1.8, 2.0, 1.5, 0.6]
+_HEADERS_DONE  = ["#", "Time", "Dur (s)", "Transform", "Source", "BPM", "Cycles", ""]
+
+_COL_W_REC     = [0.4, 2.8, 1.0, 3.2, 2.0, 1.5, 0.5, 0.5]
+_HEADERS_REC   = ["#", "Time", "Dur (s)", "Transform", "BPM", "Cycles", "", ""]
 
 
 # ------------------------------------------------------------------
@@ -39,15 +46,16 @@ def render(project) -> None:
 
     bpm_threshold: float = st.session_state.get("bpm_threshold", 120.0)
 
-    # Persistent per-session rejected set; cleared when a new file is loaded
     if "export_rejected" not in st.session_state:
         st.session_state.export_rejected = set()
 
-    # Build tag → [phrase-index, …] map for Pattern Editor transform lookup
     tag_to_idxs: Dict[str, List[int]] = {}
     for i, ph in enumerate(phrases):
         for tag in ph.get("tags", []):
             tag_to_idxs.setdefault(tag, []).append(i)
+
+    completed_plan, recommended_plan = _build_plans(phrases, tag_to_idxs, bpm_threshold)
+    full_plan = completed_plan + recommended_plan
 
     # ----------------------------------------------------------------
     # Header controls
@@ -55,11 +63,6 @@ def render(project) -> None:
     col_chk, col_dl = st.columns([5, 3])
 
     with col_chk:
-        include_recommended = st.checkbox(
-            "Include recommended transforms for untouched phrases",
-            value=False,
-            key="export_include_recommended",
-        )
         blend_seams = st.checkbox(
             "Add blended seams to reduce abrupt style changes",
             value=True,
@@ -71,17 +74,14 @@ def render(project) -> None:
             key="export_final_smooth",
         )
 
-    # Build the plan now so the download button can use it
-    plan = _build_plan(phrases, tag_to_idxs, include_recommended, bpm_threshold)
-
     with col_dl:
         active_entries = [
-            e for e in plan
+            e for e in full_plan
             if e["phrase_idx"] not in st.session_state.export_rejected
         ]
-        if active_entries:
+        if active_entries or blend_seams or final_smooth:
             dl_bytes = _build_download_bytes(
-                project, phrases, plan,
+                project, phrases, full_plan,
                 blend_seams=blend_seams,
                 final_smooth=final_smooth,
             )
@@ -102,39 +102,48 @@ def render(project) -> None:
     st.divider()
 
     # ----------------------------------------------------------------
-    # Transform change log
+    # Section 1 — Completed transforms
     # ----------------------------------------------------------------
-    _render_log(plan)
+    st.markdown("#### Completed transforms")
+    _render_completed(completed_plan)
+
+    st.divider()
+
+    # ----------------------------------------------------------------
+    # Section 2 — Recommended transforms
+    # ----------------------------------------------------------------
+    st.markdown("#### Recommended transforms")
+    _render_recommended(recommended_plan)
 
 
 # ------------------------------------------------------------------
 # Plan building
 # ------------------------------------------------------------------
 
-def _build_plan(
+def _build_plans(
     phrases: List[dict],
     tag_to_idxs: Dict[str, List[int]],
-    include_recommended: bool,
     bpm_threshold: float,
-) -> List[dict]:
-    """Return one plan-entry dict per phrase that will receive a transform."""
+) -> tuple:
+    """Return (completed_plan, recommended_plan) — two separate lists."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
 
-    plan: List[dict] = []
+    completed: List[dict] = []
+    recommended: List[dict] = []
 
     for idx, phrase in enumerate(phrases):
         tx_key: Optional[str] = None
         param_values: dict = {}
         source: Optional[str] = None
 
-        # 1. Phrase Editor (phrase_transform_{idx})
+        # 1. Phrase Editor
         phrase_tx = st.session_state.get(f"phrase_transform_{idx}", {})
         if phrase_tx.get("transform_key") and phrase_tx["transform_key"] != "passthrough":
             tx_key       = phrase_tx["transform_key"]
             param_values = phrase_tx.get("param_values", {})
             source       = "Phrase Editor"
 
-        # 2. Pattern Editor (pe_transform_{tag}_{i})
+        # 2. Pattern Editor
         if not tx_key:
             for tag in phrase.get("tags", []):
                 tag_idxs = tag_to_idxs.get(tag, [])
@@ -149,105 +158,74 @@ def _build_plan(
                     source       = "Pattern Editor"
                     break
 
-        # 3. Recommended (untouched phrases only)
-        if not tx_key and include_recommended:
+        def _make_entry(key, params, src):
+            old_bpm    = phrase.get("bpm", 0.0)
+            old_cycles = phrase.get("cycle_count") or 0
+            new_bpm    = old_bpm / 2    if key == "halve_tempo" else None
+            new_cycles = old_cycles // 2 if key == "halve_tempo" else None
+            spec       = TRANSFORM_CATALOG.get(key)
+            return {
+                "phrase_idx":   idx,
+                "start_ms":     phrase["start_ms"],
+                "end_ms":       phrase["end_ms"],
+                "tx_key":       key,
+                "tx_name":      spec.name if spec else key,
+                "param_values": params,
+                "source":       src,
+                "old_bpm":      old_bpm,
+                "new_bpm":      new_bpm,
+                "old_cycles":   old_cycles,
+                "new_cycles":   new_cycles,
+            }
+
+        if tx_key:
+            completed.append(_make_entry(tx_key, param_values, source))
+        else:
+            # Untouched — build recommended entry
             rec, rec_params = suggest_transform(phrase, bpm_threshold)
             if rec and rec != "passthrough":
-                tx_key       = rec
-                param_values = rec_params
-                source       = "Recommended"
+                recommended.append(_make_entry(rec, rec_params, "Recommended"))
 
-        if not tx_key:
-            continue  # passthrough — nothing to log
-
-        # Compute before/after BPM and cycle count
-        old_bpm: float = phrase.get("bpm", 0.0)
-        old_cycles: int = phrase.get("cycle_count") or 0
-
-        if tx_key == "halve_tempo":
-            new_bpm: Optional[float] = old_bpm / 2
-            new_cycles: Optional[int] = old_cycles // 2
-        else:
-            new_bpm    = None   # unchanged
-            new_cycles = None
-
-        spec    = TRANSFORM_CATALOG.get(tx_key)
-        tx_name = spec.name if spec else tx_key
-
-        plan.append({
-            "phrase_idx":  idx,
-            "start_ms":    phrase["start_ms"],
-            "end_ms":      phrase["end_ms"],
-            "tx_key":      tx_key,
-            "tx_name":     tx_name,
-            "param_values": param_values,
-            "source":      source,
-            "old_bpm":     old_bpm,
-            "new_bpm":     new_bpm,
-            "old_cycles":  old_cycles,
-            "new_cycles":  new_cycles,
-        })
-
-    return plan
+    return completed, recommended
 
 
 # ------------------------------------------------------------------
-# Log table
+# Completed transforms table
 # ------------------------------------------------------------------
 
-def _render_log(plan: List[dict]) -> None:
+def _render_completed(plan: List[dict]) -> None:
     rejected: set = st.session_state.export_rejected
 
     if not plan:
-        st.info(
-            "No transforms planned.  Edit phrases in the **Phrase Editor** or "
-            "**Pattern Editor**, or enable **Include recommended transforms** above."
-        )
+        st.caption("No transforms applied yet — edit phrases in the Phrase Editor or Pattern Editor.")
         return
 
-    active_count   = sum(1 for e in plan if e["phrase_idx"] not in rejected)
-    rejected_count = len(plan) - active_count
-    summary = f"{active_count} transform{'s' if active_count != 1 else ''} will be applied"
-    if rejected_count:
-        summary += f" &nbsp;·&nbsp; {rejected_count} rejected"
+    active  = sum(1 for e in plan if e["phrase_idx"] not in rejected)
+    rej_cnt = len(plan) - active
+    summary = f"{active} transform{'s' if active != 1 else ''} will be applied"
+    if rej_cnt:
+        summary += f" &nbsp;·&nbsp; {rej_cnt} rejected"
     st.caption(summary + " — click 🗑 to reject, ↩ to restore")
 
-    # Header row
-    hcols = st.columns(_COL_W)
-    for hc, lbl in zip(hcols, _HEADERS):
+    hcols = st.columns(_COL_W_DONE)
+    for hc, lbl in zip(hcols, _HEADERS_DONE):
         hc.caption(lbl)
 
     for entry in plan:
         idx      = entry["phrase_idx"]
         is_rej   = idx in rejected
-        time_str = (
-            f"{ms_to_timestamp(entry['start_ms'])} → "
-            f"{ms_to_timestamp(entry['end_ms'])}"
-        )
-        dur_s = f"{(entry['end_ms'] - entry['start_ms']) / 1000:.1f}"
-
-        # BPM: show arrow only when the transform changes tempo
-        bpm_str = (
+        time_str = f"{ms_to_timestamp(entry['start_ms'])} → {ms_to_timestamp(entry['end_ms'])}"
+        dur_s    = f"{(entry['end_ms'] - entry['start_ms']) / 1000:.1f}"
+        bpm_str  = (
             f"{entry['old_bpm']:.1f} → {entry['new_bpm']:.1f}"
-            if entry["new_bpm"] is not None
-            else f"{entry['old_bpm']:.1f}"
+            if entry["new_bpm"] is not None else f"{entry['old_bpm']:.1f}"
         )
-        # Cycles: same logic
-        cyc_str = (
+        cyc_str  = (
             f"{entry['old_cycles']} → {entry['new_cycles']}"
-            if entry["new_cycles"] is not None
-            else str(entry["old_cycles"])
+            if entry["new_cycles"] is not None else str(entry["old_cycles"])
         )
 
-        is_recommended = entry["source"] == "Recommended"
-        # Build param string for recommended rows
-        param_caption = None
-        if is_recommended and entry.get("param_values"):
-            param_caption = "  ".join(
-                f"{k}={v}" for k, v in entry["param_values"].items()
-            )
-
-        rc = st.columns(_COL_W)
+        rc = st.columns(_COL_W_DONE)
         if is_rej:
             _dim = lambda s: f"<span style='opacity:0.35'>{s}</span>"
             rc[0].markdown(_dim(f"<s>{idx + 1}</s>"), unsafe_allow_html=True)
@@ -257,8 +235,75 @@ def _render_log(plan: List[dict]) -> None:
             rc[4].markdown(_dim(entry["source"]),      unsafe_allow_html=True)
             rc[5].markdown(_dim(bpm_str),              unsafe_allow_html=True)
             rc[6].markdown(_dim(cyc_str),              unsafe_allow_html=True)
-            # rc[7] edit slot — empty when rejected
-            if rc[8].button("↩", key=f"export_restore_{idx}", help="Restore"):
+            if rc[7].button("↩", key=f"done_restore_{idx}", help="Restore"):
+                st.session_state.export_rejected.discard(idx)
+                st.rerun()
+        else:
+            rc[0].markdown(
+                f"<span style='white-space:nowrap'>{idx + 1}</span>",
+                unsafe_allow_html=True,
+            )
+            rc[1].write(time_str)
+            rc[2].write(dur_s)
+            rc[3].write(entry["tx_name"])
+            rc[4].write(entry["source"])
+            rc[5].write(bpm_str)
+            rc[6].write(cyc_str)
+            if rc[7].button("🗑", key=f"done_reject_{idx}", help="Reject"):
+                st.session_state.export_rejected.add(idx)
+                st.rerun()
+
+
+# ------------------------------------------------------------------
+# Recommended transforms table
+# ------------------------------------------------------------------
+
+def _render_recommended(plan: List[dict]) -> None:
+    rejected: set = st.session_state.export_rejected
+
+    if not plan:
+        st.caption("All phrases have manual transforms — nothing to recommend.")
+        return
+
+    active  = sum(1 for e in plan if e["phrase_idx"] not in rejected)
+    rej_cnt = len(plan) - active
+    summary = f"{active} recommendation{'s' if active != 1 else ''} will be applied"
+    if rej_cnt:
+        summary += f" &nbsp;·&nbsp; {rej_cnt} rejected"
+    st.caption(summary + " — click ✏ to edit in Phrase Editor, 🗑 to reject")
+
+    hcols = st.columns(_COL_W_REC)
+    for hc, lbl in zip(hcols, _HEADERS_REC):
+        hc.caption(lbl)
+
+    for entry in plan:
+        idx      = entry["phrase_idx"]
+        is_rej   = idx in rejected
+        time_str = f"{ms_to_timestamp(entry['start_ms'])} → {ms_to_timestamp(entry['end_ms'])}"
+        dur_s    = f"{(entry['end_ms'] - entry['start_ms']) / 1000:.1f}"
+        bpm_str  = (
+            f"{entry['old_bpm']:.1f} → {entry['new_bpm']:.1f}"
+            if entry["new_bpm"] is not None else f"{entry['old_bpm']:.1f}"
+        )
+        cyc_str  = (
+            f"{entry['old_cycles']} → {entry['new_cycles']}"
+            if entry["new_cycles"] is not None else str(entry["old_cycles"])
+        )
+        param_caption = None
+        if entry.get("param_values"):
+            param_caption = "  ".join(f"{k}={v}" for k, v in entry["param_values"].items())
+
+        rc = st.columns(_COL_W_REC)
+        if is_rej:
+            _dim = lambda s: f"<span style='opacity:0.35'>{s}</span>"
+            rc[0].markdown(_dim(f"<s>{idx + 1}</s>"), unsafe_allow_html=True)
+            rc[1].markdown(_dim(time_str),             unsafe_allow_html=True)
+            rc[2].markdown(_dim(dur_s),                unsafe_allow_html=True)
+            rc[3].markdown(_dim(f"<s>{entry['tx_name']}</s>"), unsafe_allow_html=True)
+            rc[4].markdown(_dim(bpm_str),              unsafe_allow_html=True)
+            rc[5].markdown(_dim(cyc_str),              unsafe_allow_html=True)
+            # rc[6] edit slot — empty when rejected
+            if rc[7].button("↩", key=f"rec_restore_{idx}", help="Restore"):
                 st.session_state.export_rejected.discard(idx)
                 st.rerun()
         else:
@@ -271,15 +316,13 @@ def _render_log(plan: List[dict]) -> None:
             rc[3].write(entry["tx_name"])
             if param_caption:
                 rc[3].caption(param_caption)
-            rc[4].write(entry["source"])
-            rc[5].write(bpm_str)
-            rc[6].write(cyc_str)
-            if is_recommended:
-                if rc[7].button("✏", key=f"export_edit_{idx}", help="Edit in Phrase Editor"):
-                    st.session_state.view_state.set_selection(entry["start_ms"], entry["end_ms"])
-                    st.session_state.goto_tab = 1
-                    st.rerun()
-            if rc[8].button("🗑", key=f"export_reject_{idx}", help="Reject"):
+            rc[4].write(bpm_str)
+            rc[5].write(cyc_str)
+            if rc[6].button("✏", key=f"rec_edit_{idx}", help="Edit in Phrase Editor"):
+                st.session_state.view_state.set_selection(entry["start_ms"], entry["end_ms"])
+                st.session_state.goto_tab = 1
+                st.rerun()
+            if rc[7].button("🗑", key=f"rec_reject_{idx}", help="Reject"):
                 st.session_state.export_rejected.add(idx)
                 st.rerun()
 
@@ -330,7 +373,6 @@ def _build_download_bytes(
                 if a["at"] in t_to_pos:
                     a["pos"] = t_to_pos[a["at"]]
 
-    # Post-processing passes (applied to the full action list)
     if blend_seams:
         spec = TRANSFORM_CATALOG.get("blend_seams")
         if spec:
