@@ -17,6 +17,9 @@ Each stage feeds the next:
 
 ```text
 actions → phases → cycles → patterns → phrases → bpm_transitions
+                                                ↓
+                                       behavioral classification
+                                       (tags + metrics per phrase)
 ```
 
 ## Usage
@@ -116,6 +119,30 @@ Consecutive phrase pairs where BPM changes by ≥ `bpm_change_threshold_pct`
 percent are flagged as BPM transitions. These mark structural tempo shifts
 and are the primary signal used by the UI to suggest work-item boundaries.
 
+### 6 — Behavioral classification
+
+After phrases are detected, `assessment/classifier.py` analyses each phrase's
+action window and attaches two extra fields:
+
+- **`metrics`** — numeric features computed from the action window:
+  `mean_pos`, `span`, `mean_velocity`, `peak_velocity`, `cv_bpm`,
+  `duration_ms`
+- **`tags`** — list of zero or more behavioral problem labels
+
+| Tag | Condition | Suggested fix |
+| --- | --- | --- |
+| `stingy` | span > 75 AND velocity > 0.35 AND BPM > 120 | `performance` |
+| `giggle` | span < 20 AND centre 35–65 | `normalize` |
+| `plateau` | 20 ≤ span < 40 AND centre 35–65 | `amplitude_scale` |
+| `drift` | centre < 30 OR centre > 70 (span > 15) | `recenter` |
+| `half_stroke` | span > 30 AND centre 38–62 offset | `recenter` |
+| `drone` | duration > threshold AND cv_bpm < 0.10 | `beat_accent` |
+| `lazy` | BPM < 60 AND span < 50 | `amplitude_scale` |
+| `frantic` | BPM > 200 | `halve_tempo` |
+
+Tags and metrics are saved in the assessment JSON and are used by the
+Pattern Editor UI tab and the cross-funscript `catalog/pattern_catalog.py`.
+
 ## Real-world results (test funscripts)
 
 | File | Duration | Actions | Phases | Cycles | Patterns | Phrases | BPM transitions |
@@ -168,7 +195,13 @@ and are the primary signal used by the UI to suggest work-item boundaries.
       "cycle_count": 183,
       "oscillation_count": 183,
       "bpm": 127.0,
-      "description": "183 cycles of pattern 'up → down'"
+      "description": "183 cycles of pattern 'up → down'",
+      "tags": ["stingy"],
+      "metrics": {
+        "mean_pos": 50.2, "span": 82.0,
+        "mean_velocity": 0.42, "peak_velocity": 0.55,
+        "cv_bpm": 0.08, "duration_ms": 86421
+      }
     }
   ],
   "bpm_transitions": [

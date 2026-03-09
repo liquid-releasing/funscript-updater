@@ -50,6 +50,11 @@ Additional commands:
       [--param smooth_strength=0.05]    # final_smooth param override
       [--skip-seams] [--skip-smooth]    # disable either pass
 
+  python cli.py catalog [--catalog PATH]                       # show catalog summary
+  python cli.py catalog --tag stingy                           # list all stingy phrases
+  python cli.py catalog --remove Timeline1.original.funscript  # remove one entry
+  python cli.py catalog --clear                                # clear all entries
+
   python cli.py visualize path/to/input.funscript --assessment assessment.json [--output viz.png]
   python cli.py config --output transformer_config.json        # dump default transformer config
   python cli.py config --customizer --output cc.json           # dump customizer config
@@ -432,6 +437,69 @@ def cmd_finalize(args):
     print(f"\nSaved: {output}")
 
 
+def cmd_catalog(args):
+    """Inspect or manage the cross-funscript pattern catalog."""
+    from catalog.pattern_catalog import PatternCatalog
+
+    catalog_path = args.catalog or os.path.join(
+        os.path.dirname(__file__), "output", "pattern_catalog.json"
+    )
+    cat = PatternCatalog(catalog_path)
+
+    if args.clear:
+        cat._data["entries"] = []
+        cat.save()
+        print("Catalog cleared.")
+        return
+
+    if args.remove:
+        removed = cat.remove(args.remove)
+        if removed:
+            cat.save()
+            print(f"Removed: {args.remove}")
+        else:
+            print(f"Not found in catalog: {args.remove}")
+        return
+
+    if args.tag:
+        from assessment.classifier import TAGS
+        tag = args.tag
+        meta = TAGS.get(tag)
+        phrases = cat.get_phrases_for_tag(tag)
+        label = meta.label if meta else tag
+        print(f"Tag '{label}' — {len(phrases)} phrase(s) across {len({p['_funscript'] for p in phrases})} file(s)")
+        if meta:
+            print(f"  Description: {meta.description}")
+            print(f"  Suggested fix: {meta.suggested_transform} — {meta.fix_hint}")
+        for ph in phrases:
+            from utils import ms_to_timestamp
+            print(f"  [{ph['_funscript']}]  {ms_to_timestamp(ph['start_ms'])} → {ms_to_timestamp(ph['end_ms'])}"
+                  f"  BPM: {ph.get('bpm', 0):.1f}"
+                  f"  span: {ph.get('metrics', {}).get('span', 0):.1f}")
+        return
+
+    # Default: summary
+    s = cat.summary()
+    print(f"Catalog: {catalog_path}")
+    print(f"  Funscripts indexed : {s['funscripts_indexed']}")
+    print(f"  Tagged phrases     : {s['total_tagged_phrases']}")
+    if s["tags_found"]:
+        stats = cat.get_tag_stats()
+        print(f"  Tags found         : {', '.join(s['tags_found'])}")
+        print()
+        print(f"  {'Tag':<14}  {'Phrases':>7}  {'Files':>5}  {'BPM':>12}  {'Span':>12}")
+        print(f"  {'-'*14}  {'-'*7}  {'-'*5}  {'-'*12}  {'-'*12}")
+        for tag in s["tags_found"]:
+            st = stats[tag]
+            from assessment.classifier import TAGS
+            label = TAGS[tag].label if tag in TAGS else tag
+            bpm_range  = f"{st['bpm_min']}–{st['bpm_max']}"
+            span_range = f"{st['span_min']}–{st['span_max']}"
+            print(f"  {label:<14}  {st['count']:>7}  {st['funscripts']:>5}  {bpm_range:>12}  {span_range:>12}")
+    else:
+        print("  No tagged phrases yet — assess a funscript to populate the catalog.")
+
+
 def cmd_test(_args):
     import unittest
     root = os.path.dirname(__file__)
@@ -597,6 +665,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the final_smooth step.",
     )
 
+    # --- catalog ---
+    p_cat = sub.add_parser(
+        "catalog",
+        help="Inspect or manage the cross-funscript pattern catalog",
+    )
+    p_cat.add_argument(
+        "--catalog", metavar="PATH",
+        help="Path to catalog JSON (default: output/pattern_catalog.json)",
+    )
+    p_cat.add_argument(
+        "--tag", metavar="KEY",
+        help="Show all stored phrases for one behavioral tag (e.g. stingy, giggle)",
+    )
+    p_cat.add_argument(
+        "--remove", metavar="FUNSCRIPT",
+        help="Remove the entry for a specific funscript name",
+    )
+    p_cat.add_argument(
+        "--clear", action="store_true",
+        help="Remove all entries from the catalog",
+    )
+
     # --- test ---
     sub.add_parser("test", help="Run unit tests")
 
@@ -619,6 +709,7 @@ def main():
         "phrase-transform": cmd_phrase_transform,
         "customize":        cmd_customize,
         "finalize":         cmd_finalize,
+        "catalog":          cmd_catalog,
         "visualize":        cmd_visualize,
         "config":           cmd_config,
         "test":             cmd_test,

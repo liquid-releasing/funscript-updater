@@ -12,7 +12,10 @@ expressive performance sections, and gentle breaks.
 | Capability | Status |
 | --- | --- |
 | Structural analysis (phases, cycles, patterns, phrases, BPM transitions) | ✅ Available |
+| Behavioral classification (8 tags: stingy, giggle, drone, …) | ✅ Available |
+| Cross-funscript pattern catalog (persistent JSON) | ✅ Available |
 | Interactive assessment viewer (Streamlit UI) | ✅ Available |
+| Pattern Editor (batch-fix behavioral issues with transforms) | ✅ Available |
 | Work-item tagger (performance / break / raw / neutral) | ✅ Available |
 | Transform + customize pipeline | ✅ Available via CLI |
 | Transform + customize inside the UI | 🔜 Coming soon |
@@ -117,11 +120,15 @@ python cli.py assess path/to/file.funscript --output output/assessment.json
 
 ```text
 funscript-updater/
-├── assessment/               # Step 1: structural analysis
+├── assessment/               # Step 1: structural analysis + behavioral classification
 │   ├── analyzer.py           #   FunscriptAnalyzer
+│   ├── classifier.py         #   BehavioralTag, TAGS registry, annotate_phrases
 │   └── readme.md
-├── pattern_catalog/        # Step 2: BPM-threshold baseline transform
+├── catalog/                  # Cross-funscript pattern catalog
+│   └── pattern_catalog.py    #   PatternCatalog (persistent JSON)
+├── pattern_catalog/          # Step 2: BPM-threshold baseline transform
 │   ├── transformer.py        #   FunscriptTransformer
+│   ├── phrase_transforms.py  #   TRANSFORM_CATALOG (17 named transforms)
 │   └── config.py             #   TransformerConfig
 ├── user_customization/       # Step 3: window-based fine-tuning
 │   ├── customizer.py         #   WindowCustomizer
@@ -137,8 +144,8 @@ funscript-updater/
 │   │   ├── app.py
 │   │   └── panels/
 │   └── web/                  #   FastAPI + frontend (planned)
-├── tests/                    # Core pipeline unit tests (76 tests)
-├── models.py                 # Shared dataclasses
+├── tests/                    # Core pipeline unit tests
+├── models.py                 # Shared dataclasses (Phrase now carries tags + metrics)
 ├── utils.py                  # Timestamp helpers, low-pass filter
 ├── cli.py                    # CLI entry point
 └── requirements.txt
@@ -153,8 +160,12 @@ python cli.py assess    <funscript> [--output <path>] [--config <json>]
 python cli.py transform <funscript> --assessment <path> [--output <path>] [--config <json>]
 python cli.py customize <funscript> --assessment <path> [--output <path>]
                         [--perf <json>] [--break <json>] [--raw <json>] [--beats <json>]
+python cli.py phrase-transform <funscript> --assessment <path> [--transform KEY]
+                        [--phrase N] [--all] [--suggest] [--dry-run]
+python cli.py finalize  <funscript> [--output <path>] [--skip-seams] [--skip-smooth]
+python cli.py catalog   [--catalog <path>] [--tag TAG] [--remove FUNSCRIPT] [--clear]
 python cli.py visualize <funscript> --assessment <path> [--output <path>]
-python cli.py config    [--customizer] [--output <path>]
+python cli.py config    [--customizer] [--analyzer] [--output <path>]
 python cli.py test
 ```
 
@@ -163,9 +174,12 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline (76 tests)
+# Core pipeline (151+ tests)
 python -m unittest discover -s tests -v
 
-# UI layer (38 tests)
+# UI layer (45 tests)
 python -m unittest discover -s ui/common/tests -v
+
+# All at once
+python cli.py test
 ```

@@ -2,7 +2,7 @@
 
 Unit tests for the core pipeline modules.
 
-85 core tests + 21 CLI tests + 45 UI-layer tests = **151 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+151 core tests + 21 CLI tests + 45 UI-layer tests = **217 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -68,6 +68,21 @@ python -m unittest discover -s ui/common/tests -v
 | `TestCliPipeline` | Exit code, all three output files written, positions in range, perf window flag, stage summaries printed |
 | `TestCliConfig` | Transformer/customizer/analyzer config dump, config round-trip into transform command |
 
+### `test_classifier.py` — `assessment/classifier.py`
+
+| Class | What it covers |
+| --- | --- |
+| `TestTagRegistry` | All 8 tags present, each has required fields (key, label, description, color, suggested_transform, fix_hint) |
+| `TestComputePhraseMetrics` | Empty window defaults, span, mean_pos, duration_ms, peak_velocity ≥ mean, cv_bpm with/without cycles, out-of-window actions excluded |
+| `TestClassifyPhrase` | Each of the 8 tags detected and not detected, multi-tag co-existence, clean phrase produces empty list |
+| `TestAnnotatePhrases` | tags/metrics added in-place, `_cycles` temp key removed, multiple phrases, drone threshold respected, cv_bpm computed from cycles |
+
+### `test_pattern_catalog.py` — `catalog/pattern_catalog.py`
+
+| Class | What it covers |
+| --- | --- |
+| `TestPatternCatalog` | Empty summary, add_assessment (tagged vs untagged, replace, duration stored), save/load round-trip, corrupted file fallback, remove, get_tag_stats (count, funscripts, BPM range, all keys), get_phrases_for_tag (filter, _funscript key), funscript_names, summary tags sorted |
+
 ### `test_integration.py` — full pipeline chain
 
 | Class | What it covers |
@@ -87,7 +102,9 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_transformer.py` | 15 |
 | `test_customizer.py` | 12 |
 | `test_utils.py` | 24 |
+| `test_classifier.py` | 36 |
+| `test_pattern_catalog.py` | 29 |
 | `test_integration.py` | 9 |
 | `test_cli.py` | 21 |
 | `ui/common/tests/` | 45 |
-| **Total** | **151** |
+| **Total** | **216** |
