@@ -315,7 +315,6 @@ def _render_instance_table(
     sel = st.dataframe(
         df,
         hide_index=True,
-        use_container_width=True,
         on_select="rerun",
         selection_mode="single-row",
         key=f"pe_instance_table_{selected_label}",

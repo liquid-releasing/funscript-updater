@@ -118,7 +118,6 @@ def _render_funscript_section(project, phrases: List[dict], catalog) -> None:
     sel = st.dataframe(
         df,
         hide_index=True,
-        use_container_width=True,
         on_select="rerun",
         selection_mode="single-row",
         key="cv_tag_table",
@@ -192,8 +191,7 @@ def _render_behavioral_timeline(rows: List[dict], duration_ms: int) -> None:
         ),
     )
 
-    st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True,
-                    key="cv_timeline")
+    st.plotly_chart(fig, config={"displayModeBar": False}, key="cv_timeline")
 
 
 def _render_sample_chart(project, phrase: dict, tag: str) -> None:
@@ -236,8 +234,7 @@ def _render_sample_chart(project, phrase: dict, tag: str) -> None:
     chart = FunscriptChart(s, [], "", end_ms - start_ms)
     fig   = chart._build_figure(_VS(), height=180)
     fig.update_xaxes(range=[start_ms, end_ms], autorange=False)
-    st.plotly_chart(fig, config={"displayModeBar": False},
-                    use_container_width=True, key=f"cv_sample_{tag}")
+    st.plotly_chart(fig, config={"displayModeBar": False}, key=f"cv_sample_{tag}")
 
     # Metrics row
     m = phrase.get("metrics", {})
@@ -300,8 +297,7 @@ def _render_library_section(catalog) -> None:
                    tickfont=dict(color="rgba(180,180,180,0.7)", size=9),
                    title=dict(text="phrases", font=dict(size=9, color="rgba(180,180,180,0.6)"))),
     )
-    st.plotly_chart(fig, config={"displayModeBar": False},
-                    use_container_width=True, key="cv_lib_bar")
+    st.plotly_chart(fig, config={"displayModeBar": False}, key="cv_lib_bar")
 
     # --- Aggregate stats table ---
     import pandas as pd
@@ -322,7 +318,6 @@ def _render_library_section(catalog) -> None:
     st.dataframe(
         pd.DataFrame(table_rows),
         hide_index=True,
-        use_container_width=True,
         key="cv_lib_table",
     )
 
@@ -345,6 +340,5 @@ def _render_library_section(catalog) -> None:
         st.dataframe(
             pd.DataFrame(file_rows),
             hide_index=True,
-            use_container_width=True,
             key="cv_file_table",
         )
