@@ -98,23 +98,38 @@ def _render_funscript_section(project, phrases: List[dict], catalog) -> None:
         lo, hi = round(min(lst), 1), round(max(lst), 1)
         return f"{lo}–{hi}" if lo != hi else str(lo)
 
-    hcols = st.columns([2.2, 0.7, 2.0, 2.0, 1.5, 4.5])
-    for h, lbl in zip(hcols, ["Tag", "Phrases", "BPM range", "Span range", "Centre", "Fix"]):
-        h.caption(lbl)
-
     for tag, phs in sorted(tag_groups.items(), key=lambda x: -len(x[1])):
         meta    = TAGS.get(tag)
         bpms    = [p.get("bpm", 0) for p in phs if p.get("bpm", 0) > 0]
         spans   = [p.get("metrics", {}).get("span", 0) for p in phs]
-        m_poses = [p.get("metrics", {}).get("mean_pos", 50) for p in phs]
+        label   = meta.label if meta else tag.title()
+        hint    = meta.fix_hint if meta else "—"
 
-        rc = st.columns([2.2, 0.7, 2.0, 2.0, 1.5, 4.5])
-        rc[0].write(meta.label if meta else tag.title())
-        rc[1].write(len(phs))
-        rc[2].write(_rng(bpms))
-        rc[3].write(_rng(spans))
-        rc[4].write(_rng(m_poses))
-        rc[5].write(meta.fix_hint if meta else "—")
+        bpm_str  = _rng(bpms)
+        span_str = _rng(spans)
+        header   = f"**{label}** — {len(phs)} phrase{'s' if len(phs) != 1 else ''} · BPM {bpm_str} · span {span_str}"
+
+        with st.expander(header, expanded=False):
+            st.caption(f"Fix: {hint}")
+            st.markdown("")
+
+            ph_hcols = st.columns([2.5, 1.2, 1.2, 1.0])
+            for h, lbl in zip(ph_hcols, ["Time range", "BPM", "Span", ""]):
+                h.caption(lbl)
+
+            for j, ph in enumerate(sorted(phs, key=lambda p: p["start_ms"])):
+                time_str = f"{ms_to_timestamp(ph['start_ms'])} → {ms_to_timestamp(ph['end_ms'])}"
+                bpm_val  = ph.get("bpm", 0)
+                span_val = ph.get("metrics", {}).get("span", 0)
+
+                pr = st.columns([2.5, 1.2, 1.2, 1.0])
+                pr[0].write(time_str)
+                pr[1].write(f"{bpm_val:.1f}")
+                pr[2].write(f"{span_val:.0f}")
+                if pr[3].button("Edit", key=f"cv_edit_{tag}_{j}"):
+                    st.session_state.view_state.set_selection(ph["start_ms"], ph["end_ms"])
+                    st.session_state.goto_tab = 1
+                    st.rerun()
 
 
 def _render_behavioral_timeline(rows: List[dict], duration_ms: int) -> None:
