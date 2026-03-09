@@ -75,17 +75,59 @@ _TAG_FIT: Dict[str, List[str]] = {
 # Synthetic waveform generator (fixed, deterministic)
 # ---------------------------------------------------------------------------
 
-def _make_preview_actions(n_cycles: int = 6) -> List[Dict[str, int]]:
-    """Return a clean sinusoidal funscript waveform for transform preview."""
-    points_per_cycle = 12
-    dt_ms = 80
-    actions = []
-    total = n_cycles * points_per_cycle
-    for i in range(total):
-        t   = i * dt_ms
-        pos = int(50 + 50 * math.sin(2 * math.pi * i / points_per_cycle))
-        actions.append({"at": t, "pos": max(0, min(100, pos))})
-    return actions
+def _make_preview_actions() -> List[Dict[str, int]]:
+    """Return a varied funscript waveform that clearly shows transform effects.
+
+    Six distinct sections:
+      0–1200 ms   Full-stroke moderate tempo  — baseline (0↔100)
+      1200–2200   Partial amplitude / stingy  — strokes only reach 25–70
+      2200–3000   Fast beats / frantic        — double tempo, full stroke
+      3000–3900   Slow wide strokes           — half tempo, full stroke
+      3900–4800   Drifted upward              — strokes centred around 75 (50–100)
+      4800–5600   Return to full-stroke       — same as section 1
+    """
+    pts = [
+        # --- section 1: full stroke, moderate tempo ---
+        (0,    0),
+        (200,  100),
+        (400,  0),
+        (600,  100),
+        (800,  0),
+        (1000, 100),
+        (1200, 0),
+        # --- section 2: partial amplitude (stingy / plateau) ---
+        (1380, 25),
+        (1560, 70),
+        (1740, 25),
+        (1920, 70),
+        (2100, 25),
+        (2200, 30),
+        # --- section 3: fast beats (frantic) ---
+        (2300, 100),
+        (2400, 0),
+        (2500, 100),
+        (2600, 0),
+        (2700, 100),
+        (2800, 0),
+        (2900, 100),
+        (3000, 0),
+        # --- section 4: slow wide strokes ---
+        (3300, 100),
+        (3600, 0),
+        (3900, 100),
+        # --- section 5: drifted upward (half-stroke / drift) ---
+        (4100, 50),
+        (4300, 100),
+        (4500, 50),
+        (4700, 100),
+        (4800, 50),
+        # --- section 6: full stroke return ---
+        (5000, 0),
+        (5200, 100),
+        (5400, 0),
+        (5600, 100),
+    ]
+    return [{"at": t, "pos": p} for t, p in pts]
 
 
 _PREVIEW_ACTIONS = _make_preview_actions()
