@@ -116,6 +116,9 @@ and is independent of the bulk pipeline transformer.
 | `boost_contrast` | Boost Contrast | Pushes positions toward 0 and 100, away from the midpoint | Flat-feeling phrases where peaks/troughs don't reach the extremes |
 | `shift` | Shift | Adds a fixed offset to every position (positive = up, negative = down), clamped to 0–100 — amplitude preserved unless a boundary is hit | Nudge the whole phrase up or down without changing stroke depth |
 | `recenter` | Recenter | Shifts all positions so the phrase midpoint lands at a target value — amplitude span unchanged | Reposition a phrase oscillating in the wrong zone, e.g. centre at 70 instead of 50 |
+| `break` | Break | Pulls all positions toward centre 50 by a `reduce` fraction, then applies LPF smoothing — equivalent to a gentle amplitude_scale + smooth in one step | Rest, recovery, or transition sections; tones down intensity without removing motion entirely |
+| `performance` | Performance | Velocity-capped, reversal-softened strokes with range compression and optional LPF — three passes: (1) cap pos-change/ms, (2) blend direction-change reversals, (3) clamp range + smooth | Intense high-BPM phrases that need realistic device shaping; prevents mechanical overshoot at stroke reversals |
+| `three_one` | Three-One Pulse | Groups beats into blocks of 4: beats 1–3 are strokes (amplitude-scaled around the group centre), beat 4 is a flat hold at the group centre — timestamps unchanged | Fast up-down patterns where you want a rest beat every 4th; optional `range_lo`/`range_hi` caps limit stroke depth |
 | `halve_tempo` | Halve Tempo | Keeps every other stroke cycle (temporal decimation), retimed evenly over the same phrase duration — *structural* transform, returns fewer actions | Very fast phrases where you want half the BPM with the same amplitude and duration |
 
 ### CLI usage (`phrase-transform` command)
@@ -163,6 +166,39 @@ python cli.py phrase-transform input.funscript \
     --assessment assessment.json \
     --transform recenter --phrase 3 \
     --param target_center=70
+
+# Break mode on a rest phrase (default: 40% amplitude reduction + 0.30 LPF smoothing)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform break --phrase 2
+
+# Break with stronger reduction and heavier smoothing
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform break --phrase 2 \
+    --param reduce=0.60 --param lpf_strength=0.40
+
+# Performance shaping on a fast phrase (default settings from six_task_transformer)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform performance --phrase 1
+
+# Performance with tighter velocity cap and wider range
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform performance --phrase 1 \
+    --param max_velocity=0.20 --param range_lo=10 --param range_hi=95
+
+# Three-one pulse on a fast phrase (every 4th beat becomes a flat hold)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform three_one --phrase 1
+
+# Three-one pulse with amplitude boost and range cap (20–80)
+python cli.py phrase-transform input.funscript \
+    --assessment assessment.json \
+    --transform three_one --phrase 1 \
+    --param amplitude_scale=1.5 --param range_lo=20 --param range_hi=80
 
 # Halve the tempo of a very fast phrase (keeps same duration and amplitude)
 python cli.py phrase-transform input.funscript \

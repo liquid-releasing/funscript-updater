@@ -491,7 +491,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pt.add_argument("--output", help="Path for output .funscript (default: *_phrase_transformed.funscript)")
     p_pt.add_argument(
         "--transform", metavar="KEY",
-        help=f"Transform to apply. One of: {', '.join(['passthrough','amplitude_scale','normalize','smooth','clamp_upper','clamp_lower','invert','boost_contrast','shift','recenter','halve_tempo'])}",
+        help=f"Transform to apply. One of: {', '.join(['passthrough','amplitude_scale','normalize','smooth','clamp_upper','clamp_lower','invert','boost_contrast','shift','recenter','break','performance','three_one','halve_tempo'])}",
     )
     p_pt.add_argument(
         "--phrase", type=int, metavar="N", action="append",
