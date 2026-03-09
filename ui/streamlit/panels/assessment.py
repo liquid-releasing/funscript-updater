@@ -137,8 +137,9 @@ def _render_phrases_section(phrases: List[Dict], project: "Project") -> None:
         rc[4].write(desc)
         rc[5].write(tag_labels)
         if rc[6].button("Focus", key=f"ph_focus_{i}"):
-            st.session_state.view_state.set_zoom(ph["start_ms"], ph["end_ms"])
-            st.toast("Switch to the Phrase Editor tab", icon="ℹ️")
+            st.session_state.view_state.set_selection(ph["start_ms"], ph["end_ms"])
+            st.session_state.goto_tab = 1
+            st.rerun()
 
 
 def _render_phrases_timeline(phrases: List[Dict]) -> None:
@@ -241,10 +242,11 @@ def _render_bpm_transitions_section(
                 if surrounding is None and phrases:
                     surrounding = min(phrases, key=lambda p: abs(p["start_ms"] - at_ms))
                 if surrounding:
-                    st.session_state.view_state.set_zoom(
+                    st.session_state.view_state.set_selection(
                         surrounding["start_ms"], surrounding["end_ms"]
                     )
-                st.toast("Switch to the Phrase Editor tab", icon="ℹ️")
+                st.session_state.goto_tab = 1
+                st.rerun()
     else:
         st.info("No significant BPM transitions detected — tempo is uniform throughout.")
 

@@ -385,7 +385,7 @@ def _apply_transform_to_window(
 def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: int) -> None:
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER, suggest_transform
 
-    suggested_key = suggest_transform(phrase, bpm_threshold)
+    suggested_key, _ = suggest_transform(phrase, bpm_threshold)
     keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
     labels = [TRANSFORM_CATALOG[k].name for k in keys]
 
