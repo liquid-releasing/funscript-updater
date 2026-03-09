@@ -242,5 +242,76 @@ class TestCliConfig(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+class TestCliExportPlan(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.assessment = os.path.join(self.tmp, "assessment.json")
+        run("assess", FIXTURE, "--output", self.assessment)
+
+    def test_exits_zero(self):
+        rc, _, _ = run("export-plan", FIXTURE, "--assessment", self.assessment)
+        self.assertEqual(rc, 0)
+
+    def test_prints_table_header(self):
+        _, stdout, _ = run("export-plan", FIXTURE, "--assessment", self.assessment)
+        self.assertIn("Transform", stdout)
+        self.assertIn("Source", stdout)
+        self.assertIn("BPM", stdout)
+
+    def test_no_recommended_shows_zero_transforms(self):
+        _, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment, "--no-recommended"
+        )
+        self.assertIn("0 transform", stdout)
+
+    def test_json_format_is_valid(self):
+        rc, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment, "--format", "json"
+        )
+        self.assertEqual(rc, 0)
+        data = json.loads(stdout)
+        self.assertIsInstance(data, list)
+        if data:
+            self.assertIn("phrase", data[0])
+            self.assertIn("transform", data[0])
+            self.assertIn("bpm", data[0])
+
+    def test_transforms_file_override(self):
+        overrides = os.path.join(self.tmp, "overrides.json")
+        with open(overrides, "w") as f:
+            json.dump({"1": {"transform": "normalize"}}, f)
+        _, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment,
+            "--no-recommended", "--transforms", overrides,
+        )
+        self.assertIn("Normalize", stdout)
+        self.assertIn("Manual", stdout)
+
+    def test_apply_writes_funscript(self):
+        out = os.path.join(self.tmp, "export.funscript")
+        rc, _, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment,
+            "--apply", "--output", out,
+        )
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(out))
+        with open(out) as f:
+            data = json.load(f)
+        self.assertIn("actions", data)
+        for a in data["actions"]:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    def test_dry_run_writes_no_file(self):
+        out = os.path.join(self.tmp, "should_not_exist.funscript")
+        rc, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment,
+            "--dry-run", "--output", out,
+        )
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.exists(out))
+        self.assertIn("dry-run", stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

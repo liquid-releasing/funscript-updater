@@ -2,7 +2,7 @@
 
 Unit tests for the core pipeline modules and UI-panel split logic.
 
-394 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **454 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+404 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **464 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -67,6 +67,7 @@ python -m unittest discover -s ui/common/tests -v
 | `TestCliCustomize` | Exit code, valid funscript output, perf window flag, missing window file handled gracefully |
 | `TestCliPipeline` | Exit code, all three output files written, positions in range, perf window flag, stage summaries printed |
 | `TestCliConfig` | Transformer/customizer/analyzer config dump, config round-trip into transform command |
+| `TestCliExportPlan` | Exit code, table header output, `--no-recommended` empty plan, `--format json` valid JSON, `--transforms` file override, `--apply` writes valid funscript, `--dry-run` writes no file |
 
 ### `test_classifier.py` — `assessment/classifier.py`
 
@@ -82,6 +83,15 @@ python -m unittest discover -s ui/common/tests -v
 | Class | What it covers |
 | --- | --- |
 | `TestPatternCatalog` | Empty summary, add_assessment (tagged vs untagged, replace, duration stored), save/load round-trip, corrupted file fallback, remove, get_tag_stats (count, funscripts, BPM range, all keys), get_phrases_for_tag (filter, _funscript key), funscript_names, summary tags sorted |
+
+### `test_phrase_transforms.py` — `pattern_catalog/phrase_transforms.py`
+
+| Class | What it covers |
+| --- | --- |
+| `TestCatalogStructure` | All 17 keys present, each entry is a `PhraseTransform`, key matches `spec.key`, name/description non-empty, params are `TransformParam` instances; `TRANSFORM_ORDER` covers all catalog keys, contains no unknown keys, has no duplicates |
+| `TestTransformApply` | Each transform's `apply()` output: length, position range `[0, 100]`, structural transforms, edge cases (empty/short input) |
+| `TestSuggestTransform` | Transition label → smooth; low BPM → passthrough; high BPM + narrow → normalize; high BPM + wide → amplitude_scale |
+| `TestTransformParam` | Required fields present, optional fields default to None/empty |
 
 ### `test_pattern_editor_splits.py` — Pattern Editor split-segment logic
 
@@ -116,8 +126,9 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_classifier.py` | 36 |
 | `test_pattern_catalog.py` | 29 |
 | `test_pattern_editor_splits.py` | 47 |
+| `test_phrase_transforms.py` | 148 |
 | `test_integration.py` | 9 |
-| `test_cli.py` | 21 |
+| `test_cli.py` | 28 |
 | other modules | *(see `tests/` directory)* |
 | `ui/common/tests/` | 60 |
-| **Total** | **454** |
+| **Total** | **464** |

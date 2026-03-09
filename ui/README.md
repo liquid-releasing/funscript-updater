@@ -97,7 +97,7 @@ live Before/After charts with interactive sliders.
 
 ### 6. Export
 
-Summary tables of typed work items and a **Write JSON files** button.
+Transform change log showing every planned transform (from Phrase Editor, Pattern Editor, or auto-recommended) with start/end time, duration, transform name, source, and before → after BPM / cycle count.  Each row has a 🗑 reject button.  A **Download edited funscript** button builds and streams the result.  Also accessible via `python cli.py export-plan`.
 
 ---
 
@@ -114,6 +114,6 @@ Summary tables of typed work items and a **Write JSON files** button.
 # UI common-layer tests (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# Full test suite (454 tests)
+# Full test suite (464 tests)
 python cli.py test
 ```

@@ -261,6 +261,9 @@ def _render_bpm_step_chart(phrases: List[Dict], transitions: List[Dict]) -> None
         xs.append(mid)
         ys.append(round(ph.get("bpm", 0.0), 1))
 
+    duration_ms = phrases[-1]["end_ms"]
+    long_chart = duration_ms > 900_000  # > 15 minutes
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=xs,
@@ -283,17 +286,35 @@ def _render_bpm_step_chart(phrases: List[Dict], transitions: List[Dict]) -> None
             line=dict(color="#e84855", width=1, dash="dash"),
         ))
 
+    xaxis_cfg: dict = dict(
+        gridcolor=_GRID,
+        zeroline=False,
+        title=None,
+    )
+    if long_chart:
+        from math import ceil as _ceil
+        # Compute human-readable ticks spaced to avoid overlap
+        span = duration_ms
+        _candidates = [60_000, 120_000, 300_000, 600_000, 900_000, 1_800_000]
+        _step = _candidates[-1]
+        for _c in _candidates:
+            if span / _c <= 20:
+                _step = _c
+                break
+        _first = _ceil(0 / _step) * _step or _step
+        _vals = list(range(_first, duration_ms + 1, _step))
+        from utils import ms_to_timestamp as _mts
+        xaxis_cfg["tickvals"] = _vals
+        xaxis_cfg["ticktext"] = [_mts(v) for v in _vals]
+        xaxis_cfg["tickangle"] = -45
+
     fig.update_layout(
         height=160,
-        margin=dict(l=40, r=10, t=10, b=30),
+        margin=dict(l=40, r=10, t=10, b=60 if long_chart else 30),
         paper_bgcolor=_BG,
         plot_bgcolor=_BG,
         shapes=shapes,
-        xaxis=dict(
-            gridcolor=_GRID,
-            zeroline=False,
-            title=None,
-        ),
+        xaxis=xaxis_cfg,
         yaxis=dict(
             gridcolor=_GRID,
             zeroline=False,

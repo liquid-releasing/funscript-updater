@@ -55,6 +55,15 @@ Additional commands:
       [--param smooth_strength=0.05]    # final_smooth param override
       [--skip-seams] [--skip-smooth]    # disable either pass
 
+  python cli.py export-plan path/to/input.funscript            # show export-tab transform plan
+      [--assessment assessment.json]                           # use cached assessment
+      [--transforms overrides.json]                           # per-phrase manual overrides
+      [--no-recommended]                                       # skip auto-suggestions
+      [--bpm-threshold 120]                                    # threshold for recommendations
+      [--format table|json]                                    # output format (default: table)
+      [--apply] [--output out.funscript]                       # write the result
+      [--dry-run]                                              # print plan only
+
   python cli.py catalog [--catalog PATH]                       # show catalog summary
   python cli.py catalog --tag stingy                           # list all stingy phrases
   python cli.py catalog --remove Timeline1.original.funscript  # remove one entry
@@ -343,7 +352,7 @@ def cmd_phrase_transform(args):
     for idx in indices:
         phrase = phrase_dicts[idx]
         if args.suggest:
-            key = suggest_transform(phrase, bpm_threshold)
+            key, _ = suggest_transform(phrase, bpm_threshold)
         else:
             key = args.transform
             if key not in TRANSFORM_CATALOG:
@@ -503,6 +512,221 @@ def cmd_catalog(args):
             print(f"  {label:<14}  {st['count']:>7}  {st['funscripts']:>5}  {bpm_range:>12}  {span_range:>12}")
     else:
         print("  No tagged phrases yet — assess a funscript to populate the catalog.")
+
+
+def cmd_export_plan(args):
+    """Show (and optionally apply) the export-tab transform plan for a funscript."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from models import AssessmentResult
+    from utils import ms_to_timestamp
+    import copy
+
+    # --- load assessment (run fresh if not provided) ---
+    if args.assessment:
+        assessment = AssessmentResult.load(args.assessment)
+    else:
+        from assessment.analyzer import FunscriptAnalyzer
+        analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
+        analyzer.load(args.funscript)
+        assessment = analyzer.analyze()
+
+    phrase_dicts = []
+    for p in assessment.phrases:
+        d = p if isinstance(p, dict) else {
+            "start_ms":       p.start_ms,
+            "end_ms":         p.end_ms,
+            "bpm":            getattr(p, "bpm", 0),
+            "cycle_count":    getattr(p, "cycle_count", None),
+            "pattern_label":  getattr(p, "pattern_label", ""),
+            "amplitude_span": getattr(p, "amplitude_span", 100),
+            "tags":           list(getattr(p, "tags", []) or []),
+        }
+        phrase_dicts.append(d)
+
+    if not phrase_dicts:
+        print("No phrases found — run an assessment first.")
+        sys.exit(1)
+
+    # --- load per-phrase override file (optional) ---
+    # Format: {"1": {"transform": "normalize", "params": {...}}, "3": "passthrough", ...}
+    # Keys are 1-based phrase numbers (strings or ints).
+    overrides: dict = {}
+    if args.transforms:
+        with open(args.transforms) as f:
+            raw = json.load(f)
+        for k, v in raw.items():
+            idx = int(k) - 1   # convert 1-based → 0-based
+            if isinstance(v, str):
+                overrides[idx] = {"transform": v, "params": {}}
+            else:
+                overrides[idx] = {
+                    "transform": v.get("transform", "passthrough"),
+                    "params":    v.get("params", {}),
+                }
+
+    bpm_threshold = args.bpm_threshold or 120.0
+    include_recommended = not args.no_recommended
+
+    # --- build plan ---
+    plan = []   # list of dicts
+    for idx, phrase in enumerate(phrase_dicts):
+        tx_key:    str  = None
+        tx_params: dict = {}
+        source:    str  = None
+
+        # 1. Manual override from --transforms file
+        if idx in overrides:
+            entry_tx = overrides[idx]["transform"]
+            if entry_tx and entry_tx != "passthrough":
+                tx_key    = entry_tx
+                tx_params = overrides[idx]["params"]
+                source    = "Manual"
+
+        # 2. Recommended (untouched phrases)
+        if not tx_key and include_recommended:
+            rec, rec_params = suggest_transform(phrase, bpm_threshold)
+            if rec and rec != "passthrough":
+                tx_key    = rec
+                tx_params = rec_params
+                source    = "Recommended"
+
+        if not tx_key:
+            continue
+
+        if tx_key not in TRANSFORM_CATALOG:
+            print(f"Warning: unknown transform {tx_key!r} for phrase {idx + 1} — skipping.")
+            continue
+
+        old_bpm    = phrase.get("bpm", 0.0)
+        old_cycles = phrase.get("cycle_count") or 0
+        new_bpm    = (old_bpm / 2)    if tx_key == "halve_tempo" else None
+        new_cycles = (old_cycles // 2) if tx_key == "halve_tempo" else None
+
+        spec    = TRANSFORM_CATALOG[tx_key]
+        tx_name = spec.name
+
+        plan.append({
+            "phrase_idx":  idx,
+            "start_ms":    phrase["start_ms"],
+            "end_ms":      phrase["end_ms"],
+            "tx_key":      tx_key,
+            "tx_name":     tx_name,
+            "tx_params":   tx_params,
+            "source":      source,
+            "old_bpm":     old_bpm,
+            "new_bpm":     new_bpm,
+            "old_cycles":  old_cycles,
+            "new_cycles":  new_cycles,
+        })
+
+    # --- output ---
+    if args.format == "json":
+        out = []
+        for e in plan:
+            row = {
+                "phrase":     e["phrase_idx"] + 1,
+                "start":      ms_to_timestamp(e["start_ms"]),
+                "end":        ms_to_timestamp(e["end_ms"]),
+                "duration_s": round((e["end_ms"] - e["start_ms"]) / 1000, 1),
+                "transform":  e["tx_name"],
+                "source":     e["source"],
+                "bpm":        {
+                    "old": round(e["old_bpm"], 1),
+                    **({"new": round(e["new_bpm"], 1)} if e["new_bpm"] is not None else {}),
+                },
+                "cycles":     {
+                    "old": e["old_cycles"],
+                    **({"new": e["new_cycles"]} if e["new_cycles"] is not None else {}),
+                },
+            }
+            out.append(row)
+        print(json.dumps(out, indent=2))
+    else:
+        # Human-readable table
+        n = len(plan)
+        rec_n  = sum(1 for e in plan if e["source"] == "Recommended")
+        man_n  = n - rec_n
+        print(f"Export plan: {n} transform{'s' if n != 1 else ''}"
+              f"  ({man_n} manual, {rec_n} recommended)")
+        print(f"  BPM threshold for recommendations: {bpm_threshold}")
+        print()
+
+        _W = (3, 29, 7, 24, 13, 18, 8)
+        _HDR = ("#", "Time", "Dur(s)", "Transform", "Source", "BPM", "Cycles")
+        _sep = "  ".join(f"{h:<{w}}" for h, w in zip(_HDR, _W))
+        print(_sep)
+        print("-" * len(_sep))
+
+        for e in plan:
+            time_str = (f"{ms_to_timestamp(e['start_ms'])} -> "
+                        f"{ms_to_timestamp(e['end_ms'])}")
+            dur_s    = f"{(e['end_ms'] - e['start_ms']) / 1000:.1f}"
+
+            if e["new_bpm"] is not None:
+                bpm_str = f"{e['old_bpm']:.1f} -> {e['new_bpm']:.1f}"
+            else:
+                bpm_str = f"{e['old_bpm']:.1f}"
+
+            if e["new_cycles"] is not None:
+                cyc_str = f"{e['old_cycles']} -> {e['new_cycles']}"
+            else:
+                cyc_str = str(e["old_cycles"])
+
+            row = (
+                str(e["phrase_idx"] + 1),
+                time_str,
+                dur_s,
+                e["tx_name"],
+                e["source"],
+                bpm_str,
+                cyc_str,
+            )
+            print("  ".join(f"{v:<{w}}" for v, w in zip(row, _W)))
+
+        print()
+        if not plan:
+            print("No transforms to apply (all phrases are passthrough).")
+
+    if not plan:
+        return
+
+    if args.dry_run:
+        print("--dry-run: no file written.")
+        return
+
+    if not args.apply and not args.output:
+        return
+
+    # --- apply transforms ---
+    with open(args.funscript) as f:
+        fs_data = json.load(f)
+    result = copy.deepcopy(fs_data.get("actions", []))
+
+    for e in plan:
+        spec     = TRANSFORM_CATALOG[e["tx_key"]]
+        start_ms = e["start_ms"]
+        end_ms   = e["end_ms"]
+        params   = e["tx_params"] or {}
+
+        phrase_slice = [a for a in result if start_ms <= a["at"] <= end_ms]
+        transformed  = spec.apply(phrase_slice, params if params else None)
+        if not transformed:
+            continue
+
+        if spec.structural:
+            outside = [a for a in result if not (start_ms <= a["at"] <= end_ms)]
+            result  = sorted(outside + transformed, key=lambda a: a["at"])
+        else:
+            t_to_pos = {a["at"]: a["pos"] for a in transformed}
+            for a in result:
+                if a["at"] in t_to_pos:
+                    a["pos"] = t_to_pos[a["at"]]
+
+    fs_data["actions"] = result
+    output = args.output or _default_path(args.funscript, "_export.funscript")
+    with open(output, "w") as f:
+        json.dump(fs_data, f, indent=2)
+    print(f"Saved: {output}")
 
 
 def cmd_test(_args):
@@ -692,6 +916,57 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remove all entries from the catalog",
     )
 
+    # --- export-plan ---
+    p_ep = sub.add_parser(
+        "export-plan",
+        help="Show the export-tab transform plan (recommended + manual) for a funscript",
+    )
+    p_ep.add_argument("funscript", help="Path to source .funscript file")
+    p_ep.add_argument(
+        "--assessment", metavar="PATH",
+        help="Path to an existing assessment JSON (omit to run a fresh assessment)",
+    )
+    p_ep.add_argument(
+        "--transforms", metavar="PATH",
+        help=(
+            "JSON file of per-phrase overrides.  Format: "
+            '{\"1\": {\"transform\": \"normalize\", \"params\": {}}, \"3\": \"halve_tempo\", ...}  '
+            "(keys are 1-based phrase numbers)"
+        ),
+    )
+    p_ep.add_argument(
+        "--no-recommended", action="store_true",
+        help="Show only manually-specified transforms; skip auto-suggestions",
+    )
+    p_ep.add_argument(
+        "--bpm-threshold", type=float, default=120.0, metavar="BPM",
+        help="BPM threshold for the suggested-transform logic (default: 120.0)",
+    )
+    p_ep.add_argument(
+        "--format", choices=["table", "json"], default="table",
+        help="Output format: human-readable table (default) or JSON",
+    )
+    p_ep.add_argument(
+        "--apply", action="store_true",
+        help="Apply the plan and write the output funscript (use --output to set path)",
+    )
+    p_ep.add_argument(
+        "--output", metavar="PATH",
+        help="Output .funscript path (implies --apply; default: *_export.funscript)",
+    )
+    p_ep.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the plan without writing any file",
+    )
+    p_ep.add_argument(
+        "--min-phrase-duration", type=float, metavar="SECONDS",
+        help="(fresh assessment only) Merge phrases shorter than this many seconds",
+    )
+    p_ep.add_argument(
+        "--amplitude-tolerance", type=float, metavar="FRACTION",
+        help="(fresh assessment only) Phrase break sensitivity",
+    )
+
     # --- test ---
     sub.add_parser("test", help="Run unit tests")
 
@@ -714,6 +989,7 @@ def main():
         "phrase-transform": cmd_phrase_transform,
         "customize":        cmd_customize,
         "finalize":         cmd_finalize,
+        "export-plan":      cmd_export_plan,
         "catalog":          cmd_catalog,
         "visualize":        cmd_visualize,
         "config":           cmd_config,

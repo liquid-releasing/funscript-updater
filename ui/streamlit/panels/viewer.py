@@ -339,12 +339,18 @@ def _render_phrase_info(view_state, phrases: list) -> None:
         st.markdown(f"### P{phrase_idx + 1}")
     with col_a:
         import pandas as pd
+        from assessment.classifier import TAGS
+        raw_tags = phrase.get("tags") or []
+        if raw_tags:
+            behavior = ", ".join(TAGS[t].label if t in TAGS else t for t in raw_tags)
+        else:
+            behavior = (phrase.get("pattern_label") or "—").replace("->", "→")
         row = {
             "Start":    ms_to_timestamp(start),
             "End":      ms_to_timestamp(end),
             "Duration": f"{duration_ms / 1000:.1f} s",
             "BPM":      f"{phrase.get('bpm', 0):.1f}",
-            "Pattern":  phrase.get("pattern_label", "—"),
+            "Behavior": behavior,
             "Cycles":   phrase.get("cycle_count", "—"),
         }
         st.dataframe(pd.DataFrame([row]), hide_index=True, width="stretch")

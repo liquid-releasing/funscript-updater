@@ -36,6 +36,7 @@ from ui.common.view_state import ViewState
 from ui.common.work_items import ItemType, WorkItem  # WorkItem kept for sidebar manual-add
 from ui.streamlit.panels import assessment as assessment_panel
 from ui.streamlit.panels import catalog_view as catalog_view_panel
+from ui.streamlit.panels import export_panel
 from ui.streamlit.panels import pattern_editor as pattern_editor_panel
 from ui.streamlit.panels import transform_catalog as transform_catalog_panel
 from ui.streamlit.panels import viewer as viewer_panel
@@ -187,6 +188,7 @@ def _sidebar() -> None:
             st.session_state.last_loaded_cfg  = cfg_key
             st.session_state.last_loaded_file = selected_file
             st.session_state.view_state       = ViewState()
+            st.session_state.export_rejected  = set()
 
             # Auto-update the pattern catalog with this funscript's tagged phrases
             try:
@@ -319,7 +321,7 @@ def _main() -> None:
         transform_catalog_panel.render()
 
     with tab_export:
-        _render_export_tab(project)
+        export_panel.render(project)
 
 
 def _render_viewer_tab(project: Project) -> None:
@@ -353,36 +355,6 @@ def _commit_actions(project: Project, committed_actions: list) -> None:
     os.unlink(tmp_path)
     st.success("Committed. Assessment rebuilt.")
     st.rerun()
-
-
-def _render_export_tab(project: Project) -> None:
-    st.subheader("Export")
-
-    typed = [w for w in project.work_items if w.item_type != ItemType.NEUTRAL]
-    if not typed:
-        st.info("Tag some work items as Performance, Break, or Raw first.")
-        return
-
-    for itype, label, icon in [
-        (ItemType.PERFORMANCE, "Performance", "🔥"),
-        (ItemType.BREAK, "Break", "🌊"),
-        (ItemType.RAW, "Raw", "🎯"),
-    ]:
-        items = [w for w in project.work_items if w.item_type == itype]
-        if items:
-            st.markdown(f"**{icon} {label} windows ({len(items)})**")
-            rows = [{"start": w.start_ts, "end": w.end_ts, "label": w.label or "—"} for w in items]
-            import pandas as pd
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-    st.divider()
-    if st.button("Write JSON files", type="primary"):
-        written = project.export_windows(st.session_state.output_dir)
-        if written:
-            for type_name, path in written.items():
-                st.success(f"{type_name}: `{path}`")
-        else:
-            st.warning("Nothing to export.")
 
 
 # ------------------------------------------------------------------
