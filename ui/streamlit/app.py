@@ -323,6 +323,21 @@ def _main() -> None:
     with tab_export:
         export_panel.render(project)
 
+    # Programmatic tab navigation: set st.session_state.goto_tab = <0-based index>
+    # before calling st.rerun(); the JS below clicks the tab after DOM is ready.
+    if "goto_tab" in st.session_state:
+        tab_idx = st.session_state.pop("goto_tab")
+        import streamlit.components.v1 as components
+        components.html(
+            f"""<script>
+                (function() {{
+                    var tabs = window.parent.document.querySelectorAll('[data-testid="stTab"]');
+                    if (tabs[{tab_idx}]) tabs[{tab_idx}].click();
+                }})();
+            </script>""",
+            height=0,
+        )
+
 
 def _render_viewer_tab(project: Project) -> None:
     view_state = st.session_state.view_state

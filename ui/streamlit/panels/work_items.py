@@ -96,12 +96,13 @@ def _render_item_row(project: "Project", item) -> None:
             project.set_item_status(item.id, new_status)
             st.rerun()
 
-        # Edit button → zoom Phrase Editor to this item's time range
+        # Edit button → select phrase in Phrase Editor and navigate there
         if col_edit.button("Edit", key=f"edit_{item.id}", use_container_width=True):
-            st.session_state.view_state.set_zoom(item.start_ms, item.end_ms)
+            st.session_state.view_state.set_selection(item.start_ms, item.end_ms)
             # Auto-advance status to In Progress if still To Do
             if item.status == "todo":
                 project.set_item_status(item.id, "in_progress")
-            st.toast("Switch to the Phrase Editor tab", icon="ℹ️")
+            st.session_state.goto_tab = 1
+            st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
