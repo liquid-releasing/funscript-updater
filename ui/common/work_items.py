@@ -1,4 +1,4 @@
-"""Work item models for the Funscript Updater UI.
+"""Work item models for the Funscript Forge UI.
 
 A WorkItem represents a tagged time window in a funscript that the user has
 reviewed and assigned a type (performance, break, raw, or neutral).  Each

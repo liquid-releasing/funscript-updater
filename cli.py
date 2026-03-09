@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Funscript Updater CLI
+"""Funscript Forge CLI
 
 Full-pipeline shortcut (Steps 1 + 3 + 4 in one command):
 
@@ -526,7 +526,7 @@ def cmd_test(_args):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cli.py",
-        description="Funscript Updater — analyze and transform funscripts",
+        description="Funscript Forge — analyze and transform funscripts",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

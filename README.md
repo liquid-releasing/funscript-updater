@@ -1,4 +1,4 @@
-# funscript-updater
+# funscript-forge
 
 A structure-aware post-processor for funscripts. It analyzes the motion
 structure of an existing script, lets you review and tag sections through an
@@ -129,7 +129,7 @@ python cli.py assess path/to/file.funscript --output output/assessment.json
 ## Project structure
 
 ```text
-funscript-updater/
+funscript-forge/
 ├── assessment/               # Step 1: structural analysis + behavioral classification
 │   ├── analyzer.py           #   FunscriptAnalyzer
 │   ├── classifier.py         #   BehavioralTag, TAGS registry, annotate_phrases
