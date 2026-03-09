@@ -2,7 +2,7 @@
 
 Unit tests for the core pipeline modules and UI-panel split logic.
 
-443 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **503 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+451 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **511 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -69,6 +69,7 @@ python -m unittest discover -s ui/common/tests -v
 | `TestCliConfig` | Transformer/customizer/analyzer config dump, config round-trip into transform command |
 | `TestCliFinalize` | Exit code, valid funscript output, default output path, `--skip-seams`, `--skip-smooth`, skip-both still writes |
 | `TestCliExportPlan` | Exit code, table header output, `--no-recommended` empty plan, `--format json` valid JSON, `--transforms` file override, `--apply` writes valid funscript, `--dry-run` writes no file |
+| `TestCliListTransforms` | Exit code, built-in keys present, `--user-only` shows user/not-builtin, `--verbose` shows `--param` details, `--format json` valid JSON, source tag `builtin`/`user`, verbose JSON includes params |
 
 ### `test_classifier.py` — `assessment/classifier.py`
 
@@ -129,8 +130,8 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_pattern_editor_splits.py` | 47 |
 | `test_phrase_transforms.py` | 160 |
 | `test_integration.py` | 9 |
-| `test_cli.py` | 34 |
+| `test_cli.py` | 42 |
 | `test_user_transforms.py` | 21 |
 | other modules | *(see `tests/` directory)* |
 | `ui/common/tests/` | 60 |
-| **Total** | **503** |
+| **Total** | **511** |

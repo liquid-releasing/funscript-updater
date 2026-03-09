@@ -295,6 +295,61 @@ def cmd_config(args):
     print("Edit the values then pass with --config when running the command.")
 
 
+def cmd_list_transforms(args):
+    """List all available transforms (built-in + user-loaded)."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, _BUILTIN_KEYS
+
+    catalog = dict(sorted(TRANSFORM_CATALOG.items()))
+    if args.user_only:
+        catalog = {k: v for k, v in catalog.items() if k not in _BUILTIN_KEYS}
+
+    if args.format == "json":
+        out = {}
+        for key, spec in catalog.items():
+            entry = {
+                "name": spec.name,
+                "description": spec.description,
+                "structural": spec.structural,
+                "source": "builtin" if key in _BUILTIN_KEYS else "user",
+            }
+            if args.verbose:
+                entry["params"] = {
+                    pkey: {
+                        "label": p.label,
+                        "type": p.type,
+                        "default": p.default,
+                        "min": p.min_val,
+                        "max": p.max_val,
+                        "step": p.step,
+                        "help": p.help,
+                    }
+                    for pkey, p in (spec.params or {}).items()
+                }
+            out[key] = entry
+        import json
+        print(json.dumps(out, indent=2))
+        return
+
+    # --- table output ---
+    if not catalog:
+        print("No transforms found.")
+        return
+
+    for key, spec in catalog.items():
+        source_tag = "" if key in _BUILTIN_KEYS else "  [user]"
+        struct_tag = "  (structural)" if spec.structural else ""
+        print(f"{key}{source_tag}{struct_tag}")
+        print(f"    {spec.name} — {spec.description}")
+        if args.verbose and spec.params:
+            for pkey, p in spec.params.items():
+                default_str = f", default {p.default}" if p.default is not None else ""
+                range_str = f" [{p.min_val}–{p.max_val}]" if p.min_val is not None else ""
+                print(f"      --param {pkey}=VALUE  {p.label}{range_str}{default_str}")
+                if p.help:
+                    print(f"        {p.help}")
+        print()
+
+
 def _coerce(v: str):
     """Parse a string value as int, float, or str."""
     try:
@@ -854,7 +909,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pt.add_argument("--output", help="Path for output .funscript (default: *_phrase_transformed.funscript)")
     p_pt.add_argument(
         "--transform", metavar="KEY",
-        help=f"Transform to apply. One of: {', '.join(['passthrough','amplitude_scale','normalize','smooth','clamp_upper','clamp_lower','invert','boost_contrast','shift','recenter','break','performance','three_one','beat_accent','blend_seams','final_smooth','halve_tempo'])}",
+        help="Transform to apply (see 'python cli.py list-transforms' for all keys).",
     )
     p_pt.add_argument(
         "--phrase", type=int, metavar="N", action="append",
@@ -978,6 +1033,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="(fresh assessment only) Phrase break sensitivity",
     )
 
+    # --- list-transforms ---
+    p_lt = sub.add_parser(
+        "list-transforms",
+        help="List all available transforms (built-in + user-loaded)",
+    )
+    p_lt.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Show parameter details for each transform.",
+    )
+    p_lt.add_argument(
+        "--user-only", action="store_true",
+        help="Show only user-defined transforms (from user_transforms/ and plugins/).",
+    )
+    p_lt.add_argument(
+        "--format", choices=["table", "json"], default="table",
+        help="Output format: human-readable table (default) or JSON.",
+    )
+
     # --- test ---
     sub.add_parser("test", help="Run unit tests")
 
@@ -1002,6 +1075,7 @@ def main():
         "finalize":         cmd_finalize,
         "export-plan":      cmd_export_plan,
         "catalog":          cmd_catalog,
+        "list-transforms":  cmd_list_transforms,
         "visualize":        cmd_visualize,
         "config":           cmd_config,
         "test":             cmd_test,

@@ -370,5 +370,56 @@ class TestCliFinalize(unittest.TestCase):
         self.assertTrue(os.path.exists(out))
 
 
+class TestCliListTransforms(unittest.TestCase):
+    def test_exits_zero(self):
+        rc, _, _ = run("list-transforms")
+        self.assertEqual(rc, 0)
+
+    def test_builtin_keys_present(self):
+        _, stdout, _ = run("list-transforms")
+        for key in ("amplitude_scale", "normalize", "smooth", "halve_tempo", "blend_seams"):
+            self.assertIn(key, stdout)
+
+    def test_user_only_shows_user_transforms(self):
+        """example_clamp_center is loaded from plugins/example_plugin.py."""
+        _, stdout, _ = run("list-transforms", "--user-only")
+        self.assertIn("example_clamp_center", stdout)
+        self.assertNotIn("amplitude_scale", stdout)
+
+    def test_user_only_empty_when_no_user_transforms(self):
+        """--user-only in a temp dir with no user_transforms/ or plugins/ prints nothing."""
+        import tempfile, shutil
+        # Run with a cwd that has no user_transforms or plugins dirs
+        tmp = tempfile.mkdtemp()
+        rc, stdout, _ = run("list-transforms", "--user-only", cwd=tmp)
+        shutil.rmtree(tmp)
+        self.assertEqual(rc, 0)
+        # output may be "No transforms found." or empty
+        self.assertNotIn("amplitude_scale", stdout)
+
+    def test_verbose_shows_param_details(self):
+        _, stdout, _ = run("list-transforms", "--verbose")
+        self.assertIn("--param", stdout)
+
+    def test_format_json_valid(self):
+        _, stdout, _ = run("list-transforms", "--format", "json")
+        data = json.loads(stdout)
+        self.assertIn("amplitude_scale", data)
+        self.assertIn("name", data["amplitude_scale"])
+        self.assertIn("source", data["amplitude_scale"])
+
+    def test_format_json_user_source_tag(self):
+        _, stdout, _ = run("list-transforms", "--format", "json")
+        data = json.loads(stdout)
+        self.assertEqual(data["amplitude_scale"]["source"], "builtin")
+        self.assertEqual(data["example_clamp_center"]["source"], "user")
+
+    def test_format_json_verbose_includes_params(self):
+        _, stdout, _ = run("list-transforms", "--format", "json", "--verbose")
+        data = json.loads(stdout)
+        self.assertIn("params", data["amplitude_scale"])
+        self.assertIn("scale", data["amplitude_scale"]["params"])
+
+
 if __name__ == "__main__":
     unittest.main()
