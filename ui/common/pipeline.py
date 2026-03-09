@@ -1,4 +1,4 @@
-"""Pipeline orchestration helper for the Funscript Updater.
+"""Pipeline orchestration helper for the Funscript Forge.
 
 Provides a single entry point that chains the three core pipeline stages:
 

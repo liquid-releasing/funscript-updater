@@ -1,4 +1,4 @@
-"""Project session state for the Funscript Updater UI.
+"""Project session state for the Funscript Forge UI.
 
 A Project holds everything needed to drive one editing session:
   - which funscript is loaded

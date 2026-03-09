@@ -1,4 +1,4 @@
-"""Funscript Updater — Streamlit UI entry point.
+"""Funscript Forge — Streamlit UI entry point.
 
 Launch with:
     streamlit run ui/streamlit/app.py
@@ -46,7 +46,7 @@ from ui.streamlit.panels import work_items as work_items_panel
 # ------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Funscript Updater",
+    page_title="Funscript Forge",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -94,7 +94,7 @@ if "last_loaded_cfg" not in st.session_state:
 
 
 def _sidebar() -> None:
-    st.sidebar.title("Funscript Updater")
+    st.sidebar.title("Funscript Forge")
     st.sidebar.markdown("---")
 
     # --- File selection ---
@@ -279,7 +279,7 @@ def _main() -> None:
     project: Project | None = st.session_state.project
 
     if project is None or not project.is_loaded:
-        st.title("Funscript Updater")
+        st.title("Funscript Forge")
         st.markdown(
             "Use the **sidebar** to select a funscript and click **Load / Analyse** "
             "to begin.  The assessment pipeline will detect phases, cycles, patterns, "
