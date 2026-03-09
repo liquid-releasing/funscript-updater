@@ -38,6 +38,10 @@ def render(project) -> None:
 
     _render_library_section(catalog)
 
+    if catalog is not None:
+        st.divider()
+        _render_saved_patterns_section(catalog)
+
 
 # ---------------------------------------------------------------------------
 # Section 1 — this funscript
@@ -342,3 +346,87 @@ def _render_library_section(catalog) -> None:
             hide_index=True,
             key="cv_file_table",
         )
+
+
+# ---------------------------------------------------------------------------
+# Section 3 — saved raw patterns
+# ---------------------------------------------------------------------------
+
+def _render_saved_patterns_section(catalog) -> None:
+    st.subheader("Saved patterns")
+
+    patterns = catalog.get_saved_patterns()
+
+    if not patterns:
+        st.info(
+            "No patterns saved yet. Open the **Pattern Editor**, select a phrase instance, "
+            "and use **Save to catalog** in the controls panel."
+        )
+        return
+
+    st.caption(f"{len(patterns)} pattern{'s' if len(patterns) != 1 else ''} saved")
+
+    for pat in patterns:
+        tag_labels = [TAGS[t].label if t in TAGS else t.title() for t in pat.get("tags", [])]
+        tags_str   = ", ".join(tag_labels) if tag_labels else "untagged"
+        header     = f"**{pat['name']}** — {tags_str} · {ms_to_timestamp(pat['duration_ms'])} · {pat['bpm']:.0f} BPM"
+
+        with st.expander(header, expanded=False):
+            col_info, col_del = st.columns([5, 1])
+
+            with col_info:
+                st.caption(
+                    f"Source: {pat['source_funscript']}  "
+                    f"({ms_to_timestamp(pat['source_start_ms'])} → {ms_to_timestamp(pat['source_end_ms'])})"
+                )
+                m = pat.get("metrics", {})
+                if m:
+                    mc = st.columns(4)
+                    mc[0].metric("Span",     f"{m.get('span', 0):.0f}")
+                    mc[1].metric("Centre",   f"{m.get('mean_pos', 50):.0f}")
+                    mc[2].metric("Vel mean", f"{m.get('mean_velocity', 0):.3f}")
+                    mc[3].metric("Actions",  len(pat.get("actions", [])))
+
+            with col_del:
+                if st.button(
+                    "Delete",
+                    key=f"cv_del_{pat['id']}",
+                    type="secondary",
+                    use_container_width=True,
+                ):
+                    catalog.delete_saved_pattern(pat["id"])
+                    catalog.save()
+                    st.rerun()
+
+            # Preview chart (time-normalised actions)
+            actions = pat.get("actions", [])
+            if len(actions) >= 2:
+                _render_pattern_preview(actions, pat["id"])
+
+
+def _render_pattern_preview(actions: List[dict], pattern_id: str) -> None:
+    """Compact line chart of time-normalised actions."""
+    import plotly.graph_objects as go
+
+    xs = [a["at"] for a in actions]
+    ys = [a["pos"] for a in actions]
+
+    fig = go.Figure(go.Scatter(
+        x=xs, y=ys,
+        mode="lines",
+        line=dict(color="rgba(255,165,0,0.85)", width=1.5),
+        showlegend=False,
+        hovertemplate="t=%{x} ms  pos=%{y}<extra></extra>",
+    ))
+    _BG = "rgba(14,14,18,1)"
+    fig.update_layout(
+        height=140,
+        margin=dict(l=0, r=0, t=4, b=4),
+        paper_bgcolor=_BG, plot_bgcolor=_BG,
+        xaxis=dict(showgrid=False, zeroline=False,
+                   tickfont=dict(color="rgba(180,180,180,0.6)", size=8)),
+        yaxis=dict(range=[0, 100], showgrid=True,
+                   gridcolor="rgba(80,80,80,0.25)",
+                   tickfont=dict(color="rgba(180,180,180,0.6)", size=8)),
+    )
+    st.plotly_chart(fig, config={"displayModeBar": False}, key=f"cv_pat_{pattern_id}")

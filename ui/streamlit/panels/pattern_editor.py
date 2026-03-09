@@ -718,6 +718,56 @@ def _render_controls(
         _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
         st.rerun(scope="app")
 
+    st.divider()
+
+    # Save current instance's raw actions to the pattern catalog
+    with st.expander("Save to catalog", expanded=False):
+        default_name = f"{selected_label} #{inst_idx + 1}"
+        pattern_name = st.text_input(
+            "Pattern name",
+            value=default_name,
+            key=f"pe_save_name_{selected_label}_{inst_idx}",
+        )
+        if st.button(
+            "Save raw actions",
+            key=f"pe_save_catalog_{selected_label}_{inst_idx}",
+            use_container_width=True,
+        ):
+            catalog = st.session_state.get("pattern_catalog")
+            if catalog is None:
+                st.error("Pattern catalog not available.")
+            else:
+                window = [
+                    a for a in original_actions
+                    if cycle["start_ms"] <= a["at"] <= cycle["end_ms"]
+                ]
+                if not window:
+                    st.error("No actions found in this phrase window.")
+                else:
+                    fname = os.path.basename(funscript_path)
+                    phrase_metrics = {}
+                    phrase_bpm = 0.0
+                    phrase_tags: List[str] = []
+                    # Pull metrics from the cycle dict if present
+                    if "bpm" in cycle:
+                        phrase_bpm = float(cycle["bpm"])
+                    if "tags" in cycle:
+                        phrase_tags = list(cycle["tags"])
+                    if "metrics" in cycle:
+                        phrase_metrics = dict(cycle["metrics"])
+                    pid = catalog.save_pattern(
+                        name=pattern_name,
+                        actions=window,
+                        source_funscript=fname,
+                        source_start_ms=cycle["start_ms"],
+                        source_end_ms=cycle["end_ms"],
+                        bpm=phrase_bpm,
+                        tags=phrase_tags,
+                        metrics=phrase_metrics,
+                    )
+                    catalog.save()
+                    st.success(f"Saved as **{pattern_name}** (id: {pid})")
+
     st.write("")
 
     # Prev / Next navigation
