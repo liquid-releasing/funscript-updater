@@ -69,9 +69,6 @@ def render(
     win_start, win_end = _fixed_viewport(phrases, phrase, duration_ms)
     funscript_path = st.session_state.project.funscript_path
 
-    # Fragment: charts + transform controls only.
-    # Nav and save/cancel are outside so fragment reruns (slider changes)
-    # cannot cause button echo.
     _detail_fragment(
         funscript_path=funscript_path,
         phrases=phrases,
@@ -82,21 +79,12 @@ def render(
         duration_ms=duration_ms,
     )
 
-    # Nav + save/cancel — always outside the fragment.
-    # Align them under the right column (1/4 width, right-hand side).
-    with open(funscript_path) as f:
-        original_actions = json.load(f)["actions"]
-
-    _col_sp, col_actions = st.columns([3, 1])
-    with col_actions:
-        _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
-        st.write("")
-        _render_save_cancel(phrases, original_actions, view_state)
-
 
 # ------------------------------------------------------------------
-# Detail fragment — charts + transform controls only.
+# Detail fragment — charts, transform controls, and action buttons.
 # Slider/selectbox interactions rerun only this section.
+# Nav/save buttons live here too so they stay visually aligned with
+# the controls column rather than appearing below the charts.
 # ------------------------------------------------------------------
 
 @st.fragment
@@ -174,6 +162,10 @@ def _detail_fragment(
 
     with col_right:
         _render_transform_controls(phrase, bpm_threshold, phrase_idx)
+        st.write("")
+        _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
+        st.write("")
+        _render_save_cancel(phrases, original_actions, view_state)
 
 
 # ------------------------------------------------------------------
