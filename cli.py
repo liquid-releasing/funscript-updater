@@ -42,6 +42,17 @@ Individual steps:
         --suggest [--bpm-threshold 120]                          # auto-pick per phrase
         --dry-run                                                # print plan only
 
+    --suggest uses tag-aware rules (highest priority first):
+      frantic → halve_tempo
+      giggle / plateau / lazy → amplitude_scale  (amplify; scale targets peak hi ≈ 65)
+      stingy                  → amplitude_scale  (reduce;  scale targets peak hi ≈ 65)
+      drift / half_stroke     → recenter         (target_center=50)
+      drone                   → beat_accent
+      (no tag) transition     → smooth
+      (no tag) low BPM        → passthrough
+      (no tag) narrow span    → normalize
+      (no tag) high BPM       → amplitude_scale
+
     For split-phrase workflows (different transforms in different time ranges within
     a single phrase) use the Streamlit Pattern Editor UI — it supports adding split
     boundaries, per-segment transform selection, and proportional copy to all

@@ -196,18 +196,46 @@ funscript-forge/
 ## CLI reference
 
 ```bash
-python cli.py assess    <funscript> [--output <path>] [--config <json>]
-python cli.py transform <funscript> --assessment <path> [--output <path>] [--config <json>]
-python cli.py customize <funscript> --assessment <path> [--output <path>]
+# Assess
+python cli.py assess <funscript> [--output <path>] [--config <json>]
+                     [--min-phrase-duration SECONDS] [--amplitude-tolerance FRACTION]
+
+# Transform (BPM-threshold baseline)
+python cli.py transform <funscript> --assessment <path>
+                        [--output <path>] [--config <json>]
+
+# Customize (window-based fine-tuning)
+python cli.py customize <funscript> --assessment <path>
+                        [--output <path>] [--config <json>]
                         [--perf <json>] [--break <json>] [--raw <json>] [--beats <json>]
-python cli.py phrase-transform <funscript> --assessment <path> [--transform KEY]
-                        [--phrase N] [--all] [--suggest] [--dry-run]
-python cli.py finalize  <funscript> [--output <path>] [--skip-seams] [--skip-smooth]
+
+# Full pipeline (assess → transform → customize in one step)
+python cli.py pipeline <funscript> --output-dir <dir>
+                       [--perf <json>] [--break <json>] [--raw <json>] [--beats <json>]
+                       [--transformer-config <json>] [--customizer-config <json>]
+
+# Phrase-level transform (applies a catalog transform to individual phrases)
+python cli.py phrase-transform <funscript> --assessment <path>
+                               --transform smooth --phrase 3 [--param strength=0.25]
+                               --transform normalize --all
+                               --suggest [--bpm-threshold 120]   # tag-aware auto-pick
+                               [--output <path>] [--dry-run]
+
+# Finalize (blend seams + final smooth as post-processing)
+python cli.py finalize <funscript> [--output <path>]
+                       [--param seam_max_velocity=0.3] [--param smooth_strength=0.05]
+                       [--skip-seams] [--skip-smooth]
+
+# Export plan (mirror of the UI Export tab)
 python cli.py export-plan <funscript> [--assessment <path>]
-                        [--transforms overrides.json] [--no-recommended]
-                        [--bpm-threshold BPM] [--format table|json]
-                        [--apply] [--output <path>] [--dry-run]
-python cli.py catalog   [--catalog <path>] [--tag TAG] [--remove FUNSCRIPT] [--clear]
+                          [--transforms overrides.json] [--no-recommended]
+                          [--bpm-threshold BPM] [--format table|json]
+                          [--apply] [--output <path>] [--dry-run]
+
+# Catalog
+python cli.py catalog [--catalog <path>] [--tag TAG] [--remove FUNSCRIPT] [--clear]
+
+# Utilities
 python cli.py visualize <funscript> --assessment <path> [--output <path>]
 python cli.py config    [--customizer] [--analyzer] [--output <path>]
 python cli.py test
