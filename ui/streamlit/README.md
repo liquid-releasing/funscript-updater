@@ -175,13 +175,29 @@ Behavioral pattern batch-fix workspace.  Phrases are pre-classified by
                                   │    matching phrases highlighted)
                                   ├─ Instance table (Start, Duration, BPM,
                                   │    Span, Centre, Velocity, Apply checkbox)
-                                  ├─ Original chart │ Preview chart │ Controls
+                                  ├─ Original chart │ Preview chart │ Splits + Controls
                                   └─ Finalize options + Build download
 ```
 
 - **Apply checkbox** (default checked) — uncheck to exclude an instance from the download build.
-- **Apply to all** — copy the current transform + params to every instance.
+- **Apply to all** — copy the current instance's split structure and transforms to every instance (split points are scaled proportionally to each instance's duration).
 - **Build download** — compiles all stored transforms + finalize passes into a downloadable funscript.  Only runs on demand (not on every slider tick).
+
+#### Splitting an instance
+
+Long patterns (e.g. a single phrase spanning most of a file) can be divided into
+non-overlapping sub-segments, each with its own independent transform.
+
+| Control | Effect |
+| --- | --- |
+| Segment buttons (Seg 1, Seg 2, …) | Click to select a segment for editing; active segment shown in primary style |
+| **Add split** expander | Enter a timestamp (M:SS or H:MM:SS) within the instance and click **Add** to create a new boundary |
+| **Remove boundary at …** | Merges the active segment with the adjacent one; only shown when more than one segment exists |
+| **Apply to all segs** | Copy the current transform + params to all segments of this instance |
+| **Apply to all** | Copy this instance's full split structure (scaled proportionally) and all segment transforms to every other instance of the same tag |
+
+Split boundaries are shown as dashed orange vertical lines on both the original and preview charts.
+The preview chart always shows the combined result of all segment transforms.
 
 ### 7. Catalog
 
