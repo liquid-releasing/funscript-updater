@@ -34,12 +34,9 @@ from ui.common.project import Project
 from ui.common.view_state import ViewState
 from ui.common.work_items import ItemType, WorkItem
 from ui.streamlit.panels import assessment as assessment_panel
-from ui.streamlit.panels import assessment_nav as assessment_nav_panel
 from ui.streamlit.panels import catalog_view as catalog_view_panel
-from ui.streamlit.panels import detail as detail_panel
 from ui.streamlit.panels import pattern_editor as pattern_editor_panel
 from ui.streamlit.panels import viewer as viewer_panel
-from ui.streamlit.panels import work_items as work_items_panel
 
 # ------------------------------------------------------------------
 # Page config (must be the first Streamlit call)
@@ -300,25 +297,15 @@ def _main() -> None:
         )
         return
 
-    tab_viewer, tab_assessment, tab_nav, tab_work_items, tab_edit, tab_pattern, tab_catalog, tab_export = st.tabs(
-        ["Phrase Selector", "Assessment", "Navigator", "Work Items", "Edit", "Pattern Editor", "Catalog", "Export"]
+    tab_assessment, tab_viewer, tab_pattern, tab_catalog, tab_export = st.tabs(
+        ["Assessment", "Phrase Editor", "Pattern Editor", "Catalog", "Export"]
     )
-
-    with tab_viewer:
-        _render_viewer_tab(project)
 
     with tab_assessment:
         assessment_panel.render(project)
 
-    with tab_nav:
-        st.subheader("Assessment Navigator")
-        assessment_nav_panel.render(project, view_state=st.session_state.view_state)
-
-    with tab_work_items:
-        work_items_panel.render(project)
-
-    with tab_edit:
-        detail_panel.render(project)
+    with tab_viewer:
+        _render_viewer_tab(project)
 
     with tab_pattern:
         pattern_editor_panel.render(project)
