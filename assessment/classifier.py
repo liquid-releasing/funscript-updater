@@ -64,8 +64,8 @@ TAGS: Dict[str, BehavioralTag] = {
             "Device-demanding with no variation."
         ),
         color="rgba(255,80,80,0.70)",
-        suggested_transform="performance",
-        fix_hint="Apply reversal softening and velocity cap to add nuance.",
+        suggested_transform="amplitude_scale",
+        fix_hint="Reduce amplitude to a device-comfortable range (target hi ≈ 65).",
     ),
     "giggle": BehavioralTag(
         key="giggle",
@@ -75,8 +75,8 @@ TAGS: Dict[str, BehavioralTag] = {
             "band around 50. Barely perceptible."
         ),
         color="rgba(80,180,255,0.70)",
-        suggested_transform="normalize",
-        fix_hint="Expand to full range; recenter if needed.",
+        suggested_transform="amplitude_scale",
+        fix_hint="Amplify to a usable range (target hi ≈ 65).",
     ),
     "plateau": BehavioralTag(
         key="plateau",

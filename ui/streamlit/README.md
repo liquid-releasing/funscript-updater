@@ -137,7 +137,29 @@ Each entry shows: description, best-fit behavioral tags, a parameter table, live
 
 ### 6. Export
 
-Summary tables of typed work items (Performance, Break, Raw) and a **Write JSON files** button that writes window files to `output/` for the downstream customizer pipeline.
+Aggregates all applied transforms from both editors and produces a downloadable edited funscript.
+
+**Header controls:**
+
+- **Include recommended transforms for untouched phrases** — when enabled, phrases with no manually-applied transform receive the auto-suggested transform (`Amplitude Scale` for high-BPM, `Normalize` for compressed waveforms, `Smooth` for transitions).
+- **Add blended seams to reduce abrupt style changes** — runs `blend_seams` over the full action list after all phrase transforms are applied.  Detects high-velocity jumps between differently-styled sections and applies a bilateral low-pass filter symmetrically at those seams, leaving normal strokes untouched.
+- **Conduct final smooth for post process finishing** — runs `final_smooth` (a light LPF at strength 0.10) over the entire result as a final polish pass.  Applied after seam blending when both are enabled.
+- **⬇ Download edited funscript** — builds the result from the current plan (phrase transforms → optional seam blend → optional final smooth) and streams it as a `.funscript` file; disabled when nothing is active.
+
+**Transform change log** (one row per affected phrase):
+
+| Column | Description |
+| --- | --- |
+| # | Phrase number |
+| Time | Start → End timestamp |
+| Dur (s) | Duration in seconds |
+| Transform | Name of the transform to apply |
+| Source | `Phrase Editor`, `Pattern Editor`, or `Recommended` |
+| BPM | Phrase BPM; `old → new` only when the transform changes tempo (e.g. Halve Tempo) |
+| Cycles | Cycle count; `old → new` when changed |
+| 🗑 / ↩ | Reject a row (dims it with strikethrough) or restore it |
+
+The rejected-phrase set clears automatically when a new funscript is loaded.  The same plan is available from the CLI: `python cli.py export-plan`.
 
 ---
 
@@ -153,7 +175,7 @@ Each panel is an independent module in `panels/`:
 | `panels/pattern_editor.py` | Behavioral pattern batch-fix editor |
 | `panels/catalog_view.py` | Pattern Behaviors tab — cross-funscript catalog analytics |
 | `panels/transform_catalog.py` | Transform Catalog tab — reference guide with live previews |
-| `panels/work_items.py` | Work item model helpers (status lifecycle) |
+| `panels/export_panel.py` | Export tab — transform change log + download |
 
 Panels do **not** hold state — all state lives in `st.session_state.project`
 (a `ui.common.project.Project`) and `st.session_state.view_state`
@@ -165,6 +187,7 @@ All outputs go to `output/` (gitignored).
 
 | File | Description |
 | --- | --- |
+| `<name>_edited.funscript` | Export tab download (all applied transforms) |
 | `<name>_pattern_edited.funscript` | Pattern Editor download |
 | `<name>.performance.json` | Performance window list for customizer |
 | `<name>.break.json` | Break window list |

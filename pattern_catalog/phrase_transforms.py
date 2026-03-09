@@ -884,28 +884,76 @@ TRANSFORM_ORDER: List[str] = [
 # Suggestion logic
 # ------------------------------------------------------------------
 
-def suggest_transform(phrase: dict, bpm_threshold: float = 120.0) -> str:
-    """Return the catalog key of the most appropriate transform for *phrase*.
+def suggest_transform(phrase: dict, bpm_threshold: float = 120.0):
+    """Return ``(catalog_key, param_values)`` for the most appropriate transform.
 
-    Rules (in priority order):
-    1. pattern_label contains "transition" → smooth
-    2. bpm < bpm_threshold               → passthrough (already slow / gentle)
-    3. bpm >= bpm_threshold, amplitude
-       span < 40 (compressed waveform)   → normalize (open it up first)
-    4. bpm >= bpm_threshold              → amplitude_scale (standard boost)
+    Tag-based rules are checked first (priority order); BPM-based fallbacks
+    apply only when no recognised tag is present.
+
+    Tag rules:
+    1.  transition (pattern_label) → smooth
+    2.  frantic   → halve_tempo
+    3.  giggle    → amplitude_scale, amplify to peak hi ≈ 65
+    4.  plateau   → amplitude_scale, amplify to peak hi ≈ 65
+    5.  lazy      → amplitude_scale, amplify to peak hi ≈ 65
+    6.  stingy    → amplitude_scale, reduce to peak hi ≈ 65
+    7.  drift     → recenter, target_center = 50
+    8.  half_stroke → recenter, target_center = 50
+    9.  drone     → beat_accent
+
+    BPM fallbacks (no tag match):
+    10. bpm < bpm_threshold                 → passthrough
+    11. bpm >= bpm_threshold, span < 40     → normalize
+    12. bpm >= bpm_threshold                → amplitude_scale
+
+    The amplitude_scale factor for tag-based recommendations is computed from
+    the phrase's actual ``mean_pos`` and ``span`` so the output peak position
+    lands at ~65.  Users can adjust the value in the UI after the suggestion.
     """
-    bpm = phrase.get("bpm", 0.0)
+    bpm   = phrase.get("bpm", 0.0)
     label = (phrase.get("pattern_label") or "").lower()
+    tags  = phrase.get("tags") or []
 
     if "transition" in label:
-        return "smooth"
+        return ("smooth", {})
 
+    # Helper: compute amplitude_scale factor targeting peak hi = 65
+    metrics  = phrase.get("metrics", {})
+    span     = metrics.get("span", 0)
+    mean_pos = metrics.get("mean_pos", 50)
+    hi       = mean_pos + span / 2.0
+
+    def _scale_to_65(clamp_min: float, clamp_max: float) -> dict:
+        half_target  = 65.0 - 50.0          # 15 units from midpoint
+        half_current = max(hi - 50.0, 1.0)
+        scale = round(half_target / half_current, 2)
+        scale = max(clamp_min, min(clamp_max, scale))
+        return {"scale": scale}
+
+    if "frantic" in tags:
+        return ("halve_tempo", {})
+
+    if "giggle" in tags or "plateau" in tags:
+        return ("amplitude_scale", _scale_to_65(1.0, 10.0))   # amplify only
+
+    if "lazy" in tags:
+        return ("amplitude_scale", _scale_to_65(1.0, 10.0))   # amplify only
+
+    if "stingy" in tags:
+        return ("amplitude_scale", _scale_to_65(0.1, 1.0))    # reduce only
+
+    if "drift" in tags or "half_stroke" in tags:
+        return ("recenter", {"target_center": 50})
+
+    if "drone" in tags:
+        return ("beat_accent", {})
+
+    # BPM-based fallbacks when no tag matched
     if bpm < bpm_threshold:
-        return "passthrough"
+        return ("passthrough", {})
 
-    # Estimate amplitude span from the phrase dict if available
     amp_span = phrase.get("amplitude_span", 100)  # 0-100; default assumes full range
     if amp_span < 40:
-        return "normalize"
+        return ("normalize", {})
 
-    return "amplitude_scale"
+    return ("amplitude_scale", {})

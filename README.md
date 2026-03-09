@@ -50,6 +50,12 @@ Open the Streamlit app and load your funscript. The **Assessment** tab shows
 the full pipeline output — a colour-coded phrase timeline, BPM transitions
 table, and drill-down detail for patterns and phases.
 
+The **Phrase Editor** tab shows the full funscript as a colour-coded chart
+with phrase bounding boxes.  Click any phrase to open its detail panel where
+you can select a transform, tune its parameters with live sliders, and see a
+Before / After preview.  Use **Apply to all** to copy the same transform to
+every instance of the same behavioral tag.
+
 The **Pattern Editor** tab lets you fix behavioral issues phrase by phrase.
 Each phrase instance shows an original chart and a live preview as you adjust
 transforms.  For phrases that span a long section (e.g. a single pattern
@@ -59,23 +65,31 @@ are shown as dashed lines on both charts.  Use **Apply to all** to copy the
 split structure — scaled proportionally — to every other instance of the same
 behavioral tag.
 
-The **Work Items** tab lists every detected section. Each one can be tagged:
-
-| Tag | Meaning |
-| --- | --- |
-| 🔥 Performance | High-energy section — apply velocity limiting and compression |
-| 🌊 Break | Rest section — reduce amplitude and pull toward centre |
-| 🎯 Raw | Preserve original actions verbatim |
-| ⚪ Neutral | Let the BPM-threshold transformer decide |
-
-Selecting an item opens the **Edit** tab where you can adjust the time
-window and tune the type-specific settings with sliders.
+The **Transform Catalog** tab is a reference guide for all 17 transforms
+grouped by capability.  Each entry includes a description, best-fit
+behavioral tags, a parameter table, and live Before / After charts with
+interactive sliders.
 
 ### 3 — Export
 
-Click **Export** to write the tagged windows as JSON files ready for the
-customizer. The app also saves a project file so your tagging is preserved
-between sessions.
+The **Export** tab aggregates every transform you have applied in the editors,
+plus optionally the auto-recommended transforms for untouched phrases.  A
+change log shows each planned transform with start / end time, duration,
+transform name, source (Phrase Editor / Pattern Editor / Recommended), and
+before → after BPM and cycle count where applicable.  Click 🗑 on any row to
+reject that change before downloading.
+
+Two optional post-processing passes run over the full action list just before
+the file is built:
+
+- **Add blended seams** — detects high-velocity jumps between differently-styled
+  sections and applies a bilateral LPF at those seams, leaving normal strokes
+  untouched.
+- **Final smooth** — a light global LPF (strength 0.10) as a finishing polish.
+
+Click **Download edited funscript** to build and save the result.
+
+You can also query the same plan from the CLI — see `export-plan` below.
 
 ### 4 — Transform and customize (CLI, UI integration coming soon)
 
@@ -175,6 +189,10 @@ python cli.py customize <funscript> --assessment <path> [--output <path>]
 python cli.py phrase-transform <funscript> --assessment <path> [--transform KEY]
                         [--phrase N] [--all] [--suggest] [--dry-run]
 python cli.py finalize  <funscript> [--output <path>] [--skip-seams] [--skip-smooth]
+python cli.py export-plan <funscript> [--assessment <path>]
+                        [--transforms overrides.json] [--no-recommended]
+                        [--bpm-threshold BPM] [--format table|json]
+                        [--apply] [--output <path>] [--dry-run]
 python cli.py catalog   [--catalog <path>] [--tag TAG] [--remove FUNSCRIPT] [--clear]
 python cli.py visualize <funscript> --assessment <path> [--output <path>]
 python cli.py config    [--customizer] [--analyzer] [--output <path>]
@@ -186,12 +204,12 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline + UI-panel split logic (394 tests)
+# Core pipeline + UI-panel split logic (404 tests)
 python -m unittest discover -s tests -v
 
 # UI layer (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# All at once
+# All at once (464 tests)
 python cli.py test
 ```
