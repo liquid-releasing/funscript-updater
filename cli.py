@@ -42,6 +42,11 @@ Individual steps:
         --suggest [--bpm-threshold 120]                          # auto-pick per phrase
         --dry-run                                                # print plan only
 
+    For split-phrase workflows (different transforms in different time ranges within
+    a single phrase) use the Streamlit Pattern Editor UI — it supports adding split
+    boundaries, per-segment transform selection, and proportional copy to all
+    instances of the same behavioral tag.
+
 Additional commands:
 
   python cli.py finalize path/to/transformed.funscript          # blend seams + final smooth, then save
