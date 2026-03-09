@@ -13,7 +13,6 @@ Two sections
 from __future__ import annotations
 
 import json
-import os
 from typing import Dict, List, Optional
 
 import streamlit as st
@@ -41,7 +40,7 @@ def render(project) -> None:
 
     if catalog is not None:
         st.divider()
-        _render_saved_patterns_section(catalog, project)
+        _render_saved_patterns_section(catalog)
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +352,7 @@ def _render_library_section(catalog) -> None:
 # Section 3 — saved raw patterns
 # ---------------------------------------------------------------------------
 
-def _render_saved_patterns_section(catalog, project) -> None:
+def _render_saved_patterns_section(catalog) -> None:
     st.subheader("Saved patterns")
 
     patterns = catalog.get_saved_patterns()
@@ -366,8 +365,6 @@ def _render_saved_patterns_section(catalog, project) -> None:
         return
 
     st.caption(f"{len(patterns)} pattern{'s' if len(patterns) != 1 else ''} saved")
-
-    has_project = project is not None and project.is_loaded
 
     for pat in patterns:
         tag_labels = [TAGS[t].label if t in TAGS else t.title() for t in pat.get("tags", [])]
@@ -406,14 +403,6 @@ def _render_saved_patterns_section(catalog, project) -> None:
             if len(actions) >= 2:
                 _render_pattern_preview(actions, pat["id"])
 
-            st.divider()
-
-            # Insert into current funscript
-            if has_project:
-                _render_insert_controls(pat, project)
-            else:
-                st.caption("Load a funscript to insert this pattern.")
-
 
 def _render_pattern_preview(actions: List[dict], pattern_id: str) -> None:
     """Compact line chart of time-normalised actions."""
@@ -443,59 +432,3 @@ def _render_pattern_preview(actions: List[dict], pattern_id: str) -> None:
     st.plotly_chart(fig, config={"displayModeBar": False}, key=f"cv_pat_{pattern_id}")
 
 
-def _render_insert_controls(pat: dict, project) -> None:
-    """Timestamp input + download button to splice this pattern into the loaded funscript."""
-    from utils import parse_timestamp
-
-    st.markdown("**Insert into current funscript**")
-
-    fname = os.path.basename(project.funscript_path)
-    st.caption(f"Target: {fname}")
-
-    insert_str = st.text_input(
-        "Insert at",
-        value="0:00",
-        key=f"cv_insert_at_{pat['id']}",
-        placeholder="M:SS or H:MM:SS",
-        label_visibility="collapsed",
-        help="Existing actions in [insert_at, insert_at + pattern duration] will be replaced.",
-    )
-
-    try:
-        insert_ms = parse_timestamp(insert_str)
-    except Exception:
-        st.caption(":red[Invalid time — use M:SS or H:MM:SS]")
-        return
-
-    pattern_end_ms = insert_ms + pat["duration_ms"]
-    st.caption(
-        f"Replaces {ms_to_timestamp(insert_ms)} → {ms_to_timestamp(pattern_end_ms)} "
-        f"({pat['duration_ms']} ms)"
-    )
-
-    try:
-        with open(project.funscript_path, encoding="utf-8") as f:
-            funscript = json.load(f)
-    except Exception as exc:
-        st.error(f"Could not read funscript: {exc}")
-        return
-
-    existing = funscript.get("actions", [])
-    trimmed  = [a for a in existing if not (insert_ms <= a["at"] <= pattern_end_ms)]
-    inserted = [{"at": a["at"] + insert_ms, "pos": a["pos"]} for a in pat["actions"]]
-    merged   = sorted(trimmed + inserted, key=lambda a: a["at"])
-
-    funscript["actions"] = merged
-    output_bytes = json.dumps(funscript, indent=2).encode("utf-8")
-
-    stem    = fname.rsplit(".", 1)[0]
-    dl_name = f"{stem}.with_{pat['name'].replace(' ', '_')}.funscript"
-
-    st.download_button(
-        "Download with pattern inserted",
-        data=output_bytes,
-        file_name=dl_name,
-        mime="application/json",
-        key=f"cv_insert_dl_{pat['id']}_{insert_ms}",
-        use_container_width=True,
-    )
