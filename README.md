@@ -15,7 +15,8 @@ expressive performance sections, and gentle breaks.
 | Behavioral classification (8 tags: stingy, giggle, drone, …) | ✅ Available |
 | Cross-funscript pattern catalog (persistent JSON) | ✅ Available |
 | Interactive assessment viewer (Streamlit UI) | ✅ Available |
-| Pattern Editor (batch-fix behavioral issues with transforms) | ✅ Available |
+| Pattern Editor — batch-fix behavioral issues with per-phrase transforms | ✅ Available |
+| Pattern Editor — split a phrase into sub-ranges, each with its own transform | ✅ Available |
 | Work-item tagger (performance / break / raw / neutral) | ✅ Available |
 | Transform + customize pipeline | ✅ Available via CLI |
 | Transform + customize inside the UI | 🔜 Coming soon |
@@ -46,6 +47,15 @@ The output is a single JSON file capturing the full structural picture.
 Open the Streamlit app and load your funscript. The **Assessment** tab shows
 the full pipeline output — a colour-coded phrase timeline, BPM transitions
 table, and drill-down detail for patterns and phases.
+
+The **Pattern Editor** tab lets you fix behavioral issues phrase by phrase.
+Each phrase instance shows an original chart and a live preview as you adjust
+transforms.  For phrases that span a long section (e.g. a single pattern
+covering most of the file), you can **split** the phrase into non-overlapping
+sub-ranges and apply a different transform to each one.  Split boundaries
+are shown as dashed lines on both charts.  Use **Apply to all** to copy the
+split structure — scaled proportionally — to every other instance of the same
+behavioral tag.
 
 The **Work Items** tab lists every detected section. Each one can be tagged:
 
@@ -174,10 +184,10 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline (151+ tests)
+# Core pipeline + UI-panel split logic (394 tests)
 python -m unittest discover -s tests -v
 
-# UI layer (45 tests)
+# UI layer (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
 # All at once
