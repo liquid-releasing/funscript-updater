@@ -2,7 +2,7 @@
 
 Unit tests for the core pipeline modules and UI-panel split logic.
 
-422 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **482 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+443 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **503 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -130,6 +130,7 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_phrase_transforms.py` | 160 |
 | `test_integration.py` | 9 |
 | `test_cli.py` | 34 |
+| `test_user_transforms.py` | 21 |
 | other modules | *(see `tests/` directory)* |
 | `ui/common/tests/` | 60 |
-| **Total** | **482** |
+| **Total** | **503** |

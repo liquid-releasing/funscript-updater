@@ -21,6 +21,7 @@ from pattern_catalog.phrase_transforms import (
     TransformParam,
     suggest_transform,
     _find_extrema,
+    _BUILTIN_KEYS,
 )
 
 
@@ -71,7 +72,9 @@ _PHRASE_TRANS    = {"bpm": 130.0, "pattern_label": "transition break",  "amplitu
 class TestCatalogStructure(unittest.TestCase):
 
     def test_all_expected_keys_present(self):
-        self.assertEqual(set(TRANSFORM_CATALOG.keys()), _EXPECTED_KEYS)
+        """Built-in catalog keys must exactly match _EXPECTED_KEYS.
+        User-defined keys (recipes / plugins) are allowed to be present too."""
+        self.assertEqual(_BUILTIN_KEYS, _EXPECTED_KEYS)
 
     def test_each_entry_is_phrase_transform(self):
         for key, spec in TRANSFORM_CATALOG.items():
@@ -99,9 +102,10 @@ class TestCatalogStructure(unittest.TestCase):
                     self.assertIn(param.type, ("float", "int", "bool"))
 
     def test_transform_order_covers_all_catalog_keys(self):
-        """Every key in TRANSFORM_CATALOG appears in TRANSFORM_ORDER."""
-        missing = set(TRANSFORM_CATALOG.keys()) - set(TRANSFORM_ORDER)
-        self.assertEqual(missing, set(), f"Keys in catalog but missing from TRANSFORM_ORDER: {missing}")
+        """Every built-in key in TRANSFORM_CATALOG appears in TRANSFORM_ORDER.
+        User-defined keys (recipes / plugins) are excluded from this check."""
+        missing = _BUILTIN_KEYS - set(TRANSFORM_ORDER)
+        self.assertEqual(missing, set(), f"Built-in keys missing from TRANSFORM_ORDER: {missing}")
 
     def test_transform_order_has_no_unknown_keys(self):
         """TRANSFORM_ORDER contains only keys that exist in TRANSFORM_CATALOG."""

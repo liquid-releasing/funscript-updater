@@ -236,3 +236,9 @@ media/*.mp3
 media/*.m4a
 media/*.wav
 media/*.ogg
+
+# User-defined transforms and plugins (keep README + example_* files)
+user_transforms/*.json
+!user_transforms/example_*.json
+plugins/*.py
+!plugins/example_*.py

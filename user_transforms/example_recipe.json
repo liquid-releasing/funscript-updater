@@ -1,0 +1,23 @@
+[
+  {
+    "key":         "example_center_lift",
+    "name":        "Center + Lift",
+    "description": "Recenters displaced motion then gently amplifies — good for drift or half-stroke phrases.",
+    "structural":  false,
+    "steps": [
+      { "transform": "recenter",        "params": { "target_center": 50  } },
+      { "transform": "amplitude_scale", "params": { "scale": 1.5         } },
+      { "transform": "smooth",          "params": { "strength": 0.10     } }
+    ]
+  },
+  {
+    "key":         "example_tame_frantic",
+    "name":        "Tame Frantic",
+    "description": "Halve the tempo then apply a light performance pass for device-safe output.",
+    "structural":  true,
+    "steps": [
+      { "transform": "halve_tempo",   "params": {} },
+      { "transform": "performance",   "params": { "max_velocity": 0.32, "reversal_soften": 0.50 } }
+    ]
+  }
+]
