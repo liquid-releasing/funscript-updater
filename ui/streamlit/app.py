@@ -617,7 +617,7 @@ def _main() -> None:
     _active_icon = _tab_icon_files[_active_tab] if 0 <= _active_tab < len(_tab_icon_files) else _tab_icon_files[0]
     _, _icon_col = st.columns([4, 1])
     if os.path.exists(_active_icon):
-        _icon_col.image(_active_icon, width=250)
+        _icon_col.image(_active_icon, width=120)
 
     # Tab indices: 0=Phrase Selector, 1=Pattern Editor, 2=Transform Catalog, 3=Export
     tab_viewer, tab_pattern, tab_transforms, tab_export = st.tabs(
