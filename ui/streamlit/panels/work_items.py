@@ -97,7 +97,7 @@ def _render_item_row(project: "Project", item) -> None:
             st.rerun()
 
         # Edit button → select phrase in Phrase Editor and navigate there
-        if col_edit.button("✏", key=f"edit_{item.id}", use_container_width=True, help="Edit in Phrase Editor"):
+        if col_edit.button("✏", key=f"edit_{item.id}", width="stretch", help="Edit in Phrase Editor"):
             st.session_state.view_state.set_selection(item.start_ms, item.end_ms)
             # Auto-advance status to In Progress if still To Do
             if item.status == "todo":

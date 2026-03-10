@@ -123,7 +123,7 @@ def render(project) -> None:
                 f"{label}  ·  {count}",
                 key=f"pe_tag_{tag}",
                 type="primary" if is_active else "secondary",
-                use_container_width=True,
+                width="stretch",
                 help="  |  ".join(hint_parts) if hint_parts else None,
             ):
                 if tag != selected_tag:
@@ -359,9 +359,27 @@ def _detail_fragment(
             st.session_state[cache_key] = json.load(f)["actions"]
     original_actions: List[dict] = st.session_state[cache_key]
 
+    # Show edited version in selector chart if phrase editor transforms exist
+    from ui.streamlit.panels.phrase_detail import build_edited_actions
+    has_edits = any(
+        k.startswith("phrase_transform_")
+        and st.session_state[k].get("transform_key", "passthrough") != "passthrough"
+        for k in st.session_state
+    )
+    if has_edits:
+        _proj = st.session_state.get("project")
+        if _proj and _proj.is_loaded:
+            _all_phrases = _proj.assessment.to_dict().get("phrases", [])
+            selector_actions = build_edited_actions(_all_phrases, original_actions)
+        else:
+            selector_actions = original_actions
+        st.info("These edits have not been saved — ready for export.", icon="💾")
+    else:
+        selector_actions = original_actions
+
     # Selector chart
     _draw_selector_chart(
-        actions=original_actions,
+        actions=selector_actions,
         cycles=cycles,
         selected_idx=phrase_idx,
         duration_ms=duration_ms,
@@ -541,7 +559,7 @@ def _render_controls(
             "◀ Prev",
             key=f"pe_prev_{selected_label}_{inst_idx}",
             disabled=(inst_idx == 0),
-            use_container_width=True,
+            width="stretch",
         ):
             st.session_state.pe_selected_instance = inst_idx - 1
             st.rerun(scope="app")
@@ -550,7 +568,7 @@ def _render_controls(
             "Next ▶",
             key=f"pe_next_{selected_label}_{inst_idx}",
             disabled=(inst_idx >= n_instances - 1),
-            use_container_width=True,
+            width="stretch",
         ):
             st.session_state.pe_selected_instance = inst_idx + 1
             st.rerun(scope="app")
@@ -632,7 +650,7 @@ def _render_controls(
     if st.button(
         "Apply",
         key=f"pe_apply_{selected_label}_{inst_idx}_single",
-        use_container_width=True,
+        width="stretch",
         type="primary",
         help="Mark this instance as done and go to Export.",
     ):
@@ -648,7 +666,7 @@ def _render_controls(
     if st.button(
         "Apply to all",
         key=f"pe_apply_all_{selected_label}_{inst_idx}",
-        use_container_width=True,
+        width="stretch",
         help=f"Copy this transform to all {n_instances} instances of '{selected_label}' and go to Export.",
     ):
         _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
@@ -675,7 +693,7 @@ def _render_controls(
         if st.button(
             "Save raw actions",
             key=f"pe_save_catalog_{selected_label}_{inst_idx}",
-            use_container_width=True,
+            width="stretch",
         ):
             catalog = st.session_state.get("pattern_catalog")
             if catalog is None:
@@ -785,7 +803,7 @@ def _render_controls(
                         f"pe_replace_dl_{selected_label}_{inst_idx}"
                         f"_{chosen_idx}_{int(fit)}"
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
             except Exception as _exc:
                 st.error(f"Could not build patched funscript: {_exc}")
@@ -979,7 +997,7 @@ def _render_finalize_and_download(
     if st.button(
         "Build download",
         key=f"pe_build_{selected_label}",
-        use_container_width=True,
+        width="stretch",
         help="Compile all transforms into a downloadable funscript.",
     ):
         edited = _build_all_transforms(cycles, selected_label, original_actions)
@@ -1007,7 +1025,7 @@ def _render_finalize_and_download(
             file_name=download_name,
             mime="application/json",
             key=f"pe_download_{selected_label}",
-            use_container_width=True,
+            width="stretch",
             help=f"Download as {download_name}",
         )
     else:

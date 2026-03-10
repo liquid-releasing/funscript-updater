@@ -44,29 +44,31 @@ Full pipeline output for the loaded funscript.
 
 ### 2. Phrase Editor
 
-Full-funscript chart with phrase bounding boxes. Navigate and zoom into any phrase for detail editing.
+Full-funscript chart with phrase bounding boxes. When phrase transforms have been accepted the chart shows the edited funscript and a `💾 These edits have not been saved — ready for export.` banner appears.
 
 **Navigation:**
 
-- **Prev / Next** — step through phrases.
+- **⏮ Prev / Next ⏭** — step through phrases.
 - **P1, P2, …** — jump directly to any phrase.
 - Click a point on the chart to select that phrase.
 
 **Phrase Detail panel** (appears when a phrase is selected):
 
 ```text
-┌──────────────────────────────┬─────────────────┐
-│  Original chart              │  ⏮ Prev  Next ⏭ │
-├──────────────────────────────│  Transform      │
-│  Preview — {Transform Name}  │  controls       │
-│  Preview chart               │  ── divider ─── │
-│  Position stats table        │  Apply          │
-│                              │  Apply to all   │
-└──────────────────────────────┴─────────────────┘
+┌──────────────────────────────┬─────────────────────┐
+│  Original chart              │  ⏮ Prev    Next ⏭   │
+│  (hover dot = cycle number)  │  Transform controls  │
+├──────────────────────────────│  ✂ Split phrase      │
+│  Preview — {Transform Name}  │  ──────────────────  │
+│  Preview chart               │  ✓ Accept  ✕ Cancel  │
+│  Position stats table        │                      │
+└──────────────────────────────┴─────────────────────┘
 ```
 
-- **Apply** — marks the current phrase's work item as Done.
-- **Apply to all** — copies the current phrase's transform to every instance of the same behavioral tag and marks all Done.
+- **✓ Accept** — stores the transform in session state and returns to the phrase selector (transforms persist until Cancel or re-analysis).
+- **✕ Cancel** — discards all stored transforms and returns to the selector.
+- **✂ Split phrase** — enters split mode: a cycle-based slider selects where to divide the phrase; the split boundary appears as a white dashed line on the chart. Confirms into two new phrases (A/B), navigates to phrase A.
+- Hovering a chart dot shows `t=… ms  pos=…  cycle N` for quick orientation.
 
 ### 3. Pattern Behaviors
 
@@ -105,7 +107,9 @@ Behavioral pattern batch-fix workspace. Phrases are pre-classified into 8 behavi
 
 ```text
 [Left: tag buttons with counts]  [Right: detail area]
-                                  ├─ Selector chart (all matching phrases)
+                                  ├─ Selector chart (all matching phrases;
+                                  │    shows edited funscript when transforms
+                                  │    are accepted — same 💾 banner as Phrase Editor)
                                   ├─ Instance table (Start, Duration, BPM,
                                   │    Span, Centre, Velocity, Apply checkbox)
                                   ├─ Prev / Next navigation
@@ -139,27 +143,34 @@ Each entry shows: description, best-fit behavioral tags, a parameter table, live
 
 Aggregates all applied transforms from both editors and produces a downloadable edited funscript.
 
-**Header controls:**
+**Preview chart** — a static, non-interactive chart at the top of the tab shows the full proposed export (all non-rejected, accepted transforms applied). Updates automatically when transforms are accepted, rejected, or restored.
 
-- **Include recommended transforms for untouched phrases** — when enabled, phrases with no manually-applied transform receive the auto-suggested transform from `suggest_transform()`.  Tag-based rules take priority: `frantic` → Halve Tempo; `giggle`/`plateau`/`lazy` → Amplitude Scale (amplify to peak hi ≈ 65); `stingy` → Amplitude Scale (reduce to peak hi ≈ 65); `drift`/`half_stroke` → Recenter (50); `drone` → Beat Accent.  Untagged phrases fall back to BPM rules: transition → Smooth; low BPM → Passthrough; narrow span → Normalize; high BPM → Amplitude Scale.
+**Options and download:**
+
 - **Add blended seams to reduce abrupt style changes** — runs `blend_seams` over the full action list after all phrase transforms are applied.  Detects high-velocity jumps between differently-styled sections and applies a bilateral low-pass filter symmetrically at those seams, leaving normal strokes untouched.
 - **Conduct final smooth for post process finishing** — runs `final_smooth` (a light LPF at strength 0.10) over the entire result as a final polish pass.  Applied after seam blending when both are enabled.
 - **⬇ Download edited funscript** — builds the result from the current plan (phrase transforms → optional seam blend → optional final smooth) and streams it as a `.funscript` file; disabled when nothing is active.
 
-**Transform change log** (one row per affected phrase):
+**Completed transforms** (manually applied in Phrase Editor or Pattern Editor):
 
 | Column | Description |
 | --- | --- |
 | # | Phrase number |
 | Time | Start → End timestamp |
 | Dur (s) | Duration in seconds |
-| Transform | Name of the transform to apply |
-| Source | `Phrase Editor`, `Pattern Editor`, or `Recommended` |
-| BPM | Phrase BPM; `old → new` only when the transform changes tempo (e.g. Halve Tempo) |
+| Transform | Name of the transform |
+| Source | `Phrase Editor` or `Pattern Editor` |
+| BPM | Phrase BPM; `old → new` when the transform changes tempo |
 | Cycles | Cycle count; `old → new` when changed |
 | 🗑 / ↩ | Reject a row (dims it with strikethrough) or restore it |
 
-The rejected-phrase set clears automatically when a new funscript is loaded.  The same plan is available from the CLI: `python cli.py export-plan`.
+**Recommended transforms** (auto-suggested for untouched phrases):
+
+Phrases with no manually-applied transform receive an auto-suggested transform from `suggest_transform()`. Tag-based rules take priority: `frantic` → Halve Tempo; `giggle`/`plateau`/`lazy` → Amplitude Scale (amplify to peak hi ≈ 65); `stingy` → Amplitude Scale (reduce to peak hi ≈ 65); `drift`/`half_stroke` → Recenter (50); `drone` → Beat Accent. Untagged phrases fall back to BPM rules: transition → Smooth; low BPM → Passthrough; narrow span → Normalize; high BPM → Amplitude Scale.
+
+Recommended transforms are **not** exported unless explicitly accepted (✓ button). Once accepted the button shows ✅ (click to un-accept). Each row also has a ✏ edit button (opens Phrase Editor on that phrase) and 🗑 reject.
+
+The rejected-phrase set clears automatically when a new funscript is loaded.
 
 ---
 

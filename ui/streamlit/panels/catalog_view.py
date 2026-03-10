@@ -334,7 +334,7 @@ def _render_saved_patterns_section(catalog) -> None:
                     "Delete",
                     key=f"cv_del_{pat['id']}",
                     type="secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     catalog.delete_saved_pattern(pat["id"])
                     catalog.save()

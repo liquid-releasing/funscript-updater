@@ -24,8 +24,8 @@ from utils import ms_to_timestamp
 _COL_W_DONE    = [0.4, 2.8, 1.0, 2.8, 1.8, 2.0, 1.5, 0.6]
 _HEADERS_DONE  = ["#", "Time", "Dur (s)", "Transform", "Source", "BPM", "Cycles", ""]
 
-_COL_W_REC     = [0.4, 2.8, 1.0, 3.2, 2.0, 1.5, 0.5, 0.5]
-_HEADERS_REC   = ["#", "Time", "Dur (s)", "Transform", "BPM", "Cycles", "", ""]
+_COL_W_REC     = [0.4, 2.8, 1.0, 3.2, 2.0, 1.5, 0.5, 0.5, 0.5]
+_HEADERS_REC   = ["#", "Time", "Dur (s)", "Transform", "BPM", "Cycles", "", "", ""]
 
 
 # ------------------------------------------------------------------
@@ -48,6 +48,8 @@ def render(project) -> None:
 
     if "export_rejected" not in st.session_state:
         st.session_state.export_rejected = set()
+    if "export_accepted" not in st.session_state:
+        st.session_state.export_accepted = set()
 
     tag_to_idxs: Dict[str, List[int]] = {}
     for i, ph in enumerate(phrases):
@@ -56,6 +58,13 @@ def render(project) -> None:
 
     completed_plan, recommended_plan = _build_plans(phrases, tag_to_idxs, bpm_threshold)
     full_plan = completed_plan + recommended_plan
+
+    # ----------------------------------------------------------------
+    # Preview chart — static, shows the proposed export at a glance
+    # ----------------------------------------------------------------
+    _render_export_preview(project, assessment_dict, full_plan)
+
+    st.divider()
 
     # ----------------------------------------------------------------
     # Header controls
@@ -75,9 +84,13 @@ def render(project) -> None:
         )
 
     with col_dl:
+        _rej = st.session_state.export_rejected
+        _acc = st.session_state.export_accepted
         active_entries = [
-            e for e in full_plan
-            if e["phrase_idx"] not in st.session_state.export_rejected
+            e for e in completed_plan if e["phrase_idx"] not in _rej
+        ] + [
+            e for e in recommended_plan
+            if e["phrase_idx"] in _acc and e["phrase_idx"] not in _rej
         ]
         if active_entries or blend_seams or final_smooth:
             dl_bytes = _build_download_bytes(
@@ -105,8 +118,12 @@ def render(project) -> None:
     # Section 1 — Completed transforms
     # ----------------------------------------------------------------
     rejected = st.session_state.export_rejected
+    accepted = st.session_state.export_accepted
     done_active = sum(1 for e in completed_plan if e["phrase_idx"] not in rejected)
-    rec_active  = sum(1 for e in recommended_plan if e["phrase_idx"] not in rejected)
+    rec_active  = sum(
+        1 for e in recommended_plan
+        if e["phrase_idx"] in accepted and e["phrase_idx"] not in rejected
+    )
 
     if done_active:
         st.markdown(f"#### Completed transforms &nbsp; ✅ {done_active} will be exported")
@@ -270,17 +287,24 @@ def _render_completed(plan: List[dict]) -> None:
 
 def _render_recommended(plan: List[dict]) -> None:
     rejected: set = st.session_state.export_rejected
+    accepted: set = st.session_state.export_accepted
 
     if not plan:
         st.caption("All phrases have manual transforms — nothing to recommend.")
         return
 
-    active  = sum(1 for e in plan if e["phrase_idx"] not in rejected)
-    rej_cnt = len(plan) - active
-    summary = f"{active} recommendation{'s' if active != 1 else ''} will be applied"
+    active  = sum(
+        1 for e in plan
+        if e["phrase_idx"] in accepted and e["phrase_idx"] not in rejected
+    )
+    rej_cnt    = sum(1 for e in plan if e["phrase_idx"] in rejected)
+    pending    = len(plan) - active - rej_cnt
+    summary    = f"{active} recommendation{'s' if active != 1 else ''} accepted and will be applied"
+    if pending:
+        summary += f" &nbsp;·&nbsp; {pending} pending (✓ to accept)"
     if rej_cnt:
         summary += f" &nbsp;·&nbsp; {rej_cnt} rejected"
-    st.caption(summary + " — click ✏ to edit in Phrase Editor, 🗑 to reject")
+    st.caption(summary + " — click ✓ to accept, ✏ to edit, 🗑 to reject")
 
     hcols = st.columns(_COL_W_REC)
     for hc, lbl in zip(hcols, _HEADERS_REC):
@@ -289,6 +313,7 @@ def _render_recommended(plan: List[dict]) -> None:
     for entry in plan:
         idx      = entry["phrase_idx"]
         is_rej   = idx in rejected
+        is_acc   = idx in accepted
         time_str = f"{ms_to_timestamp(entry['start_ms'])} → {ms_to_timestamp(entry['end_ms'])}"
         dur_s    = f"{(entry['end_ms'] - entry['start_ms']) / 1000:.1f}"
         bpm_str  = (
@@ -312,8 +337,8 @@ def _render_recommended(plan: List[dict]) -> None:
             rc[3].markdown(_dim(f"<s>{entry['tx_name']}</s>"), unsafe_allow_html=True)
             rc[4].markdown(_dim(bpm_str),              unsafe_allow_html=True)
             rc[5].markdown(_dim(cyc_str),              unsafe_allow_html=True)
-            # rc[6] edit slot — empty when rejected
-            if rc[7].button("↩", key=f"rec_restore_{idx}", help="Restore"):
+            # cols 6, 7 empty; col 8 = restore
+            if rc[8].button("↩", key=f"rec_restore_{idx}", help="Restore"):
                 st.session_state.export_rejected.discard(idx)
                 st.rerun()
         else:
@@ -328,18 +353,114 @@ def _render_recommended(plan: List[dict]) -> None:
                 rc[3].caption(param_caption)
             rc[4].write(bpm_str)
             rc[5].write(cyc_str)
-            if rc[6].button("✏", key=f"rec_edit_{idx}", help="Edit in Phrase Editor"):
+            # col 6 = accept (✓ / ✅)
+            if is_acc:
+                if rc[6].button("✅", key=f"rec_unaccept_{idx}", help="Un-accept"):
+                    st.session_state.export_accepted.discard(idx)
+                    st.rerun()
+            else:
+                if rc[6].button("✓", key=f"rec_accept_{idx}", help="Accept — include in export"):
+                    st.session_state.export_accepted.add(idx)
+                    st.rerun()
+            # col 7 = edit
+            if rc[7].button("✏", key=f"rec_edit_{idx}", help="Edit in Phrase Editor"):
                 st.session_state.view_state.set_selection(entry["start_ms"], entry["end_ms"])
                 st.session_state.goto_tab = 1
                 st.rerun()
-            if rc[7].button("🗑", key=f"rec_reject_{idx}", help="Reject"):
+            # col 8 = reject
+            if rc[8].button("🗑", key=f"rec_reject_{idx}", help="Reject"):
                 st.session_state.export_rejected.add(idx)
                 st.rerun()
 
 
 # ------------------------------------------------------------------
+# Export preview chart
+# ------------------------------------------------------------------
+
+def _render_export_preview(project, assessment_dict: dict, plan: List[dict]) -> None:
+    """Render a static (non-interactive) chart of the proposed export actions."""
+    from visualizations.chart_data import compute_chart_data, compute_annotation_bands
+    from visualizations.funscript_chart import FunscriptChart
+
+    with open(project.funscript_path, encoding="utf-8") as f:
+        fs_data = json.load(f)
+
+    original_actions = fs_data.get("actions", [])
+    rejected: set = st.session_state.get("export_rejected", set())
+    accepted: set = st.session_state.get("export_accepted", set())
+    preview_actions = _apply_plan_transforms(original_actions, plan, rejected, accepted)
+
+    duration_ms = project.assessment.duration_ms
+    bands  = compute_annotation_bands(assessment_dict)
+    series = compute_chart_data(preview_actions)
+    chart  = FunscriptChart(
+        series, bands, "", duration_ms,
+        large_funscript_threshold=st.session_state.get("large_funscript_threshold", 10_000),
+    )
+
+    class _StaticVS:
+        color_mode = "velocity"
+        def has_zoom(self):      return False
+        def has_selection(self): return False
+
+    fig = chart._build_figure(_StaticVS(), height=260)
+    st.plotly_chart(
+        fig,
+        config={"displayModeBar": False, "staticPlot": True},
+        key="export_preview_chart",
+    )
+
+    n_active = sum(
+        1 for e in plan
+        if e["phrase_idx"] not in rejected
+        and (e.get("source") != "Recommended" or e["phrase_idx"] in accepted)
+    )
+    st.caption(
+        f"Preview: {n_active} transform{'s' if n_active != 1 else ''} applied · "
+        "blend seams and final smooth (if checked below) will also be applied on download"
+    )
+
+
+# ------------------------------------------------------------------
 # Download builder
 # ------------------------------------------------------------------
+
+def _apply_plan_transforms(
+    original_actions: list,
+    plan: List[dict],
+    rejected: set,
+    accepted: set,
+) -> list:
+    """Apply all non-rejected plan transforms to a copy of original_actions."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+
+    result = copy.deepcopy(original_actions)
+    for entry in plan:
+        idx = entry["phrase_idx"]
+        if idx in rejected:
+            continue
+        if entry.get("source") == "Recommended" and idx not in accepted:
+            continue
+        spec = TRANSFORM_CATALOG.get(entry["tx_key"])
+        if not spec:
+            continue
+        start_ms     = entry["start_ms"]
+        end_ms       = entry["end_ms"]
+        param_values = entry["param_values"] or {}
+        phrase_slice = [a for a in result if start_ms <= a["at"] <= end_ms]
+        transformed  = spec.apply(phrase_slice, param_values if param_values else None)
+        if not transformed:
+            continue
+        if spec.structural:
+            outside = [a for a in result if not (start_ms <= a["at"] <= end_ms)]
+            result  = sorted(outside + transformed, key=lambda a: a["at"])
+        else:
+            t_to_pos = {a["at"]: a["pos"] for a in transformed}
+            for a in result:
+                if a["at"] in t_to_pos:
+                    a["pos"] = t_to_pos[a["at"]]
+    return result
+
 
 def _build_download_bytes(
     project,
@@ -356,32 +477,8 @@ def _build_download_bytes(
         fs_data = json.load(f)
 
     rejected: set = st.session_state.get("export_rejected", set())
-    result = copy.deepcopy(fs_data.get("actions", []))
-
-    for entry in plan:
-        if entry["phrase_idx"] in rejected:
-            continue
-        spec = TRANSFORM_CATALOG.get(entry["tx_key"])
-        if not spec:
-            continue
-
-        start_ms     = entry["start_ms"]
-        end_ms       = entry["end_ms"]
-        param_values = entry["param_values"] or {}
-
-        phrase_slice = [a for a in result if start_ms <= a["at"] <= end_ms]
-        transformed  = spec.apply(phrase_slice, param_values if param_values else None)
-        if not transformed:
-            continue
-
-        if spec.structural:
-            outside = [a for a in result if not (start_ms <= a["at"] <= end_ms)]
-            result  = sorted(outside + transformed, key=lambda a: a["at"])
-        else:
-            t_to_pos = {a["at"]: a["pos"] for a in transformed}
-            for a in result:
-                if a["at"] in t_to_pos:
-                    a["pos"] = t_to_pos[a["at"]]
+    accepted: set = st.session_state.get("export_accepted", set())
+    result = _apply_plan_transforms(fs_data.get("actions", []), plan, rejected, accepted)
 
     if blend_seams:
         spec = TRANSFORM_CATALOG.get("blend_seams")

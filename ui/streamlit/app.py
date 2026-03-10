@@ -97,7 +97,7 @@ if "last_loaded_cfg" not in st.session_state:
 def _sidebar() -> None:
     _logo = os.path.join(_ROOT, "media", "funscriptforge.png")
     if os.path.exists(_logo):
-        st.sidebar.image(_logo, use_container_width=True)
+        st.sidebar.image(_logo, width="stretch")
     else:
         st.sidebar.title("Funscript Forge")
     st.sidebar.markdown("---")

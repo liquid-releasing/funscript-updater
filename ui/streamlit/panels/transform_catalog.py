@@ -251,7 +251,7 @@ def _render_transform_card(spec) -> None:
         st.dataframe(
             pd.DataFrame(rows),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
     # Two-column layout: Before chart (left) | sliders + After chart (right)
@@ -261,7 +261,7 @@ def _render_transform_card(spec) -> None:
     with chart_left:
         st.plotly_chart(
             _make_chart(before_actions, _BLUE, "Before"),
-            use_container_width=True,
+            width="stretch",
             config={"displayModeBar": False},
             key=f"tc_chart_before_{spec.key}",
         )
@@ -270,7 +270,7 @@ def _render_transform_card(spec) -> None:
         after_actions = spec.apply(before_actions, param_values)
         st.plotly_chart(
             _make_chart(after_actions, _GREEN, "After"),
-            use_container_width=True,
+            width="stretch",
             config={"displayModeBar": False},
             key=f"tc_chart_after_{spec.key}",
         )

@@ -48,9 +48,25 @@ def _selector_fragment(
     phrases = assessment_dict.get("phrases", [])
     bands   = compute_annotation_bands(assessment_dict)
 
+    # Show edited version if any phrase transforms have been accepted
+    from ui.streamlit.panels.phrase_detail import build_edited_actions
+    has_edits = any(
+        k.startswith("phrase_transform_")
+        and st.session_state[k].get("transform_key", "passthrough") != "passthrough"
+        for k in st.session_state
+    )
+    if has_edits:
+        display_actions = build_edited_actions(phrases, original_actions)
+        st.info(
+            "These edits have not been saved — ready for export.",
+            icon="💾",
+        )
+    else:
+        display_actions = original_actions
+
     _render_controls(view_state, duration_ms, phrases)
 
-    n_actions   = len(original_actions)
+    n_actions   = len(display_actions)
     spinner_msg = (
         f"Building chart ({n_actions} actions — using fast rendering)…"
         if n_actions > large_funscript_threshold
@@ -58,7 +74,7 @@ def _selector_fragment(
     )
     _t0 = _time.time()
     with st.spinner(spinner_msg):
-        series  = compute_chart_data(original_actions)
+        series  = compute_chart_data(display_actions)
         chart   = FunscriptChart(
             series, bands, "", duration_ms,
             large_funscript_threshold=large_funscript_threshold,
