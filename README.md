@@ -304,6 +304,7 @@ python cli.py test
 | [user_customization/README.md](user_customization/README.md) | Window-based fine-tuning customizer (Step 3) |
 | [ui/README.md](ui/README.md) | Streamlit UI overview — sidebar controls, all six tabs |
 | [ui/streamlit/README.md](ui/streamlit/README.md) | Detailed Streamlit panel reference — Phrase Editor, Pattern Editor, Export |
+| [ui/streamlit/UNDO.md](ui/streamlit/UNDO.md) | Undo/redo — what is captured, how to use it, architecture, extending it |
 | [ui/common/README.md](ui/common/README.md) | Framework-agnostic business logic: `Project`, `WorkItem`, `ViewState` |
 | [user_transforms/README.md](user_transforms/README.md) | Adding custom transforms via JSON recipe files |
 | [plugins/README.md](plugins/README.md) | Adding custom transforms via Python plugins |
