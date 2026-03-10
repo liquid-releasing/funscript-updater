@@ -196,7 +196,7 @@ def _render_phrases_timeline(phrases: List[Dict]) -> None:
         bargap=0,
         bargroupgap=0,
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     st.caption("Colour: blue = lower BPM → red = higher BPM. Hover a segment for exact values.")
 
 
@@ -325,7 +325,7 @@ def _render_bpm_step_chart(phrases: List[Dict], transitions: List[Dict]) -> None
         ),
         showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +372,7 @@ def _render_patterns_section(patterns: List[Dict], phrases: List[Dict]) -> None:
         yaxis=dict(gridcolor=_GRID, zeroline=False, autorange="reversed"),
         showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
     # -- Per-row: label, description, phrase count, BPM range, Focus --
     _bhv_cols = [2.0, 3.5, 1.0, 2.0, 1.8]
@@ -432,7 +432,7 @@ def _render_phases_expander(phases: List[Dict]) -> None:
             yaxis=dict(gridcolor=_GRID, zeroline=False),
             showlegend=False,
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
         # First 50 phases table
         st.caption("First 50 phases")
@@ -444,4 +444,4 @@ def _render_phases_expander(phases: List[Dict]) -> None:
             }
             for p in phases[:50]
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
