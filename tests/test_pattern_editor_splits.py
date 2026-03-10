@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Tests for the split-segment logic in ui/streamlit/panels/pattern_editor.py.
 
 These tests cover the pure split-management helpers.  Streamlit is mocked so

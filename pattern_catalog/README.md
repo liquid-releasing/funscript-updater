@@ -290,3 +290,7 @@ key = suggest_transform(phrase_dict, bpm_threshold=120.0)
 | `bpm < bpm_threshold` | `passthrough` |
 | `bpm >= bpm_threshold` and `amplitude_span < 40` | `normalize` |
 | `bpm >= bpm_threshold` | `amplitude_scale` |
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

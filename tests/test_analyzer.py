@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Unit tests for assessment/analyzer.py"""
 
 import sys
@@ -93,7 +96,7 @@ class TestFunscriptAnalyzer(unittest.TestCase):
 class TestBpmTransitionDetection(unittest.TestCase):
     def test_transition_flagged_on_large_change(self):
         # Low threshold so our fixture likely triggers at least one check
-        cfg = AnalyzerConfig(bpm_change_threshold_pct=0.0)
+        cfg = AnalyzerConfig(bpm_change_threshold_pct=0.001)
         analyzer = FunscriptAnalyzer(config=cfg)
         analyzer.load(FIXTURE)
         result = analyzer.analyze()
@@ -109,7 +112,7 @@ class TestBpmTransitionDetection(unittest.TestCase):
         self.assertEqual(len(result.bpm_transitions), 0)
 
     def test_transition_fields(self):
-        cfg = AnalyzerConfig(bpm_change_threshold_pct=0.0)
+        cfg = AnalyzerConfig(bpm_change_threshold_pct=0.001)
         analyzer = FunscriptAnalyzer(config=cfg)
         analyzer.load(FIXTURE)
         result = analyzer.analyze()
@@ -174,6 +177,61 @@ class TestAnalyzerConfig(unittest.TestCase):
     def test_custom_threshold(self):
         cfg = AnalyzerConfig(bpm_change_threshold_pct=10.0)
         self.assertEqual(cfg.bpm_change_threshold_pct, 10.0)
+
+    def test_invalid_min_velocity_raises(self):
+        with self.assertRaises(ValueError):
+            AnalyzerConfig(min_velocity=-0.1)
+
+    def test_invalid_duration_tolerance_raises(self):
+        with self.assertRaises(ValueError):
+            AnalyzerConfig(duration_tolerance=1.5)
+
+    def test_invalid_bpm_threshold_raises(self):
+        with self.assertRaises(ValueError):
+            AnalyzerConfig(bpm_change_threshold_pct=0.0)
+
+
+class TestAnalyzerErrorPaths(unittest.TestCase):
+    def test_load_missing_file_raises(self):
+        analyzer = FunscriptAnalyzer()
+        with self.assertRaises(FileNotFoundError):
+            analyzer.load("/nonexistent/path/file.funscript")
+
+    def test_load_invalid_json_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".funscript", delete=False, mode="w") as f:
+            f.write("this is not valid json {{{")
+            tmp = f.name
+        try:
+            analyzer = FunscriptAnalyzer()
+            with self.assertRaises(ValueError):
+                analyzer.load(tmp)
+        finally:
+            os.unlink(tmp)
+
+    def test_load_missing_actions_key_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".funscript", delete=False, mode="w") as f:
+            json.dump({"version": 1}, f)
+            tmp = f.name
+        try:
+            analyzer = FunscriptAnalyzer()
+            with self.assertRaises(ValueError):
+                analyzer.load(tmp)
+        finally:
+            os.unlink(tmp)
+
+    def test_assessment_load_missing_file_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            AssessmentResult.load("/nonexistent/assessment.json")
+
+    def test_assessment_load_invalid_json_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            f.write("not json")
+            tmp = f.name
+        try:
+            with self.assertRaises(ValueError):
+                AssessmentResult.load(tmp)
+        finally:
+            os.unlink(tmp)
 
 
 if __name__ == "__main__":

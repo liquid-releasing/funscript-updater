@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """FunscriptAnalyzer: structural analysis of a funscript.
 
 Pipeline:
@@ -14,10 +17,14 @@ The AssessmentResult contains:
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from models import Phase, Cycle, Pattern, Phrase, BpmTransition, AssessmentResult
 from utils import ms_to_timestamp
+
+# Internal tuple types used by the detection pipeline.
+# (start_ms, end_ms, pattern_label, oscillation_count, amplitude_range)
+_CycleRow = Tuple[int, int, str, int, float]
 
 
 @dataclass
@@ -35,6 +42,20 @@ class AnalyzerConfig:
     min_phrase_duration_ms: int = 20_000
     # Flag BPM transitions whose absolute percentage change exceeds this value
     bpm_change_threshold_pct: float = 40.0
+
+    def __post_init__(self) -> None:
+        if self.min_velocity < 0:
+            raise ValueError(f"min_velocity must be >= 0, got {self.min_velocity}")
+        if self.min_phase_duration_ms < 0:
+            raise ValueError(f"min_phase_duration_ms must be >= 0, got {self.min_phase_duration_ms}")
+        if not 0.0 < self.duration_tolerance < 1.0:
+            raise ValueError(f"duration_tolerance must be in (0, 1), got {self.duration_tolerance}")
+        if not 0.0 < self.amplitude_tolerance < 1.0:
+            raise ValueError(f"amplitude_tolerance must be in (0, 1), got {self.amplitude_tolerance}")
+        if self.bpm_change_threshold_pct <= 0:
+            raise ValueError(
+                f"bpm_change_threshold_pct must be > 0, got {self.bpm_change_threshold_pct}"
+            )
 
 
 class FunscriptAnalyzer:
@@ -58,9 +79,23 @@ class FunscriptAnalyzer:
     # ------------------------------------------------------------------
 
     def load(self, path: str) -> None:
-        """Load a funscript file."""
-        with open(path) as f:
-            data = json.load(f)
+        """Load a funscript file.
+
+        Raises:
+            FileNotFoundError: if the file does not exist.
+            ValueError: if the file is not valid JSON or missing the 'actions' list.
+        """
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Funscript not found: {path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in funscript '{path}': {e}")
+        if "actions" not in data or not isinstance(data["actions"], list):
+            raise ValueError(
+                f"Funscript '{path}' is missing a required 'actions' list."
+            )
         self._actions = data["actions"]
         self._source_file = path
 
@@ -238,7 +273,7 @@ class FunscriptAnalyzer:
         )
 
         phrases: List[Phrase] = []
-        current: List[tuple] = []
+        current: List[_CycleRow] = []
         current_label: Optional[str] = None
         current_oscillations: int = 0
         current_amp_sum: float = 0.0

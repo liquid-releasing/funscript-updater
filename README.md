@@ -293,3 +293,7 @@ python cli.py test
 | [plugins/README.md](plugins/README.md) | Adding custom transforms via Python plugins |
 | [visualizations/README.md](visualizations/README.md) | Matplotlib motion chart components |
 | [tests/README.md](tests/README.md) | Test suite structure and coverage |
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](LICENSE).  Written by human and Claude AI (Claude Sonnet).*

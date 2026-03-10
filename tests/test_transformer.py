@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Unit tests for pattern_catalog/transformer.py"""
 
 import sys
@@ -91,9 +94,9 @@ class TestFunscriptTransformer(unittest.TestCase):
         for i, a in enumerate(t._actions):
             self.assertEqual(a["pos"], orig[i]["pos"])
 
-    def test_zero_threshold_transforms_all(self):
-        """With threshold=0, all phrases qualify for transform; no action is pass-through."""
-        t = _make_transformer(bpm_threshold=0.0)
+    def test_very_low_threshold_transforms_all(self):
+        """With threshold near 0, all phrases qualify for transform; no action is pass-through."""
+        t = _make_transformer(bpm_threshold=0.001)
         t.transform()
         log = " ".join(t.get_log())
         self.assertIn("0 actions passed through", log)
@@ -144,6 +147,52 @@ class TestTransformerConfig(unittest.TestCase):
     def test_from_dict_ignores_unknown_keys(self):
         cfg = TransformerConfig.from_dict({"bpm_threshold": 80.0, "unknown_key": "ignored"})
         self.assertEqual(cfg.bpm_threshold, 80.0)
+
+    def test_invalid_bpm_threshold_raises(self):
+        with self.assertRaises(ValueError):
+            TransformerConfig(bpm_threshold=0.0)
+
+    def test_invalid_amplitude_scale_raises(self):
+        with self.assertRaises(ValueError):
+            TransformerConfig(amplitude_scale=-1.0)
+
+    def test_invalid_lpf_out_of_range_raises(self):
+        with self.assertRaises(ValueError):
+            TransformerConfig(lpf_default=1.5)
+
+
+class TestTransformerErrorPaths(unittest.TestCase):
+    def test_load_missing_file_raises(self):
+        t = FunscriptTransformer()
+        with self.assertRaises(FileNotFoundError):
+            t.load_funscript("/nonexistent/file.funscript")
+
+    def test_load_invalid_json_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".funscript", delete=False, mode="w") as f:
+            f.write("not json {{")
+            tmp = f.name
+        try:
+            t = FunscriptTransformer()
+            with self.assertRaises(ValueError):
+                t.load_funscript(tmp)
+        finally:
+            os.unlink(tmp)
+
+    def test_load_missing_actions_key_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".funscript", delete=False, mode="w") as f:
+            json.dump({"version": 1}, f)
+            tmp = f.name
+        try:
+            t = FunscriptTransformer()
+            with self.assertRaises(ValueError):
+                t.load_funscript(tmp)
+        finally:
+            os.unlink(tmp)
+
+    def test_load_assessment_from_missing_file_raises(self):
+        t = FunscriptTransformer()
+        with self.assertRaises(FileNotFoundError):
+            t.load_assessment_from_file("/nonexistent/assessment.json")
 
 
 if __name__ == "__main__":

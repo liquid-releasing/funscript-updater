@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Unit tests for user_customization/customizer.py"""
 
 import sys
@@ -156,6 +159,58 @@ class TestCustomizerConfig(unittest.TestCase):
     def test_from_dict_ignores_unknown_keys(self):
         cfg = CustomizerConfig.from_dict({"max_velocity": 0.5, "unknown": "ignored"})
         self.assertEqual(cfg.max_velocity, 0.5)
+
+    def test_invalid_max_velocity_raises(self):
+        with self.assertRaises(ValueError):
+            CustomizerConfig(max_velocity=0.0)
+
+    def test_invalid_reversal_soften_raises(self):
+        with self.assertRaises(ValueError):
+            CustomizerConfig(reversal_soften=1.5)
+
+    def test_compress_bottom_ge_top_raises(self):
+        with self.assertRaises(ValueError):
+            CustomizerConfig(compress_bottom=80, compress_top=50)
+
+
+class TestCustomizerErrorPaths(unittest.TestCase):
+    def test_load_missing_funscript_raises(self):
+        c = WindowCustomizer()
+        with self.assertRaises(FileNotFoundError):
+            c.load_funscript("/nonexistent/file.funscript")
+
+    def test_load_invalid_json_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".funscript", delete=False, mode="w") as f:
+            f.write("not json {{{")
+            tmp = f.name
+        try:
+            c = WindowCustomizer()
+            with self.assertRaises(ValueError):
+                c.load_funscript(tmp)
+        finally:
+            os.unlink(tmp)
+
+    def test_load_window_file_missing_start_key_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            json.dump([{"end": "00:01:00.000"}], f)   # missing "start"
+            tmp = f.name
+        try:
+            c = WindowCustomizer()
+            with self.assertRaises(ValueError):
+                c._load_ts_file(tmp, "perf")
+        finally:
+            os.unlink(tmp)
+
+    def test_load_window_file_not_a_list_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            json.dump({"start": "00:00:00", "end": "00:01:00"}, f)  # object, not list
+            tmp = f.name
+        try:
+            c = WindowCustomizer()
+            with self.assertRaises(ValueError):
+                c._load_ts_file(tmp, "perf")
+        finally:
+            os.unlink(tmp)
 
 
 if __name__ == "__main__":

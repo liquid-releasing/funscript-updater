@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Tests for catalog/pattern_catalog.py — persistent cross-funscript catalog."""
 
 import json

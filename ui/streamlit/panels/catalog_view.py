@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """catalog_view.py — Pattern Catalog tab.
 
 Two sections
@@ -13,19 +16,22 @@ Two sections
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import streamlit as st
 
 from assessment.classifier import TAGS
 from utils import ms_to_timestamp
 
+if TYPE_CHECKING:
+    from ui.common.project import Project
+
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def render(project) -> None:
+def render(project: "Project") -> None:
     catalog = st.session_state.get("pattern_catalog")
 
     has_project = project is not None and project.is_loaded

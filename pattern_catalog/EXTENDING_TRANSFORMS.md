@@ -290,3 +290,7 @@ configurable `[lo, hi]` band (the `example_clamp_center` transform).
 - `plugins/README.md` — Python plugin interface reference
 - `pattern_catalog/README.md` — Built-in transform catalog documentation
 - `python cli.py list-transforms --verbose` — Live catalog with full param details
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

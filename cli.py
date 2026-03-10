@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Funscript Forge CLI
 
 Full-pipeline shortcut (Steps 1 + 3 + 4 in one command):
@@ -16,7 +19,8 @@ Individual steps:
                         [--min-phrase-duration SECONDS]
                         [--amplitude-tolerance FRACTION]
 
-  Step 2 — Review (human step — open assessment.json, review bpm_transitions and phrase BPMs)
+  Step 2 — Review [MANUAL] — open assessment.json, inspect bpm_transitions and per-phrase BPMs,
+             then decide which phrases to edit (use Streamlit UI or phrase-transform command)
 
   Step 3 — Transform (BPM-threshold based)
     python cli.py transform path/to/input.funscript \\
@@ -88,12 +92,52 @@ Additional commands:
 """
 
 import argparse
+import copy
+import dataclasses
+import functools
 import json
 import os
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+from assessment.analyzer import AnalyzerConfig, FunscriptAnalyzer
+from assessment.classifier import TAGS
+from catalog.pattern_catalog import PatternCatalog
+from models import AssessmentResult
+from pattern_catalog.config import TransformerConfig
+from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, _BUILTIN_KEYS, suggest_transform
+from pattern_catalog.transformer import FunscriptTransformer
+from user_customization.config import CustomizerConfig
+from user_customization.customizer import WindowCustomizer
+from utils import ms_to_timestamp
+from visualizations.motion import HAS_MATPLOTLIB, MotionVisualizer
+
+
+# ------------------------------------------------------------------
+# Error handling
+# ------------------------------------------------------------------
+
+def _cli_command(fn):
+    """Decorator that gives every CLI command consistent error handling.
+
+    Catches FileNotFoundError and ValueError (the two exceptions our pipeline
+    raises for bad input) and prints a clean one-line message to stderr before
+    exiting with code 1.  KeyboardInterrupt exits with code 130.
+    """
+    @functools.wraps(fn)
+    def wrapper(args):
+        try:
+            fn(args)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            sys.exit(130)
+    return wrapper
 
 
 # ------------------------------------------------------------------
@@ -102,7 +146,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 def _build_analyzer_config(args):
     """Build an AnalyzerConfig from CLI args and optional --config file."""
-    from assessment.analyzer import AnalyzerConfig
     config = AnalyzerConfig()
     if getattr(args, "config", None):
         with open(args.config) as f:
@@ -118,14 +161,8 @@ def _build_analyzer_config(args):
     return config
 
 
+@_cli_command
 def cmd_pipeline(args):
-    from assessment.analyzer import FunscriptAnalyzer
-    from pattern_catalog.config import TransformerConfig
-    from user_customization.config import CustomizerConfig
-    from user_customization.customizer import WindowCustomizer
-    from pattern_catalog.transformer import FunscriptTransformer
-    import tempfile, os
-
     output_dir = args.output_dir or os.path.join(
         os.path.dirname(args.funscript), "output"
     )
@@ -173,9 +210,8 @@ def cmd_pipeline(args):
     print(f"Customized:   {customized_path}  ({time.time() - t0:.2f}s)")
 
 
+@_cli_command
 def cmd_assess(args):
-    from assessment.analyzer import FunscriptAnalyzer
-
     analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
     analyzer.load(args.funscript)
     t0 = time.time()
@@ -201,10 +237,8 @@ def cmd_assess(args):
         print("  BPM transitions: none detected")
 
 
+@_cli_command
 def cmd_transform(args):
-    from pattern_catalog.transformer import FunscriptTransformer
-    from pattern_catalog.config import TransformerConfig
-
     config = TransformerConfig.load(args.config) if args.config else TransformerConfig()
     transformer = FunscriptTransformer(config)
     transformer.load_funscript(args.funscript)
@@ -221,10 +255,8 @@ def cmd_transform(args):
     print(f"\nTransformed funscript saved: {output}  ({elapsed:.2f}s)")
 
 
+@_cli_command
 def cmd_customize(args):
-    from user_customization.customizer import WindowCustomizer
-    from user_customization.config import CustomizerConfig
-
     config = CustomizerConfig.load(args.config) if args.config else CustomizerConfig()
     customizer = WindowCustomizer(config)
     customizer.load_funscript(args.funscript)
@@ -251,10 +283,8 @@ def cmd_customize(args):
     print(f"\nCustomized funscript saved: {output}  ({elapsed:.2f}s)")
 
 
+@_cli_command
 def cmd_visualize(args):
-    from visualizations.motion import MotionVisualizer, HAS_MATPLOTLIB
-    from models import AssessmentResult
-
     if not HAS_MATPLOTLIB:
         print("Error: matplotlib is not installed. Run: pip install matplotlib")
         sys.exit(1)
@@ -271,23 +301,20 @@ def cmd_visualize(args):
     print(f"Visualization saved: {output}")
 
 
+@_cli_command
 def cmd_config(args):
     if args.customizer:
-        from user_customization.config import CustomizerConfig
         cfg = CustomizerConfig()
         output = args.output or "customizer_config.json"
         cfg.save(output)
         print(f"Default customizer config written: {output}")
     elif args.analyzer:
-        from assessment.analyzer import AnalyzerConfig
-        import dataclasses, json
         cfg = AnalyzerConfig()
         output = args.output or "analyzer_config.json"
         with open(output, "w") as f:
             json.dump(dataclasses.asdict(cfg), f, indent=2)
         print(f"Default analyzer config written: {output}")
     else:
-        from pattern_catalog.config import TransformerConfig
         cfg = TransformerConfig()
         output = args.output or "transformer_config.json"
         cfg.save(output)
@@ -295,10 +322,9 @@ def cmd_config(args):
     print("Edit the values then pass with --config when running the command.")
 
 
+@_cli_command
 def cmd_list_transforms(args):
     """List all available transforms (built-in + user-loaded)."""
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, _BUILTIN_KEYS
-
     catalog = dict(sorted(TRANSFORM_CATALOG.items()))
     if args.user_only:
         catalog = {k: v for k, v in catalog.items() if k not in _BUILTIN_KEYS}
@@ -326,7 +352,6 @@ def cmd_list_transforms(args):
                     for pkey, p in (spec.params or {}).items()
                 }
             out[key] = entry
-        import json
         print(json.dumps(out, indent=2))
         return
 
@@ -359,12 +384,9 @@ def _coerce(v: str):
         return v
 
 
+@_cli_command
 def cmd_phrase_transform(args):
     """Apply a catalog transform to one or all phrases of a funscript."""
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
-    from models import AssessmentResult
-    import copy
-
     # --- load inputs ---
     with open(args.funscript) as f:
         data = json.load(f)
@@ -470,11 +492,9 @@ def cmd_phrase_transform(args):
     print(f"\nSaved: {output}")
 
 
+@_cli_command
 def cmd_finalize(args):
     """Apply blend_seams + final_smooth to the full action list, then save."""
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
-    import copy
-
     with open(args.funscript) as f:
         data = json.load(f)
 
@@ -517,10 +537,9 @@ def cmd_finalize(args):
     print(f"\nSaved: {output}")
 
 
+@_cli_command
 def cmd_catalog(args):
     """Inspect or manage the cross-funscript pattern catalog."""
-    from catalog.pattern_catalog import PatternCatalog
-
     catalog_path = args.catalog or os.path.join(
         os.path.dirname(__file__), "output", "pattern_catalog.json"
     )
@@ -542,7 +561,6 @@ def cmd_catalog(args):
         return
 
     if args.tag:
-        from assessment.classifier import TAGS
         tag = args.tag
         meta = TAGS.get(tag)
         phrases = cat.get_phrases_for_tag(tag)
@@ -552,7 +570,6 @@ def cmd_catalog(args):
             print(f"  Description: {meta.description}")
             print(f"  Suggested fix: {meta.suggested_transform} — {meta.fix_hint}")
         for ph in phrases:
-            from utils import ms_to_timestamp
             print(f"  [{ph['_funscript']}]  {ms_to_timestamp(ph['start_ms'])} → {ms_to_timestamp(ph['end_ms'])}"
                   f"  BPM: {ph.get('bpm', 0):.1f}"
                   f"  span: {ph.get('metrics', {}).get('span', 0):.1f}")
@@ -571,7 +588,6 @@ def cmd_catalog(args):
         print(f"  {'-'*14}  {'-'*7}  {'-'*5}  {'-'*12}  {'-'*12}")
         for tag in s["tags_found"]:
             st = stats[tag]
-            from assessment.classifier import TAGS
             label = TAGS[tag].label if tag in TAGS else tag
             bpm_range  = f"{st['bpm_min']}–{st['bpm_max']}"
             span_range = f"{st['span_min']}–{st['span_max']}"
@@ -580,18 +596,13 @@ def cmd_catalog(args):
         print("  No tagged phrases yet — assess a funscript to populate the catalog.")
 
 
+@_cli_command
 def cmd_export_plan(args):
     """Show (and optionally apply) the export-tab transform plan for a funscript."""
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
-    from models import AssessmentResult
-    from utils import ms_to_timestamp
-    import copy
-
     # --- load assessment (run fresh if not provided) ---
     if args.assessment:
         assessment = AssessmentResult.load(args.assessment)
     else:
-        from assessment.analyzer import FunscriptAnalyzer
         analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
         analyzer.load(args.funscript)
         assessment = analyzer.analyze()
@@ -795,8 +806,9 @@ def cmd_export_plan(args):
     print(f"Saved: {output}")
 
 
+@_cli_command
 def cmd_test(_args):
-    import unittest
+    import unittest  # keep lazy: avoids paying unittest discovery overhead for other commands
     root = os.path.dirname(__file__)
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()

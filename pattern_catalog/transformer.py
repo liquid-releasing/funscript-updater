@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """FunscriptTransformer: BPM-threshold based transformation (Part 2).
 
 For each action, the transformer looks up which phrase it belongs to and
@@ -25,13 +28,13 @@ import json
 from typing import List, Optional, Tuple
 
 from models import AssessmentResult, Phrase
-from utils import low_pass_filter
+from utils import LoggingMixin, low_pass_filter, find_phrase_at
 from .config import TransformerConfig
 
 _WindowPair = Tuple[int, int]
 
 
-class FunscriptTransformer:
+class FunscriptTransformer(LoggingMixin):
     """Applies BPM-threshold transformation to a funscript.
 
     Phrases at or above bpm_threshold receive the default amplitude transform.
@@ -39,22 +42,36 @@ class FunscriptTransformer:
     """
 
     def __init__(self, config: Optional[TransformerConfig] = None):
+        super().__init__()
         self.config = config or TransformerConfig()
         self._data: dict = {}
         self._actions: list = []
         self._original_actions: list = []
         self._phrases: List[Phrase] = []
         self._overall_bpm: float = 0.0
-        self._log_lines: List[str] = []
 
     # ------------------------------------------------------------------
     # Loading
     # ------------------------------------------------------------------
 
     def load_funscript(self, path: str) -> None:
-        """Load the source funscript to be transformed."""
-        with open(path) as f:
-            self._data = json.load(f)
+        """Load the source funscript to be transformed.
+
+        Raises:
+            FileNotFoundError: if the file does not exist.
+            ValueError: if the file is not valid JSON or missing the 'actions' list.
+        """
+        try:
+            with open(path) as f:
+                self._data = json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Funscript not found: {path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in funscript '{path}': {e}")
+        if "actions" not in self._data or not isinstance(self._data["actions"], list):
+            raise ValueError(
+                f"Funscript '{path}' is missing a required 'actions' list."
+            )
         self._actions = self._data["actions"]
         self._original_actions = copy.deepcopy(self._actions)
         self._log(f"Loaded funscript: {path} ({len(self._actions)} actions)")
@@ -135,20 +152,10 @@ class FunscriptTransformer:
             json.dump(self._data, f, indent=2)
         self._log(f"Saved output: {path}")
 
-    def get_log(self) -> List[str]:
-        """Return all log messages produced during this session."""
-        return list(self._log_lines)
-
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     def _phrase_at(self, t_ms: int) -> Optional[Phrase]:
         """Return the phrase containing timestamp t_ms, or None."""
-        for ph in self._phrases:
-            if ph.start_ms <= t_ms <= ph.end_ms:
-                return ph
-        return None
-
-    def _log(self, msg: str) -> None:
-        self._log_lines.append(msg)
+        return find_phrase_at(self._phrases, t_ms)

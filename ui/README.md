@@ -117,3 +117,7 @@ python -m unittest discover -s ui/common/tests -v
 # Full test suite (482 tests)
 python cli.py test
 ```
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

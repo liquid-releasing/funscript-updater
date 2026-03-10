@@ -222,3 +222,7 @@ All outputs go to `output/` (gitignored).
 - The fast rendering threshold controls when the phrase selector switches from per-segment coloured lines to a single grey line.
 - Pattern Editor instance charts use minimal raw Plotly; original actions are cached in session state.
 - Pattern Editor download bytes are built only on demand via **Build download**.
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

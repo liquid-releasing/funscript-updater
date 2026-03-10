@@ -83,4 +83,16 @@ Notes: core pipeline modules are already framework-agnostic — the API layer is
 
 ## Done
 
-*(nothing yet)*
+### Input validation and graceful error messages for malformed funscripts · [#11](https://github.com/liquid-releasing/funscript-forge/issues/11)
+
+All pipeline file I/O now raises descriptive `FileNotFoundError` / `ValueError` with
+user-friendly messages instead of crashing with bare `KeyError` or `IndexError`.
+Silent `except Exception: pass` blocks replaced with specific exception handling.
+Window JSON files validated for required `"start"` / `"end"` keys before parsing.
+Config dataclasses validated via `__post_init__` with clear range-error messages.
+
+Shipped in: `clean-up-and-security` → merged to `main`
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](LICENSE).  Written by human and Claude AI (Claude Sonnet).*

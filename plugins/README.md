@@ -59,3 +59,7 @@ TRANSFORM = _MyTransform(
 ## See also
 
 `user_transforms/README.md` — for simpler, no-code JSON recipe transforms.
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

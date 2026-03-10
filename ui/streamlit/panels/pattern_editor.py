@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """pattern_editor.py — Behavioral pattern editor.
 
 Phrases are classified into behavioral tags (stingy, giggle, drone, …)
@@ -41,9 +44,12 @@ from __future__ import annotations
 import copy
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import streamlit as st
+
+if TYPE_CHECKING:
+    from ui.common.project import Project
 
 
 # ------------------------------------------------------------------
@@ -51,7 +57,7 @@ import streamlit as st
 # ------------------------------------------------------------------
 
 
-def render(project) -> None:
+def render(project: "Project") -> None:
     """Render the Pattern Editor tab."""
     from assessment.classifier import TAGS
 
@@ -367,9 +373,9 @@ def _detail_fragment(
         for k in st.session_state
     )
     if has_edits:
-        _proj = st.session_state.get("project")
-        if _proj and _proj.is_loaded:
-            _all_phrases = _proj.assessment.to_dict().get("phrases", [])
+        proj = st.session_state.get("project")
+        if proj and proj.is_loaded:
+            _all_phrases = proj.assessment.to_dict().get("phrases", [])
             selector_actions = build_edited_actions(_all_phrases, original_actions)
         else:
             selector_actions = original_actions
@@ -654,11 +660,11 @@ def _render_controls(
         type="primary",
         help="Mark this instance as done and go to Export.",
     ):
-        _proj = st.session_state.get("project")
-        if _proj and _proj.is_loaded:
-            for wi in _proj.work_items:
+        proj = st.session_state.get("project")
+        if proj and proj.is_loaded:
+            for wi in proj.work_items:
                 if wi.start_ms == cycle["start_ms"]:
-                    _proj.set_item_status(wi.id, "done")
+                    proj.set_item_status(wi.id, "done")
         st.session_state.goto_tab = 5
         st.rerun(scope="app")
 
@@ -671,12 +677,12 @@ def _render_controls(
     ):
         _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
         # Mark every matching work item as done
-        _proj = st.session_state.get("project")
-        if _proj and _proj.is_loaded:
+        proj = st.session_state.get("project")
+        if proj and proj.is_loaded:
             cycle_starts = {cy["start_ms"] for cy in cycles}
-            for wi in _proj.work_items:
+            for wi in proj.work_items:
                 if wi.start_ms in cycle_starts:
-                    _proj.set_item_status(wi.id, "done")
+                    proj.set_item_status(wi.id, "done")
         st.session_state.goto_tab = 5
         st.rerun(scope="app")
 
@@ -1005,8 +1011,8 @@ def _render_finalize_and_download(
         try:
             with open(funscript_path) as f:
                 raw = json.load(f)
-        except Exception:
-            raw = {}
+        except (FileNotFoundError, json.JSONDecodeError):
+            raw = {}  # fall back to bare structure if source file is unavailable
 
         raw["actions"] = sorted(edited, key=lambda a: a["at"])
         st.session_state[f"pe_download_bytes_{selected_label}"] = json.dumps(raw, indent=2).encode()

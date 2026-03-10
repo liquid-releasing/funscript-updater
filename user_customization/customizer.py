@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """WindowCustomizer: user-defined performance, break, and raw window customization (Part 3).
 
 Layers on top of the FunscriptTransformer output. The user defines windows
@@ -33,22 +36,25 @@ import os
 from typing import List, Optional, Tuple
 
 from models import AssessmentResult
-from utils import low_pass_filter, parse_timestamp
+from utils import LoggingMixin, low_pass_filter, parse_timestamp
 from .config import CustomizerConfig
 
-_WindowTriple = Tuple[int, int, str]    # raw windows: (start, end, label)
-_ConfigWindow = Tuple[int, int, dict]   # perf/break windows: (start, end, config_overrides)
+_WindowTriple  = Tuple[int, int, str]    # raw windows: (start, end, label)
+_ConfigWindow  = Tuple[int, int, dict]   # perf/break windows: (start, end, config_overrides)
+
+_LOOP_START      = 2   # customize() loop starts here so [i-1] and [i-2] are always valid
+_POSITION_CENTER = 50  # funscript position midpoint (positions are 0–100)
 
 
-class WindowCustomizer:
+class WindowCustomizer(LoggingMixin):
     """Applies user-defined performance, break, and raw windows to a funscript."""
 
     def __init__(self, config: Optional[CustomizerConfig] = None):
+        super().__init__()
         self.config = config or CustomizerConfig()
         self._data: dict = {}
         self._actions: list = []
         self._original_actions: list = []
-        self._log_lines: List[str] = []
 
         self._perf_windows: List[_ConfigWindow] = []
         self._break_windows: List[_ConfigWindow] = []
@@ -62,9 +68,23 @@ class WindowCustomizer:
     # ------------------------------------------------------------------
 
     def load_funscript(self, path: str) -> None:
-        """Load the funscript to be customized (output from FunscriptTransformer)."""
-        with open(path) as f:
-            self._data = json.load(f)
+        """Load the funscript to be customized (output from FunscriptTransformer).
+
+        Raises:
+            FileNotFoundError: if the file does not exist.
+            ValueError: if the file is not valid JSON or missing the 'actions' list.
+        """
+        try:
+            with open(path) as f:
+                self._data = json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Funscript not found: {path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in funscript '{path}': {e}")
+        if "actions" not in self._data or not isinstance(self._data["actions"], list):
+            raise ValueError(
+                f"Funscript '{path}' is missing a required 'actions' list."
+            )
         self._actions = self._data["actions"]
         self._original_actions = copy.deepcopy(self._actions)
         self._log(f"Loaded funscript: {path} ({len(self._actions)} actions)")
@@ -130,66 +150,99 @@ class WindowCustomizer:
         cycle_midpoints = [(c["start"] + c["end"]) / 2 for c in self._cycles]
         beat_times = sorted(b["time"] for b in self._beats)
 
-        for i in range(2, len(actions)):
+        # Loop starts at _LOOP_START (2) so actions[i-1] and actions[i-2] are always valid.
+        for i in range(_LOOP_START, len(actions)):
             t = actions[i]["at"]
 
-            # Task 4 — raw preserve (highest priority)
             if self._in(t, raw_ms):
-                actions[i]["at"] = self._original_actions[i]["at"]
-                actions[i]["pos"] = self._original_actions[i]["pos"]
+                self._restore_original(i, actions)
                 continue
 
-            # Task 2 — performance window (per-window config overrides applied)
-            perf_overrides = self._find_window(t, self._perf_windows)
-            if perf_overrides is not None:
-                eff = self._effective_config(cfg, perf_overrides)
-                dt = actions[i]["at"] - actions[i - 1]["at"]
-                if abs(dt) < eff.timing_jitter_ms:
-                    actions[i]["at"] = actions[i - 1]["at"] + eff.timing_jitter_ms
+            self._apply_perf_or_break(i, actions, cfg)
+            self._apply_cycle_dynamics(i, actions, cfg, cycle_ranges, cycle_midpoints)
+            self._apply_beat_accent(i, actions, cfg, beat_times)
 
-                p0 = actions[i - 1]["pos"]
-                p1 = actions[i]["pos"]
-                dt = max(1, actions[i]["at"] - actions[i - 1]["at"])
-                vel = (p1 - p0) / dt
+        self._apply_smoothing(actions, cfg, raw_ms)
 
-                if abs(vel) > eff.max_velocity:
-                    p1 = p0 + math.copysign(eff.max_velocity * dt, vel)
-                    actions[i]["pos"] = int(p1)
+        self._log(
+            f"Customization complete: {len(self._perf_windows)} perf windows, "
+            f"{len(self._break_windows)} break windows, "
+            f"{len(self._raw_windows)} raw windows."
+        )
+        return actions
 
-                dir1 = actions[i - 1]["pos"] - actions[i - 2]["pos"]
-                dir2 = actions[i]["pos"] - actions[i - 1]["pos"]
-                if dir1 * dir2 < 0:
-                    softened = actions[i - 1]["pos"] + dir2 * (1 - eff.reversal_soften)
-                    blended = softened * (1 - eff.height_blend) + actions[i]["pos"] * eff.height_blend
-                    blended = max(eff.compress_bottom, min(eff.compress_top, blended))
-                    actions[i]["pos"] = int(blended)
+    # ------------------------------------------------------------------
+    # Customization sub-steps
+    # ------------------------------------------------------------------
 
-            # Task 3 — break window (per-window config overrides applied)
-            else:
-                break_overrides = self._find_window(t, self._break_windows)
-                if break_overrides is not None:
-                    eff = self._effective_config(cfg, break_overrides)
-                    p = actions[i]["pos"]
-                    actions[i]["pos"] = int(p + (50 - p) * eff.break_amplitude_reduce)
+    def _restore_original(self, i: int, actions: list) -> None:
+        """Overwrite action i with the original (raw-preserve window)."""
+        actions[i]["at"]  = self._original_actions[i]["at"]
+        actions[i]["pos"] = self._original_actions[i]["pos"]
 
-            # Task 5 — cycle-aware dynamics
-            factor = self._cycle_factor(t, cycle_ranges, cycle_midpoints)
-            if factor > 0:
-                p = actions[i]["pos"]
-                delta = (p - cfg.cycle_dynamics_center) * cfg.cycle_dynamics_strength * factor
-                actions[i]["pos"] = max(0, min(100, int(p + delta)))
+    def _apply_perf_or_break(self, i: int, actions: list, cfg) -> None:
+        """Apply performance or break window processing to action i."""
+        t = actions[i]["at"]
 
-            # Task 6 — beat-synced accents
-            if self._near_beat(t, beat_times, cfg.beat_accent_radius_ms):
-                p = actions[i]["pos"]
-                nudge = cfg.beat_accent_amount if p >= 50 else -cfg.beat_accent_amount
-                actions[i]["pos"] = max(0, min(100, p + nudge))
+        perf_overrides = self._find_window(t, self._perf_windows)
+        if perf_overrides is not None:
+            eff = self._effective_config(cfg, perf_overrides)
 
-        # --- Final smoothing pass ---
+            dt = actions[i]["at"] - actions[i - 1]["at"]
+            if abs(dt) < eff.timing_jitter_ms:
+                actions[i]["at"] = actions[i - 1]["at"] + eff.timing_jitter_ms
+
+            p0  = actions[i - 1]["pos"]
+            p1  = actions[i]["pos"]
+            dt  = max(1, actions[i]["at"] - actions[i - 1]["at"])
+            vel = (p1 - p0) / dt
+            if abs(vel) > eff.max_velocity:
+                p1 = p0 + math.copysign(eff.max_velocity * dt, vel)
+                actions[i]["pos"] = int(p1)
+
+            dir1 = actions[i - 1]["pos"] - actions[i - 2]["pos"]
+            dir2 = actions[i]["pos"]     - actions[i - 1]["pos"]
+            if dir1 * dir2 < 0:
+                softened = actions[i - 1]["pos"] + dir2 * (1 - eff.reversal_soften)
+                blended  = softened * (1 - eff.height_blend) + actions[i]["pos"] * eff.height_blend
+                blended  = max(eff.compress_bottom, min(eff.compress_top, blended))
+                actions[i]["pos"] = int(blended)
+            return
+
+        break_overrides = self._find_window(t, self._break_windows)
+        if break_overrides is not None:
+            eff = self._effective_config(cfg, break_overrides)
+            p = actions[i]["pos"]
+            actions[i]["pos"] = int(p + (_POSITION_CENTER - p) * eff.break_amplitude_reduce)
+
+    def _apply_cycle_dynamics(
+        self, i: int, actions: list, cfg,
+        cycle_ranges: list, cycle_midpoints: list,
+    ) -> None:
+        """Apply cycle-aware amplitude dynamics to action i."""
+        t      = actions[i]["at"]
+        factor = self._cycle_factor(t, cycle_ranges, cycle_midpoints)
+        if factor > 0:
+            p     = actions[i]["pos"]
+            delta = (p - cfg.cycle_dynamics_center) * cfg.cycle_dynamics_strength * factor
+            actions[i]["pos"] = max(0, min(100, int(p + delta)))
+
+    def _apply_beat_accent(
+        self, i: int, actions: list, cfg, beat_times: list,
+    ) -> None:
+        """Apply beat-synchronised accent nudge to action i."""
+        t = actions[i]["at"]
+        if self._near_beat(t, beat_times, cfg.beat_accent_radius_ms):
+            p     = actions[i]["pos"]
+            nudge = cfg.beat_accent_amount if p >= 50 else -cfg.beat_accent_amount
+            actions[i]["pos"] = max(0, min(100, p + nudge))
+
+    def _apply_smoothing(self, actions: list, cfg, raw_ms: list) -> None:
+        """Run the final LPF smoothing pass over the full action list."""
         positions = [a["pos"] for a in actions]
         strengths = []
         for a in actions:
-            t = a["at"]
+            t  = a["at"]
             if self._in(t, raw_ms):
                 strengths.append(0.0)
             else:
@@ -206,23 +259,12 @@ class WindowCustomizer:
         for i, p in enumerate(smoothed):
             actions[i]["pos"] = int(p)
 
-        self._log(
-            f"Customization complete: {len(self._perf_windows)} perf windows, "
-            f"{len(self._break_windows)} break windows, "
-            f"{len(self._raw_windows)} raw windows."
-        )
-        return actions
-
     def save(self, path: str) -> None:
         """Write the customized funscript to disk."""
         self._data["actions"] = self._actions
         with open(path, "w") as f:
             json.dump(self._data, f, indent=2)
         self._log(f"Saved output: {path}")
-
-    def get_log(self) -> List[str]:
-        """Return all log messages produced during this session."""
-        return list(self._log_lines)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -244,20 +286,24 @@ class WindowCustomizer:
             return []
         with open(path) as f:
             data = json.load(f)
-        out = [
-            (
+        if not isinstance(data, list):
+            raise ValueError(f"{label} window file '{path}' must contain a JSON array.")
+        out = []
+        for idx, w in enumerate(data):
+            if "start" not in w or "end" not in w:
+                missing = [k for k in ("start", "end") if k not in w]
+                raise ValueError(
+                    f"{label} window file '{path}', entry {idx}: "
+                    f"missing required key(s): {missing}"
+                )
+            out.append((
                 parse_timestamp(w["start"]),
                 parse_timestamp(w["end"]),
                 w.get("label", ""),
                 w.get("config", {}),
-            )
-            for w in data
-        ]
+            ))
         self._log(f"{label}: loaded {len(out)} windows.")
         return out
-
-    def _log(self, msg: str) -> None:
-        self._log_lines.append(msg)
 
     @staticmethod
     def _in(t: int, windows) -> bool:

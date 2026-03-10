@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Detail panel — editable view for the currently selected work item.
 
 Renders different sub-panels depending on the item type:

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Pipeline orchestration helper for the Funscript Forge.
 
 Provides a single entry point that chains the three core pipeline stages:
