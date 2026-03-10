@@ -14,10 +14,14 @@ The AssessmentResult contains:
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from models import Phase, Cycle, Pattern, Phrase, BpmTransition, AssessmentResult
 from utils import ms_to_timestamp
+
+# Internal tuple types used by the detection pipeline.
+# (start_ms, end_ms, pattern_label, oscillation_count, amplitude_range)
+_CycleRow = Tuple[int, int, str, int, float]
 
 
 @dataclass
@@ -252,7 +256,7 @@ class FunscriptAnalyzer:
         )
 
         phrases: List[Phrase] = []
-        current: List[tuple] = []
+        current: List[_CycleRow] = []
         current_label: Optional[str] = None
         current_oscillations: int = 0
         current_amp_sum: float = 0.0

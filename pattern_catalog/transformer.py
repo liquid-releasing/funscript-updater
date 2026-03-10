@@ -25,13 +25,13 @@ import json
 from typing import List, Optional, Tuple
 
 from models import AssessmentResult, Phrase
-from utils import low_pass_filter, find_phrase_at
+from utils import LoggingMixin, low_pass_filter, find_phrase_at
 from .config import TransformerConfig
 
 _WindowPair = Tuple[int, int]
 
 
-class FunscriptTransformer:
+class FunscriptTransformer(LoggingMixin):
     """Applies BPM-threshold transformation to a funscript.
 
     Phrases at or above bpm_threshold receive the default amplitude transform.
@@ -39,13 +39,13 @@ class FunscriptTransformer:
     """
 
     def __init__(self, config: Optional[TransformerConfig] = None):
+        super().__init__()
         self.config = config or TransformerConfig()
         self._data: dict = {}
         self._actions: list = []
         self._original_actions: list = []
         self._phrases: List[Phrase] = []
         self._overall_bpm: float = 0.0
-        self._log_lines: List[str] = []
 
     # ------------------------------------------------------------------
     # Loading
@@ -149,10 +149,6 @@ class FunscriptTransformer:
             json.dump(self._data, f, indent=2)
         self._log(f"Saved output: {path}")
 
-    def get_log(self) -> List[str]:
-        """Return all log messages produced during this session."""
-        return list(self._log_lines)
-
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -160,6 +156,3 @@ class FunscriptTransformer:
     def _phrase_at(self, t_ms: int) -> Optional[Phrase]:
         """Return the phrase containing timestamp t_ms, or None."""
         return find_phrase_at(self._phrases, t_ms)
-
-    def _log(self, msg: str) -> None:
-        self._log_lines.append(msg)

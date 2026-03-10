@@ -15,20 +15,24 @@ if TYPE_CHECKING:
     from ui.common.project import Project
 
 
-_STATUS_OPTIONS = ["To Do", "In Progress", "Done"]
-_STATUS_KEYS    = ["todo", "in_progress", "done"]
+from dataclasses import dataclass as _dataclass
 
-_STATUS_COLORS = {
-    "todo":        "#3a3a3a",   # dark grey
-    "in_progress": "#1d4e89",   # blue
-    "done":        "#2d6a4f",   # green
+
+@_dataclass(frozen=True)
+class _StatusInfo:
+    label: str
+    color: str
+
+
+# Single source of truth — order defines the selectbox order.
+_STATUSES: dict = {
+    "todo":        _StatusInfo("To Do",       "#3a3a3a"),
+    "in_progress": _StatusInfo("In Progress", "#1d4e89"),
+    "done":        _StatusInfo("Done",        "#2d6a4f"),
 }
 
-_STATUS_LABELS = {
-    "todo":        "To Do",
-    "in_progress": "In Progress",
-    "done":        "Done",
-}
+_STATUS_OPTIONS = [s.label for s in _STATUSES.values()]
+_STATUS_KEYS    = list(_STATUSES.keys())
 
 
 def render(project: "Project") -> None:
@@ -59,7 +63,7 @@ def render(project: "Project") -> None:
 
 
 def _render_item_row(project: "Project", item) -> None:
-    color   = _STATUS_COLORS[item.status]
+    color   = _STATUSES[item.status].color
     opacity = "0.55" if item.status == "done" else "1.0"
 
     with st.container():
@@ -83,7 +87,7 @@ def _render_item_row(project: "Project", item) -> None:
             col_bpm.write("—")
 
         # Status dropdown
-        current_label = _STATUS_LABELS.get(item.status, "To Do")
+        current_label = _STATUSES.get(item.status, _StatusInfo("To Do", "#3a3a3a")).label
         new_label = col_status.selectbox(
             "Status",
             options=_STATUS_OPTIONS,

@@ -1,4 +1,24 @@
-"""Shared utility functions used across assessment and pattern_catalog."""
+"""Shared utility functions and base classes used across the pipeline."""
+
+from typing import List
+
+
+class LoggingMixin:
+    """Minimal list-based message log shared by pipeline stage classes.
+
+    Subclasses call ``super().__init__()`` to initialise the log, then use
+    ``self._log(msg)`` to append messages and ``self.get_log()`` to retrieve them.
+    """
+
+    def __init__(self) -> None:
+        self._log_lines: List[str] = []
+
+    def _log(self, msg: str) -> None:
+        self._log_lines.append(msg)
+
+    def get_log(self) -> List[str]:
+        """Return all log messages accumulated in this session."""
+        return list(self._log_lines)
 
 
 def parse_timestamp(ts: str) -> int:

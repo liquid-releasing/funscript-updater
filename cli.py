@@ -88,12 +88,37 @@ Additional commands:
 """
 
 import argparse
+import functools
 import json
 import os
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+
+# ------------------------------------------------------------------
+# Error handling
+# ------------------------------------------------------------------
+
+def _cli_command(fn):
+    """Decorator that gives every CLI command consistent error handling.
+
+    Catches FileNotFoundError and ValueError (the two exceptions our pipeline
+    raises for bad input) and prints a clean one-line message to stderr before
+    exiting with code 1.  KeyboardInterrupt exits with code 130.
+    """
+    @functools.wraps(fn)
+    def wrapper(args):
+        try:
+            fn(args)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            sys.exit(130)
+    return wrapper
 
 
 # ------------------------------------------------------------------
@@ -118,6 +143,7 @@ def _build_analyzer_config(args):
     return config
 
 
+@_cli_command
 def cmd_pipeline(args):
     from assessment.analyzer import FunscriptAnalyzer
     from pattern_catalog.config import TransformerConfig
@@ -173,6 +199,7 @@ def cmd_pipeline(args):
     print(f"Customized:   {customized_path}  ({time.time() - t0:.2f}s)")
 
 
+@_cli_command
 def cmd_assess(args):
     from assessment.analyzer import FunscriptAnalyzer
 
@@ -201,6 +228,7 @@ def cmd_assess(args):
         print("  BPM transitions: none detected")
 
 
+@_cli_command
 def cmd_transform(args):
     from pattern_catalog.transformer import FunscriptTransformer
     from pattern_catalog.config import TransformerConfig
@@ -221,6 +249,7 @@ def cmd_transform(args):
     print(f"\nTransformed funscript saved: {output}  ({elapsed:.2f}s)")
 
 
+@_cli_command
 def cmd_customize(args):
     from user_customization.customizer import WindowCustomizer
     from user_customization.config import CustomizerConfig
@@ -251,6 +280,7 @@ def cmd_customize(args):
     print(f"\nCustomized funscript saved: {output}  ({elapsed:.2f}s)")
 
 
+@_cli_command
 def cmd_visualize(args):
     from visualizations.motion import MotionVisualizer, HAS_MATPLOTLIB
     from models import AssessmentResult
@@ -271,6 +301,7 @@ def cmd_visualize(args):
     print(f"Visualization saved: {output}")
 
 
+@_cli_command
 def cmd_config(args):
     if args.customizer:
         from user_customization.config import CustomizerConfig
@@ -295,6 +326,7 @@ def cmd_config(args):
     print("Edit the values then pass with --config when running the command.")
 
 
+@_cli_command
 def cmd_list_transforms(args):
     """List all available transforms (built-in + user-loaded)."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, _BUILTIN_KEYS
@@ -359,6 +391,7 @@ def _coerce(v: str):
         return v
 
 
+@_cli_command
 def cmd_phrase_transform(args):
     """Apply a catalog transform to one or all phrases of a funscript."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
@@ -470,6 +503,7 @@ def cmd_phrase_transform(args):
     print(f"\nSaved: {output}")
 
 
+@_cli_command
 def cmd_finalize(args):
     """Apply blend_seams + final_smooth to the full action list, then save."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
@@ -517,6 +551,7 @@ def cmd_finalize(args):
     print(f"\nSaved: {output}")
 
 
+@_cli_command
 def cmd_catalog(args):
     """Inspect or manage the cross-funscript pattern catalog."""
     from catalog.pattern_catalog import PatternCatalog
@@ -580,6 +615,7 @@ def cmd_catalog(args):
         print("  No tagged phrases yet — assess a funscript to populate the catalog.")
 
 
+@_cli_command
 def cmd_export_plan(args):
     """Show (and optionally apply) the export-tab transform plan for a funscript."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
@@ -795,6 +831,7 @@ def cmd_export_plan(args):
     print(f"Saved: {output}")
 
 
+@_cli_command
 def cmd_test(_args):
     import unittest
     root = os.path.dirname(__file__)

@@ -52,9 +52,10 @@ Generated from static analysis. Items marked ✅ are complete.
 - ✅ C04: Input validation on JSON load
 - ✅ C05: Document/assert array index invariant
 
-### Session 2 (next session) — MEDIUM severity
-- C06: Decompose `customize()`
-- C07: Extract `LoggingMixin`
-- C08: CLI error handler decorator
-- C09: Type hints for complex internals
-- C10: Status mapping cleanup
+### Session 2 — MEDIUM severity
+
+- ✅ C06: Decompose `customize()`
+- ✅ C07: Extract `LoggingMixin`
+- ✅ C08: CLI error handler decorator
+- ✅ C09: Type hints for complex internals
+- ✅ C10: Status mapping cleanup
