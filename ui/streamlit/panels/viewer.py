@@ -136,6 +136,11 @@ def render(
         # Detail mode: hide phrase selector, show only phrase detail panel
         # ------------------------------------------------------------------
         _render_phrase_info(view_state, phrases)
+        from ui.streamlit.panels.media_player import render_player
+        render_player(
+            start_ms=view_state.selection_start_ms or 0,
+            key_suffix=f"viewer_{view_state.selection_start_ms}",
+        )
         phrase_detail.render(
             phrases=phrases,
             view_state=view_state,
