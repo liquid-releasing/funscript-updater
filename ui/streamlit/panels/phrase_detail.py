@@ -301,7 +301,7 @@ def _render_chart(
         s, [],
         "",
         win_end - win_start,
-        large_funscript_threshold=10_000_000,
+        large_funscript_threshold=2_500,
     )
 
     class _LocalVS:
