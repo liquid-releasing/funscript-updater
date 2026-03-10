@@ -89,7 +89,6 @@ def render(
 # the controls column rather than appearing below the charts.
 # ------------------------------------------------------------------
 
-@st.fragment
 def _detail_fragment(
     funscript_path: str,
     phrases: list,
@@ -716,7 +715,7 @@ def _split_phrase(
     _clear_all_split_state()
 
     view_state.set_selection(phrase_a.start_ms, phrase_a.end_ms)
-    st.rerun(scope="app")
+    st.rerun()
 
 
 def _clear_split_state(phrase_idx: int) -> None:
@@ -749,7 +748,7 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
                      width="stretch"):
             _clear_all_split_state()
             _select_and_zoom(phrases[phrase_idx - 1], view_state, duration_ms)
-            st.rerun(scope="app")
+            st.rerun()
 
     with col_n:
         if st.button("Next ⏭", key="pd_phrase_next",
@@ -757,7 +756,7 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
                      width="stretch"):
             _clear_all_split_state()
             _select_and_zoom(phrases[phrase_idx + 1], view_state, duration_ms)
-            st.rerun(scope="app")
+            st.rerun()
 
 
 # ------------------------------------------------------------------
@@ -820,7 +819,7 @@ def _render_save_cancel(phrase_idx: int, view_state) -> None:
             st.session_state.get("phrase_sel_chart_instance", 0) + 1
         )
         st.session_state.goto_tab = 0
-        st.rerun(scope="app")
+        st.rerun()
 
     st.write("")
 
@@ -834,6 +833,7 @@ def _render_save_cancel(phrase_idx: int, view_state) -> None:
         st.session_state.pop(f"transform_sel_{phrase_idx}", None)
         for k in [k for k in st.session_state if k.startswith(f"param_{phrase_idx}_")]:
             st.session_state.pop(k, None)
+        st.rerun()
 
 
 def build_edited_actions(phrases: list, original_actions: list) -> list:

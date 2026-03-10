@@ -225,39 +225,21 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
 # ------------------------------------------------------------------
 
 def _handle_chart_event(event, view_state, phrases: list) -> None:
-    """Map a Plotly point-click or box-select event to a ViewState update."""
+    """Box-drag on the chart zooms the viewport. Use the table below to select a phrase."""
     if not event:
         return
     sel = getattr(event, "selection", None)
     if not sel:
         return
 
-    # Single-point click → select enclosing phrase
-    points = getattr(sel, "points", [])
-    if points:
-        x = points[0].get("x")
-        if x is not None:
-            phrase = _find_phrase_at(int(x), phrases)
-            if phrase:
-                _select_phrase(phrase, view_state)
-                st.session_state.goto_tab = 1
-                st.rerun(scope="app")   # full rerun → navigates to Phrase Editor tab
-        return
-
-    # Box drag → select phrase by time range and navigate to editor
+    # Box drag → zoom the chart to the selected time range
     box = getattr(sel, "box", None) or []
     if box:
         try:
             x_range = box[0].get("x", [])
             if len(x_range) == 2:
-                mid_ms = int((x_range[0] + x_range[1]) / 2)
-                phrase = _find_phrase_at(mid_ms, phrases)
-                if phrase:
-                    _select_phrase(phrase, view_state)
-                else:
-                    view_state.set_selection(int(x_range[0]), int(x_range[1]))
-                st.session_state.goto_tab = 1
-                st.rerun(scope="app")
+                view_state.set_zoom(int(x_range[0]), int(x_range[1]))
+                st.rerun()   # fragment rerun — just updates the chart viewport
         except Exception:
             pass
 
