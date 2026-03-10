@@ -53,10 +53,20 @@ from ui.streamlit.panels import viewer as viewer_panel
 # Page config (must be the first Streamlit call)
 # ------------------------------------------------------------------
 
-_LOGO = os.path.join(_ROOT, "media", "funscriptforge.png")
+_LOGO    = os.path.join(_ROOT, "media", "funscriptforge.png")
+_FAVICON = os.path.join(_ROOT, "media", "anvil.png")
+
+def _load_favicon():
+    """Return a PIL Image for the favicon, falling back to emoji."""
+    from PIL import Image
+    for path in (_FAVICON, _LOGO):
+        if os.path.exists(path):
+            return Image.open(path)
+    return "🔨"
+
 st.set_page_config(
     page_title="Funscript Forge",
-    page_icon=_LOGO if os.path.exists(_LOGO) else "🎵",
+    page_icon=_load_favicon(),
     layout="wide",
     initial_sidebar_state="expanded",
 )
