@@ -55,16 +55,30 @@ a table of issues (capped at 50 rows). 10 unit tests in `tests/test_priority2.py
 Called at the start of each pipeline stage (Detecting phases → cycles → patterns → phrases →
 BPM transitions → Classifying behaviors). Parameter threaded through `Project.run_assessment()`
 and `Project.from_funscript()`. In `app.py`, a sidebar `st.empty()` placeholder streams stage
-labels in real-time during the `st.spinner()`. 7 unit tests in `tests/test_priority2.py`.
+labels in real-time during the `st.spinner()`. CLI `assess` and `pipeline` commands also print
+each stage to stdout. 7 unit tests in `tests/test_priority2.py`.
 
-### ~~2.4 Audio/video file upload for context playback~~ ✅
+### ~~2.4 Audio/video context playback with interactive phrase player~~ ✅
 
-`ui/streamlit/panels/media_player.py` created with `render_player(start_ms, key_suffix)`.
-Second `st.file_uploader` in sidebar for `.mp3/.m4a/.wav/.ogg/.mp4/.mkv/.mov`. File saved to
-`output/uploads/`. Auto-detects matching media by funscript stem on file switch. Shows loaded
-filename + ✕ clear button. Player rendered in Phrase Editor (detail mode) and Pattern Editor
-(below instance charts) as a collapsible expander cued to phrase start time via `start_time=`
-arg. Bytes cached with `@st.cache_data` keyed on `(path, mtime)`.
+**Interactive player** — `ui/streamlit/components/audio_player/` is a custom Streamlit component
+(HTML5 Audio + Plotly.js) with play/pause, stop, back 5 s, forward 5 s controls and an animated
+red playhead line.  Playback is phrase-restricted (enforced on both the Python and JS sides).
+A 📌 "Set split here" button sends the current playback position back to Python as `split_ms`,
+wired to `_add_split_point()` in the Pattern Editor.
+
+**Local desktop mode** — `launcher.py` sets `FUNSCRIPT_FORGE_LOCAL=1` and starts a Range-capable
+HTTP media server on a second port.  The sidebar shows a recents dropdown + path text input
+instead of `st.file_uploader`.  Auto-detects matching media by stem in the same folder as the
+funscript.  Media streams directly from disk — no base64 encoding, no large file in Python memory.
+
+**Web mode** — `st.file_uploader` widgets (funscript + media) saved to `output/uploads/`.  Audio
+encoded as base64 and embedded in the component.  Upload code preserved for web deployment.
+
+**Security** — `validate_media_file()` checks magic bytes for all 10 supported types (MP3, MP4,
+M4A, MOV, WAV, OGG, WebM, MKV, AAC, AVI).  Unknown extensions are rejected rather than passed
+through.  The media HTTP server returns 403 for any extension not in its allowlist.
+
+**Tests** — 47 tests total in `tests/test_priority2.py` (20 original, 19 `validate_media_file`, 6 recents helpers, 2 new types).
 
 Deferred: video thumbnail strip (later sprint).
 
@@ -132,11 +146,11 @@ Items required to ship the single-user packaged executable to an end user.
 
 `launcher.py`, `funscript_forge.spec`, and `build.bat` created.  Remaining work:
 
-- Test the built exe against all three sample funscripts
-- Confirm Streamlit static assets are correctly bundled (white-screen risk)
-- Confirm pattern catalog and user_transforms paths resolve inside `_MEIPASS`
-- Add `media/funscriptforge.ico` icon (convert existing PNG with Pillow or ImageMagick)
-- Measure cold-start time; optimize if > 15 s
++ Test the built exe against all three sample funscripts
++ Confirm Streamlit static assets are correctly bundled (white-screen risk)
++ Confirm pattern catalog and user_transforms paths resolve inside `_MEIPASS`
++ Add `media/funscriptforge.ico` icon (convert existing PNG with Pillow or ImageMagick)
++ Measure cold-start time; optimize if > 15 s
 
 ### 6.2 Output and user-data directory for frozen exe · `packaging`
 
@@ -148,9 +162,9 @@ to resolve writable directories relative to `sys.executable` (frozen) or `__file
 
 Wrap `dist/FunscriptForge/` in a one-click installer:
 
-- Install to `%LOCALAPPDATA%\FunscriptForge\`
-- Create Start Menu shortcut and optional Desktop shortcut
-- Add uninstaller
++ Install to `%LOCALAPPDATA%\FunscriptForge\`
++ Create Start Menu shortcut and optional Desktop shortcut
++ Add uninstaller
 
 ### 6.4 Auto-update mechanism · `packaging`
 
@@ -160,10 +174,10 @@ newer build is available (no silent auto-install required for v1).
 
 ### 6.5 GitHub Release and distribution artifact · `packaging`
 
-- Add `VERSION` file (semver, currently `0.5.0`)
-- Create a GitHub Actions workflow (`release.yml`) that builds the exe on push to a
++ Add `VERSION` file (semver, currently `0.5.0`)
++ Create a GitHub Actions workflow (`release.yml`) that builds the exe on push to a
   `release/*` tag and uploads `FunscriptForge-win64.zip` as a release asset
-- Document the release process in `CONTRIBUTING.md`
++ Document the release process in `CONTRIBUTING.md`
 
 ---
 
@@ -171,9 +185,9 @@ newer build is available (no silent auto-install required for v1).
 
 These items are explicitly deferred until the SaaS / multi-user phase:
 
-- **REST API** ([#8](https://github.com/liquid-releasing/funscript-forge/issues/8)) — needed for SaaS, not local use
-- **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscript-forge/issues/3)) — SaaS only
-- **Upload and sync media/audio** ([#6](https://github.com/liquid-releasing/funscript-forge/issues/6)) — nice-to-have, not blocking
++ **REST API** ([#8](https://github.com/liquid-releasing/funscript-forge/issues/8)) — needed for SaaS, not local use
++ **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscript-forge/issues/3)) — SaaS only
++ **Upload and sync media/audio** ([#6](https://github.com/liquid-releasing/funscript-forge/issues/6)) — nice-to-have, not blocking
 
 ---
 
@@ -183,11 +197,11 @@ These items are explicitly deferred until the SaaS / multi-user phase:
 
 ### What works ✅
 
-- Assessment pipeline fully produces behavioral tags on every phrase
-- Phrase Editor: single-phrase transform selection with live preview chart
-- Pattern Editor: batch-apply a transform to all phrases sharing a behavioral tag; split phrases at cycle boundaries; save patterns to catalog
-- Export panel: auto-suggests transforms for unhandled phrases (via `suggest_transform()`); accept/reject UI; download button applies all accepted transforms and returns a modified funscript JSON
-- Tab cross-navigation: Assessment "Focus" button → Phrase Editor; Pattern Editor "Edit" button → Phrase detail
++ Assessment pipeline fully produces behavioral tags on every phrase
++ Phrase Editor: single-phrase transform selection with live preview chart
++ Pattern Editor: batch-apply a transform to all phrases sharing a behavioral tag; split phrases at cycle boundaries; save patterns to catalog
++ Export panel: auto-suggests transforms for unhandled phrases (via `suggest_transform()`); accept/reject UI; download button applies all accepted transforms and returns a modified funscript JSON
++ Tab cross-navigation: Assessment "Focus" button → Phrase Editor; Pattern Editor "Edit" button → Phrase detail
 
 ### Gaps identified ⚠️
 

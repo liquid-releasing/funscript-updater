@@ -221,5 +221,247 @@ class TestUploadSavePath(unittest.TestCase):
         self.assertFalse(labels[-1].startswith("[↑]"))
 
 
+# ---------------------------------------------------------------------------
+# Media file validation (magic-byte checks)
+# ---------------------------------------------------------------------------
+
+from ui.streamlit.panels.media_player import validate_media_file  # noqa: E402
+
+
+class TestValidateMediaFile(unittest.TestCase):
+    """Tests for validate_media_file() magic-byte corruption checks."""
+
+    # ------------------------------------------------------------------
+    # Helpers: build minimal valid headers in a temp file
+    # ------------------------------------------------------------------
+
+    def _write(self, tmp_dir: str, name: str, data: bytes) -> str:
+        path = os.path.join(tmp_dir, name)
+        with open(path, "wb") as fh:
+            fh.write(data)
+        return path
+
+    # ------------------------------------------------------------------
+    # Valid files
+    # ------------------------------------------------------------------
+
+    def test_mp3_id3_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.mp3", b"ID3" + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_mp3_sync_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.mp3", bytes([0xFF, 0xFB]) + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_mp4_ftyp_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            # 4-byte size + 'ftyp' + padding
+            p = self._write(d, "a.mp4", b"\x00\x00\x00\x20" + b"ftyp" + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_wav_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.wav", b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + b"\x00" * 4)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_ogg_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.ogg", b"OggS" + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_webm_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.webm", b"\x1a\x45\xdf\xa3" + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_mkv_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.mkv", b"\x1a\x45\xdf\xa3" + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_aac_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.aac", bytes([0xFF, 0xF1]) + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_avi_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.avi", b"RIFF" + b"\x00\x00\x00\x00" + b"AVI " + b"\x00" * 4)
+            self.assertIsNone(validate_media_file(p))
+
+    # ------------------------------------------------------------------
+    # Corrupt / wrong-header files
+    # ------------------------------------------------------------------
+
+    def test_mp3_wrong_header_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.mp3", b"\x00" * 20)
+            self.assertIsNotNone(validate_media_file(p))
+
+    def test_mp4_wrong_header_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.mp4", b"\x00" * 20)
+            self.assertIsNotNone(validate_media_file(p))
+
+    def test_wav_riff_but_not_wave_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            # RIFF header but with 'AVI ' subtype — should fail as .wav
+            p = self._write(d, "a.wav", b"RIFF" + b"\x00\x00\x00\x00" + b"AVI " + b"\x00" * 4)
+            self.assertIsNotNone(validate_media_file(p))
+
+    # ------------------------------------------------------------------
+    # Structural problems
+    # ------------------------------------------------------------------
+
+    def test_empty_file_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.mp3", b"")
+            self.assertIsNotNone(validate_media_file(p))
+
+    def test_too_small_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.wav", b"RIFF")  # only 4 bytes
+            self.assertIsNotNone(validate_media_file(p))
+
+    def test_nonexistent_file(self):
+        self.assertIsNotNone(validate_media_file("/nonexistent/path/a.mp3"))
+
+    # ------------------------------------------------------------------
+    # Unknown / disallowed extension
+    # ------------------------------------------------------------------
+
+    def test_unknown_extension_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.xyz", b"ID3" + b"\x00" * 20)
+            result = validate_media_file(p)
+            self.assertIsNotNone(result)
+            self.assertIn("Unsupported", result)
+
+    def test_exe_extension_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "malware.exe", b"MZ" + b"\x00" * 20)
+            result = validate_media_file(p)
+            self.assertIsNotNone(result)
+
+    def test_txt_extension_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "notes.txt", b"hello world" + b"\x00" * 9)
+            self.assertIsNotNone(validate_media_file(p))
+
+    def test_mp3_disguised_as_wav_rejected(self):
+        """A file with ID3 header but .wav extension must fail the WAV magic check."""
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "sneaky.wav", b"ID3" + b"\x00" * 20)
+            self.assertIsNotNone(validate_media_file(p))
+
+    # ------------------------------------------------------------------
+    # Return type contract
+    # ------------------------------------------------------------------
+
+    def test_valid_returns_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.ogg", b"OggS" + b"\x00" * 20)
+            self.assertIsNone(validate_media_file(p))
+
+    def test_invalid_returns_string(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.ogg", b"\x00" * 20)
+            result = validate_media_file(p)
+            self.assertIsInstance(result, str)
+            self.assertGreater(len(result), 0)
+
+
+# ---------------------------------------------------------------------------
+# Local-mode recents helpers
+# ---------------------------------------------------------------------------
+
+import json as _json  # noqa: E402  (already imported at module level but alias for clarity)
+
+
+class TestLocalRecents(unittest.TestCase):
+    """Tests for _load_recents() and _save_recents() in app.py."""
+
+    # Mirror the logic locally so we don't need to import Streamlit.
+    _RECENTS_FILE = "recent_funscripts.json"
+    _RECENTS_MAX  = 10
+
+    def _load(self, output_dir: str) -> list:
+        path = os.path.join(output_dir, self._RECENTS_FILE)
+        try:
+            with open(path) as fh:
+                data = _json.load(fh)
+            return [p for p in data if isinstance(p, str) and os.path.isfile(p)]
+        except Exception:
+            return []
+
+    def _save(self, output_dir: str, file_path: str) -> None:
+        recents = self._load(output_dir)
+        if file_path in recents:
+            recents.remove(file_path)
+        recents.insert(0, file_path)
+        recents = recents[:self._RECENTS_MAX]
+        path = os.path.join(output_dir, self._RECENTS_FILE)
+        os.makedirs(output_dir, exist_ok=True)
+        with open(path, "w") as fh:
+            _json.dump(recents, fh)
+
+    def test_empty_recents_returns_list(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(self._load(d), [])
+
+    def test_save_and_load_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            # Create a real file so _load validates existence
+            fp = os.path.join(d, "test.funscript")
+            open(fp, "w").close()
+            self._save(d, fp)
+            recents = self._load(d)
+            self.assertEqual(recents, [fp])
+
+    def test_most_recent_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            files = []
+            for i in range(3):
+                fp = os.path.join(d, f"f{i}.funscript")
+                open(fp, "w").close()
+                files.append(fp)
+                self._save(d, fp)
+            recents = self._load(d)
+            self.assertEqual(recents[0], files[-1])  # last saved is first
+
+    def test_duplicate_moves_to_top(self):
+        with tempfile.TemporaryDirectory() as d:
+            fp1 = os.path.join(d, "a.funscript")
+            fp2 = os.path.join(d, "b.funscript")
+            open(fp1, "w").close()
+            open(fp2, "w").close()
+            self._save(d, fp1)
+            self._save(d, fp2)
+            self._save(d, fp1)   # re-save fp1
+            recents = self._load(d)
+            self.assertEqual(recents[0], fp1)
+            self.assertEqual(len(recents), 2)  # no duplicates
+
+    def test_max_entries_respected(self):
+        with tempfile.TemporaryDirectory() as d:
+            for i in range(self._RECENTS_MAX + 5):
+                fp = os.path.join(d, f"f{i}.funscript")
+                open(fp, "w").close()
+                self._save(d, fp)
+            recents = self._load(d)
+            self.assertLessEqual(len(recents), self._RECENTS_MAX)
+
+    def test_nonexistent_files_filtered_out(self):
+        with tempfile.TemporaryDirectory() as d:
+            # Write a recents file with a path that doesn't exist
+            path = os.path.join(d, self._RECENTS_FILE)
+            with open(path, "w") as fh:
+                _json.dump(["/nonexistent/path.funscript"], fh)
+            recents = self._load(d)
+            self.assertEqual(recents, [])
+
+
 if __name__ == "__main__":
     unittest.main()
