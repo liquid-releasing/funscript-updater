@@ -242,3 +242,9 @@ user_transforms/*.json
 !user_transforms/example_*.json
 plugins/*.py
 !plugins/example_*.py
+
+# Confidential internal documents — stored in funscript-updater-internal-docs (outside repo)
+docs/marketing-plan-internal.md
+docs/cost-estimates.md
+docs/vision-agentic.md
+docs/deployment-architecture.md
