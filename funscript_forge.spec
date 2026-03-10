@@ -1,13 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
-# PyInstaller spec for Funscript Forge — single-user Windows package.
+# PyInstaller spec for Funscript Forge — cross-platform package.
 #
 # Build with:
 #   pyinstaller funscript_forge.spec
-# Or use build.bat for a clean build.
+# Or use build.bat (Windows) / build.sh (macOS) for a clean build.
 
 import os
+import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+_IS_MAC = sys.platform == "darwin"
 
 # ---------------------------------------------------------------------------
 # Data files — source code packages and assets bundled into _MEIPASS
@@ -127,6 +130,12 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Platform-specific icon
+if _IS_MAC:
+    _icon = "media/funscriptforge.icns" if os.path.isfile("media/funscriptforge.icns") else None
+else:
+    _icon = "media/funscriptforge.ico" if os.path.isfile("media/funscriptforge.ico") else None
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -139,11 +148,11 @@ exe = EXE(
     upx=True,
     console=False,          # No console window for end users
     disable_windowed_traceback=False,
-    argv_emulation=False,
+    argv_emulation=False,   # Only meaningful on macOS; set via BUNDLE below
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="media/funscriptforge.ico" if os.path.isfile("media/funscriptforge.ico") else None,
+    icon=_icon,
 )
 
 coll = COLLECT(
@@ -156,3 +165,20 @@ coll = COLLECT(
     upx_exclude=[],
     name="FunscriptForge",
 )
+
+# macOS .app bundle
+if _IS_MAC:
+    app = BUNDLE(
+        coll,
+        name="FunscriptForge.app",
+        icon=_icon,
+        bundle_identifier="com.liquidreleasing.funscriptforge",
+        info_plist={
+            "NSPrincipalClass": "NSApplication",
+            "NSAppleScriptEnabled": False,
+            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleVersion": "1.0.0",
+            "LSMinimumSystemVersion": "10.15",
+            "NSHighResolutionCapable": True,
+        },
+    )
