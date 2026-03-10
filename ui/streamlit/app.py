@@ -581,7 +581,7 @@ def _render_sidebar_footer() -> None:
         # Render as an inline HTML block — Streamlit supports SVG via unsafe_allow_html.
         st.sidebar.markdown(
             f'<div style="text-align:center;opacity:0.65;padding:4px 0;">'
-            f'<div style="max-width:140px;margin:0 auto;">{_svg}</div>'
+            f'<div style="max-width:60px;margin:0 auto;">{_svg}</div>'
             f'<div style="font-size:10px;color:#888;margin-top:4px;line-height:1.4;">'
             f'© 2026 Liquid Releasing<br>MIT License</div>'
             f'</div>',
