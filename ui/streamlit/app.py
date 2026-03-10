@@ -472,7 +472,7 @@ def _sidebar() -> None:
             "↩ Undo",
             disabled=not _undo_stack.can_undo,
             help=f"Undo: {_undo_stack.undo_label}" if _undo_stack.can_undo else "Nothing to undo",
-            use_container_width=True,
+            width="stretch",
         ):
             from ui.streamlit.undo_helpers import apply_snapshot
             _snap = _undo_stack.undo()
@@ -483,7 +483,7 @@ def _sidebar() -> None:
             "↪ Redo",
             disabled=not _undo_stack.can_redo,
             help=f"Redo: {_undo_stack.redo_label}" if _undo_stack.can_redo else "Nothing to redo",
-            use_container_width=True,
+            width="stretch",
         ):
             from ui.streamlit.undo_helpers import apply_snapshot
             _snap = _undo_stack.redo()
@@ -560,7 +560,7 @@ def _main() -> None:
         if _icon and os.path.exists(_icon):
             with _col:
                 _il, _im, _ir = st.columns([1, 2, 1])
-                _im.image(_icon, use_container_width=True)
+                _im.image(_icon, width="stretch")
 
     # Tab indices: 0=Phrase Selector, 1=Pattern Editor, 2=Transform Catalog, 3=Export
     tab_viewer, tab_pattern, tab_transforms, tab_export = st.tabs(
@@ -652,16 +652,16 @@ def _render_welcome() -> None:
     _il, _ic, _ir = st.columns([1, 1, 4])
     with _ic:
         if os.path.exists(_media("hammer-striking-anvil.png")):
-            st.image(_media("hammer-striking-anvil.png"), use_container_width=True)
+            st.image(_media("hammer-striking-anvil.png"), width="stretch")
     with _ir:
         if os.path.exists(_media("funscriptforge-logo-wide.png")):
-            st.image(_media("funscriptforge-logo-wide.png"), use_container_width=True)
+            st.image(_media("funscriptforge-logo-wide.png"), width="stretch")
         elif os.path.exists(_media("funscriptforge.png")):
-            st.image(_media("funscriptforge.png"), use_container_width=True)
+            st.image(_media("funscriptforge.png"), width="stretch")
 
     # Cinematic atmosphere banner
     if os.path.exists(_media("forge-social-banner.png")):
-        st.image(_media("forge-social-banner.png"), use_container_width=True)
+        st.image(_media("forge-social-banner.png"), width="stretch")
 
     st.markdown(
         "**Funscript Forge** analyses funscripts, detects phrase structure and motion "
@@ -680,7 +680,7 @@ def _render_welcome() -> None:
     for col, (img, label, desc) in zip(icon_cols, _icons):
         with col:
             if os.path.exists(_media(img)):
-                st.image(_media(img), use_container_width=True)
+                st.image(_media(img), width="stretch")
             st.markdown(f"**{label}**  \n{desc}")
 
     st.divider()
