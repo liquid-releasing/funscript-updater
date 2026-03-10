@@ -1005,8 +1005,8 @@ def _render_finalize_and_download(
         try:
             with open(funscript_path) as f:
                 raw = json.load(f)
-        except Exception:
-            raw = {}
+        except (FileNotFoundError, json.JSONDecodeError):
+            raw = {}  # fall back to bare structure if source file is unavailable
 
         raw["actions"] = sorted(edited, key=lambda a: a["at"])
         st.session_state[f"pe_download_bytes_{selected_label}"] = json.dumps(raw, indent=2).encode()

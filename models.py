@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 
-from utils import ms_to_timestamp
+from utils import ms_to_timestamp, find_phrase_at
 
 
 @dataclass
@@ -254,10 +254,7 @@ class AssessmentResult:
 
     def phrase_at(self, t_ms: int) -> Optional[Phrase]:
         """Return the phrase containing timestamp t_ms, or None."""
-        for ph in self.phrases:
-            if ph.start_ms <= t_ms <= ph.end_ms:
-                return ph
-        return None
+        return find_phrase_at(self.phrases, t_ms)
 
     def to_dict(self) -> dict:
         return {
@@ -292,10 +289,29 @@ class AssessmentResult:
         )
 
     def save(self, path: str) -> None:
-        with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
+        """Save the assessment result to a JSON file.
+
+        Raises:
+            OSError: if the file cannot be written.
+        """
+        try:
+            with open(path, "w") as f:
+                json.dump(self.to_dict(), f, indent=2)
+        except OSError as e:
+            raise OSError(f"Failed to save assessment to '{path}': {e}") from e
 
     @classmethod
     def load(cls, path: str) -> "AssessmentResult":
-        with open(path) as f:
-            return cls.from_dict(json.load(f))
+        """Load an assessment result from a JSON file.
+
+        Raises:
+            FileNotFoundError: if the file does not exist.
+            ValueError: if the file is not valid JSON.
+        """
+        try:
+            with open(path) as f:
+                return cls.from_dict(json.load(f))
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Assessment file not found: {path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in assessment '{path}': {e}") from e

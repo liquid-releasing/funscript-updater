@@ -58,9 +58,23 @@ class FunscriptAnalyzer:
     # ------------------------------------------------------------------
 
     def load(self, path: str) -> None:
-        """Load a funscript file."""
-        with open(path) as f:
-            data = json.load(f)
+        """Load a funscript file.
+
+        Raises:
+            FileNotFoundError: if the file does not exist.
+            ValueError: if the file is not valid JSON or missing the 'actions' list.
+        """
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Funscript not found: {path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in funscript '{path}': {e}")
+        if "actions" not in data or not isinstance(data["actions"], list):
+            raise ValueError(
+                f"Funscript '{path}' is missing a required 'actions' list."
+            )
         self._actions = data["actions"]
         self._source_file = path
 

@@ -62,9 +62,23 @@ class WindowCustomizer:
     # ------------------------------------------------------------------
 
     def load_funscript(self, path: str) -> None:
-        """Load the funscript to be customized (output from FunscriptTransformer)."""
-        with open(path) as f:
-            self._data = json.load(f)
+        """Load the funscript to be customized (output from FunscriptTransformer).
+
+        Raises:
+            FileNotFoundError: if the file does not exist.
+            ValueError: if the file is not valid JSON or missing the 'actions' list.
+        """
+        try:
+            with open(path) as f:
+                self._data = json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Funscript not found: {path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in funscript '{path}': {e}")
+        if "actions" not in self._data or not isinstance(self._data["actions"], list):
+            raise ValueError(
+                f"Funscript '{path}' is missing a required 'actions' list."
+            )
         self._actions = self._data["actions"]
         self._original_actions = copy.deepcopy(self._actions)
         self._log(f"Loaded funscript: {path} ({len(self._actions)} actions)")
@@ -130,6 +144,7 @@ class WindowCustomizer:
         cycle_midpoints = [(c["start"] + c["end"]) / 2 for c in self._cycles]
         beat_times = sorted(b["time"] for b in self._beats)
 
+        # Loop starts at 2 so actions[i-1] and actions[i-2] are always valid.
         for i in range(2, len(actions)):
             t = actions[i]["at"]
 

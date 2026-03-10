@@ -25,7 +25,7 @@ import json
 from typing import List, Optional, Tuple
 
 from models import AssessmentResult, Phrase
-from utils import low_pass_filter
+from utils import low_pass_filter, find_phrase_at
 from .config import TransformerConfig
 
 _WindowPair = Tuple[int, int]
@@ -52,9 +52,23 @@ class FunscriptTransformer:
     # ------------------------------------------------------------------
 
     def load_funscript(self, path: str) -> None:
-        """Load the source funscript to be transformed."""
-        with open(path) as f:
-            self._data = json.load(f)
+        """Load the source funscript to be transformed.
+
+        Raises:
+            FileNotFoundError: if the file does not exist.
+            ValueError: if the file is not valid JSON or missing the 'actions' list.
+        """
+        try:
+            with open(path) as f:
+                self._data = json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Funscript not found: {path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in funscript '{path}': {e}")
+        if "actions" not in self._data or not isinstance(self._data["actions"], list):
+            raise ValueError(
+                f"Funscript '{path}' is missing a required 'actions' list."
+            )
         self._actions = self._data["actions"]
         self._original_actions = copy.deepcopy(self._actions)
         self._log(f"Loaded funscript: {path} ({len(self._actions)} actions)")
@@ -145,10 +159,7 @@ class FunscriptTransformer:
 
     def _phrase_at(self, t_ms: int) -> Optional[Phrase]:
         """Return the phrase containing timestamp t_ms, or None."""
-        for ph in self._phrases:
-            if ph.start_ms <= t_ms <= ph.end_ms:
-                return ph
-        return None
+        return find_phrase_at(self._phrases, t_ms)
 
     def _log(self, msg: str) -> None:
         self._log_lines.append(msg)

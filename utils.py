@@ -37,6 +37,22 @@ def overlaps(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
     return not (a_end < b_start or a_start > b_end)
 
 
+def find_phrase_at(phrases: list, t_ms: int):
+    """Return the first phrase whose [start_ms, end_ms] contains t_ms, or None.
+
+    Accepts either Phrase dataclass instances (attribute access) or plain dicts
+    (key access), so it works throughout the pipeline without importing models.
+    """
+    for ph in phrases:
+        if hasattr(ph, "start_ms"):
+            start, end = ph.start_ms, ph.end_ms
+        else:
+            start, end = ph["start_ms"], ph["end_ms"]
+        if start <= t_ms <= end:
+            return ph
+    return None
+
+
 def low_pass_filter(values: list, strengths: list) -> list:
     """Apply a variable-strength low-pass filter.
 

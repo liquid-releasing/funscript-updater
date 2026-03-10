@@ -120,8 +120,8 @@ def _detail_fragment(
                 )
                 if _split_cycle < len(_ph_cycles):
                     split_ms = _ph_cycles[_split_cycle].start_ms
-            except Exception:
-                pass
+            except (AttributeError, KeyError, TypeError):
+                split_ms = None  # assessment not ready or phrase dict missing keys
 
     # ------------------------------------------------------------------
     # Resolve transform (only needed when not in split mode)
@@ -565,8 +565,8 @@ def _render_split_controls(
              if phrase_start <= cy.start_ms and cy.end_ms <= phrase_end],
             key=lambda cy: cy.start_ms,
         )
-    except Exception:
-        ph_cycles = []
+    except (AttributeError, TypeError):
+        ph_cycles = []  # assessment not yet loaded
 
     n_cycles = len(ph_cycles)
 
