@@ -427,42 +427,44 @@ def _sidebar() -> None:
     if file_changed or st.sidebar.button("Re-analyse", type="primary"):
         import time
 
-        # Progress indicator (#14): sidebar placeholder shows current stage.
+        # Progress indicator: sidebar placeholder shows current stage.
+        # Using a sidebar placeholder (not st.spinner) avoids a lingering
+        # full-page spinner that persists visually after the chart renders.
         _stage_ph = st.sidebar.empty()
+        _stage_ph.caption("⟳ Running assessment…")
 
         def _on_stage(stage: str) -> None:
             _stage_ph.caption(f"⟳ {stage}")
 
-        with st.spinner("Running assessment…"):
-            _t0 = time.time()
-            st.session_state.project = Project.from_funscript(
-                funscript_path,
-                analyzer_config=analyzer_cfg,
-                progress_callback=_on_stage,
-            )
-            st.session_state.last_assessment_elapsed = time.time() - _t0
-            st.session_state.last_loaded_cfg  = cfg_key
-            st.session_state.last_loaded_file = selected_file
-            st.session_state.view_state       = ViewState()
-            if _IS_LOCAL:
-                _save_recents(output_dir, funscript_path)
-            st.session_state.export_rejected  = set()
-            st.session_state.export_accepted  = set()
+        _t0 = time.time()
+        st.session_state.project = Project.from_funscript(
+            funscript_path,
+            analyzer_config=analyzer_cfg,
+            progress_callback=_on_stage,
+        )
+        st.session_state.last_assessment_elapsed = time.time() - _t0
+        st.session_state.last_loaded_cfg  = cfg_key
+        st.session_state.last_loaded_file = selected_file
+        st.session_state.view_state       = ViewState()
+        if _IS_LOCAL:
+            _save_recents(output_dir, funscript_path)
+        st.session_state.export_rejected  = set()
+        st.session_state.export_accepted  = set()
 
-            # Auto-update the pattern catalog with this funscript's tagged phrases
-            try:
-                _proj    = st.session_state.project
-                _phrases = _proj.assessment.to_dict().get("phrases", [])
-                _cat     = st.session_state.pattern_catalog
-                _cat.add_assessment(
-                    funscript_name=selected_file,
-                    phrases=_phrases,
-                    duration_ms=_proj.assessment.duration_ms,
-                )
-                _cat.save()
-            except Exception as _cat_err:
-                # Best-effort — never block the UI, but surface disk/permission errors.
-                st.sidebar.warning(f"Pattern catalog could not be saved: {_cat_err}")
+        # Auto-update the pattern catalog with this funscript's tagged phrases
+        try:
+            _proj    = st.session_state.project
+            _phrases = _proj.assessment.to_dict().get("phrases", [])
+            _cat     = st.session_state.pattern_catalog
+            _cat.add_assessment(
+                funscript_name=selected_file,
+                phrases=_phrases,
+                duration_ms=_proj.assessment.duration_ms,
+            )
+            _cat.save()
+        except Exception as _cat_err:
+            # Best-effort — never block the UI, but surface disk/permission errors.
+            st.sidebar.warning(f"Pattern catalog could not be saved: {_cat_err}")
 
         _stage_ph.empty()
         st.rerun()
