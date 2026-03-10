@@ -79,6 +79,11 @@ def render_player(
     if ext not in MEDIA_EXTS:
         return None
 
+    corrupt_msg = validate_media_file(media_path)
+    if corrupt_msg:
+        st.warning(f"Media file may be corrupt — {corrupt_msg}  ({os.path.basename(media_path)})")
+        return None
+
     if ext in AUDIO_EXTS and end_ms is not None:
         # Interactive phrase-restricted player
         from ui.streamlit.components.audio_player import phrase_audio_player
@@ -135,6 +140,73 @@ def render_player(
         except Exception as exc:
             st.warning(f"Could not load media: {exc}")
 
+    return None
+
+
+def validate_media_file(path: str) -> str | None:
+    """Check a media file for obvious corruption using magic-byte signatures.
+
+    Reads only the first 12 bytes — fast enough to run on every load.
+
+    Returns ``None`` if the file looks intact, or a short human-readable
+    error string if it appears corrupt or unreadable.
+
+    Supported containers: MP3, MP4/M4A/MOV, WAV, OGG, WebM/MKV.
+    Files with unrecognised headers (e.g. AAC raw, AVI) are passed through
+    without a corruption verdict rather than generating false positives.
+    """
+    if not os.path.isfile(path):
+        return "File not found."
+    size = os.path.getsize(path)
+    if size == 0:
+        return "File is empty (0 bytes)."
+    if size < 12:
+        return f"File is too small ({size} bytes) — likely truncated."
+
+    try:
+        with open(path, "rb") as fh:
+            header = fh.read(12)
+    except OSError as exc:
+        return f"Cannot read file: {exc}"
+
+    ext = os.path.splitext(path)[1].lower()
+
+    # MP3: starts with ID3 tag or sync bytes (0xFF followed by 0xE0–0xFF)
+    if ext == ".mp3":
+        if header[:3] == b"ID3":
+            return None
+        if header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:
+            return None
+        return "Not a valid MP3 file (missing ID3 tag or sync bytes)."
+
+    # MP4 / M4A / MOV: 'ftyp' box at byte offset 4
+    if ext in {".mp4", ".m4a", ".mov"}:
+        if header[4:8] == b"ftyp":
+            return None
+        # Some MP4s start with 'moov' or 'mdat' directly (no ftyp)
+        if header[4:8] in {b"moov", b"mdat", b"free", b"wide"}:
+            return None
+        return "Not a valid MP4/M4A/MOV file (missing ftyp/moov box)."
+
+    # WAV: RIFF….WAVE
+    if ext == ".wav":
+        if header[:4] == b"RIFF" and header[8:12] == b"WAVE":
+            return None
+        return "Not a valid WAV file (missing RIFF/WAVE header)."
+
+    # OGG (covers .ogg and .oga)
+    if ext in {".ogg", ".oga"}:
+        if header[:4] == b"OggS":
+            return None
+        return "Not a valid OGG file (missing OggS capture pattern)."
+
+    # WebM / MKV: EBML magic bytes 0x1A 0x45 0xDF 0xA3
+    if ext in {".webm", ".mkv"}:
+        if header[:4] == b"\x1a\x45\xdf\xa3":
+            return None
+        return "Not a valid WebM/MKV file (missing EBML header)."
+
+    # Unknown extension — no verdict, let the browser decide.
     return None
 
 

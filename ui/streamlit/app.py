@@ -195,11 +195,16 @@ def _media_picker_local(funscript_path: str, output_dir: str) -> None:
         label_visibility="collapsed",
     ).strip()
     if typed:
-        if os.path.isfile(typed):
-            st.session_state["media_path"] = typed
-            st.rerun()
-        else:
+        if not os.path.isfile(typed):
             st.sidebar.warning("Media file not found.")
+        else:
+            from ui.streamlit.panels.media_player import validate_media_file
+            _err = validate_media_file(typed)
+            if _err:
+                st.sidebar.warning(f"Media file may be corrupt: {_err}")
+            else:
+                st.session_state["media_path"] = typed
+                st.rerun()
 
 
 # ------------------------------------------------------------------
