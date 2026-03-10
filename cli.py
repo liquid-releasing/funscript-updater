@@ -173,7 +173,7 @@ def cmd_pipeline(args):
     analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
     analyzer.load(args.funscript)
     t0 = time.time()
-    assessment = analyzer.analyze()
+    assessment = analyzer.analyze(progress_callback=lambda s: print(f"  {s}"))
     assessment_path = os.path.join(output_dir, f"{base}.assessment.json")
     assessment.save(assessment_path)
     print(f"Assessment saved: {assessment_path}  ({time.time() - t0:.2f}s)")
@@ -215,7 +215,10 @@ def cmd_assess(args):
     analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
     analyzer.load(args.funscript)
     t0 = time.time()
-    result = analyzer.analyze()
+    def _progress(stage: str) -> None:
+        print(f"  {stage}")
+
+    result = analyzer.analyze(progress_callback=_progress)
     elapsed = time.time() - t0
 
     output = args.output or _default_path(args.funscript, "_assessment.json")
