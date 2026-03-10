@@ -4,8 +4,19 @@ Phrases are classified into behavioral tags (stingy, giggle, drone, …)
 by assessment/classifier.py.  This tab lets you:
   1. Select a tag to see all matching phrases.
   2. Pick one phrase instance and apply a transform (with live preview).
-  3. Apply the same transform to all matching phrases at once.
-  4. Download the fully edited funscript.
+  3. Split an instance into sub-segments, each with its own transform.
+  4. Apply the same split structure + transforms to all matching phrases at once.
+  5. Download the fully edited funscript.
+
+Split support
+-------------
+Each phrase instance can be divided into contiguous non-overlapping segments
+by adding split points (absolute timestamps within the instance bounds).
+Each segment carries its own transform choice and parameters.  Split points are
+stored as ``pe_splits_{label}_{i}`` (sorted list of ms ints).  Per-segment
+transforms are stored as ``pe_split_transform_{label}_{i}_{seg}``.  The old
+single-instance key ``pe_transform_{label}_{i}`` is kept in sync for seg 0 so
+the instance table and backward-compat code continue to work.
 
 Layout
 ------
@@ -13,13 +24,14 @@ Layout
 [Right 4/5]:
   - Subheader + tag description
   - Selector chart: full funscript, matching phrases highlighted
-  - Instance buttons (one per matching phrase)
-  - Detail area: [original (2) | preview (2) | controls (1)]
+  - Instance table (Apply checkbox, Transform column shows segment info)
+  - Three-column detail:
+      [original (2)] | [preview (2)] | [splits + transform controls (1.5)]
 
 Performance notes
 -----------------
 - original_actions cached in session state (no re-read on every slider tick)
-- Preview computed on the window slice only (no deepcopy of full action list)
+- Preview computed on window slices only (no deepcopy of full action list)
 - Instance charts use minimal raw Plotly lines (no FunscriptChart overhead)
 - Download bytes only built when user clicks "Build download"
 """
@@ -29,7 +41,7 @@ from __future__ import annotations
 import copy
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import streamlit as st
 
@@ -111,31 +123,202 @@ def render(project) -> None:
                 f"{label}  ·  {count}",
                 key=f"pe_tag_{tag}",
                 type="primary" if is_active else "secondary",
-                use_container_width=True,
+                width="stretch",
                 help="  |  ".join(hint_parts) if hint_parts else None,
             ):
                 if tag != selected_tag:
-                    st.session_state.pe_selected_label   = tag
+                    st.session_state.pe_selected_label    = tag
                     st.session_state.pe_selected_instance = 0
                     st.rerun(scope="app")
 
     with col_detail:
-        matching = tag_to_phrases[selected_tag]
+        matching  = tag_to_phrases[selected_tag]
         phrase_idx = min(st.session_state.pe_selected_instance, len(matching) - 1)
         st.session_state.pe_selected_instance = phrase_idx
 
-        # The detail fragment treats each matching phrase as one "cycle" window
         _detail_fragment(
             funscript_path=funscript_path,
             selected_label=selected_tag,
-            cycles=matching,      # each phrase dict has start_ms / end_ms
+            cycles=matching,
             phrase_idx=phrase_idx,
             duration_ms=duration_ms,
         )
 
 
 # ------------------------------------------------------------------
-# Detail fragment — selector chart, instance buttons, editor
+# Split management helpers
+# ------------------------------------------------------------------
+
+
+def _get_splits(label: str, i: int) -> List[int]:
+    """Return sorted list of split points (ms) for instance i."""
+    return sorted(st.session_state.get(f"pe_splits_{label}_{i}", []))
+
+
+def _get_segments(label: str, i: int, cycle: dict) -> List[Tuple[int, int]]:
+    """Return list of (start_ms, end_ms) tuples for instance i."""
+    splits = _get_splits(label, i)
+    points = [cycle["start_ms"]] + splits + [cycle["end_ms"]]
+    return [(points[j], points[j + 1]) for j in range(len(points) - 1)]
+
+
+def _get_active_seg(label: str, i: int, n_segs: int) -> int:
+    """Return the active segment index, clamped to the valid range."""
+    return min(st.session_state.get(f"pe_active_seg_{label}_{i}", 0), max(0, n_segs - 1))
+
+
+def _get_seg_transform(label: str, i: int, seg: int) -> dict:
+    """Return the stored transform dict for segment *seg* of instance *i*.
+
+    Falls back to the legacy ``pe_transform_{label}_{i}`` key for seg 0 so
+    that instances set up before split support was added continue to work.
+    """
+    key = f"pe_split_transform_{label}_{i}_{seg}"
+    if key in st.session_state:
+        return st.session_state[key]
+    if seg == 0:
+        return st.session_state.get(f"pe_transform_{label}_{i}", {})
+    return {}
+
+
+def _set_seg_transform(label: str, i: int, seg: int, data: dict) -> None:
+    """Persist the transform dict for segment *seg* of instance *i*."""
+    st.session_state[f"pe_split_transform_{label}_{i}_{seg}"] = data
+    # Keep the legacy key in sync for seg 0 (instance table reads it)
+    if seg == 0:
+        st.session_state[f"pe_transform_{label}_{i}"] = data
+
+
+def _add_split_point(label: str, i: int, cycle: dict, new_ms: int) -> bool:
+    """Insert a split point at *new_ms* and renumber segment transforms.
+
+    The segment containing *new_ms* is split in two; the right half inherits
+    the left half's transform.  All subsequent transforms are renumbered +1.
+    Returns True on success, False if the split is invalid.
+    """
+    splits = _get_splits(label, i)
+    if new_ms <= cycle["start_ms"] or new_ms >= cycle["end_ms"]:
+        return False
+    if new_ms in splits:
+        return False
+
+    segments = _get_segments(label, i, cycle)
+    split_seg_idx = next(
+        (j for j, (s, e) in enumerate(segments) if s < new_ms < e), None
+    )
+    if split_seg_idx is None:
+        return False
+
+    # Snapshot all transforms before touching state
+    old_tx = {j: _get_seg_transform(label, i, j) for j in range(len(segments))}
+
+    # Commit the new split point
+    st.session_state[f"pe_splits_{label}_{i}"] = sorted(splits + [new_ms])
+
+    # Renumber segment transforms
+    new_n = len(segments) + 1
+    for j in range(new_n):
+        if j <= split_seg_idx:
+            tx = old_tx.get(j, {})
+        elif j == split_seg_idx + 1:
+            tx = copy.deepcopy(old_tx.get(split_seg_idx, {}))  # inherit left
+        else:
+            tx = old_tx.get(j - 1, {})
+        if tx:
+            _set_seg_transform(label, i, j, tx)
+
+    return True
+
+
+def _remove_split_boundary(label: str, i: int, cycle: dict, split_idx: int) -> bool:
+    """Remove the split boundary at ``splits[split_idx]``.
+
+    Merges segments *split_idx* and *split_idx+1*; the merged segment keeps
+    the left segment's transform.  Subsequent segments renumbered -1.
+    Returns True on success.
+    """
+    splits = _get_splits(label, i)
+    if not splits or split_idx >= len(splits):
+        return False
+
+    segments = _get_segments(label, i, cycle)
+    n = len(segments)
+    old_tx = {j: _get_seg_transform(label, i, j) for j in range(n)}
+
+    new_splits = [s for j, s in enumerate(splits) if j != split_idx]
+    st.session_state[f"pe_splits_{label}_{i}"] = new_splits
+
+    new_n = n - 1
+    for j in range(new_n):
+        tx = old_tx.get(j, {}) if j <= split_idx else old_tx.get(j + 1, {})
+        if tx:
+            _set_seg_transform(label, i, j, tx)
+
+    return True
+
+
+def _build_combined_preview(
+    original_actions: List[dict],
+    cycle: dict,
+    label: str,
+    i: int,
+) -> List[dict]:
+    """Return the combined preview for all segments of instance *i*."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+
+    segments = _get_segments(label, i, cycle)
+    result: List[dict] = []
+    for seg_idx, (seg_s, seg_e) in enumerate(segments):
+        window = [a for a in original_actions if seg_s <= a["at"] <= seg_e]
+        stored = _get_seg_transform(label, i, seg_idx)
+        tx_key = stored.get("transform_key", "passthrough")
+        if tx_key and tx_key != "passthrough":
+            param_values = stored.get("param_values", {})
+            spec = TRANSFORM_CATALOG.get(tx_key, TRANSFORM_CATALOG["passthrough"])
+            result.extend(_apply_transform_to_window(window, cycle, spec, param_values))
+        else:
+            result.extend(window)
+    return sorted(result, key=lambda a: a["at"])
+
+
+def _copy_instance_to_all(
+    label: str,
+    from_i: int,
+    from_cycle: dict,
+    cycles: List[dict],
+) -> None:
+    """Copy the split structure (proportionally) and transforms of *from_i* to all others."""
+    from_splits   = _get_splits(label, from_i)
+    from_start    = from_cycle["start_ms"]
+    from_duration = from_cycle["end_ms"] - from_cycle["start_ms"]
+    from_segments = _get_segments(label, from_i, from_cycle)
+
+    for i, dest_cycle in enumerate(cycles):
+        if i == from_i:
+            continue
+        dest_start    = dest_cycle["start_ms"]
+        dest_duration = dest_cycle["end_ms"] - dest_cycle["start_ms"]
+
+        if from_splits and from_duration > 0:
+            dest_splits = []
+            for sp in from_splits:
+                rel    = (sp - from_start) / from_duration
+                new_sp = int(dest_start + rel * dest_duration)
+                new_sp = max(dest_cycle["start_ms"] + 1,
+                             min(dest_cycle["end_ms"] - 1, new_sp))
+                dest_splits.append(new_sp)
+            st.session_state[f"pe_splits_{label}_{i}"] = sorted(dest_splits)
+        else:
+            st.session_state[f"pe_splits_{label}_{i}"] = []
+
+        for seg_idx in range(len(from_segments)):
+            stored = _get_seg_transform(label, from_i, seg_idx)
+            if stored:
+                _set_seg_transform(label, i, seg_idx, copy.deepcopy(stored))
+
+
+# ------------------------------------------------------------------
+# Detail fragment — selector chart, instance table, editor
 # ------------------------------------------------------------------
 
 
@@ -147,11 +330,10 @@ def _detail_fragment(
     phrase_idx: int,
     duration_ms: int,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
     from assessment.classifier import TAGS
 
-    n_instances = len(cycles)
-    meta = TAGS.get(selected_label)
+    n_instances  = len(cycles)
+    meta         = TAGS.get(selected_label)
     display_name = meta.label if meta else selected_label.replace("_", " ").title()
     st.subheader(f"{display_name}  ·  {n_instances} phrase{'s' if n_instances != 1 else ''}")
     if meta:
@@ -170,71 +352,65 @@ def _detail_fragment(
                 f"· span {cs['span_min']}–{cs['span_max']}"
             )
 
-    # ------------------------------------------------------------------
-    # Cache original actions — read once per funscript path, not every rerun
-    # ------------------------------------------------------------------
+    # Cache original actions — read once per funscript path
     cache_key = f"pe_actions_{funscript_path}"
     if cache_key not in st.session_state:
         with open(funscript_path) as f:
             st.session_state[cache_key] = json.load(f)["actions"]
     original_actions: List[dict] = st.session_state[cache_key]
 
-    # ------------------------------------------------------------------
-    # Selector chart — full funscript with instance overlays
-    # ------------------------------------------------------------------
+    # Show edited version in selector chart if phrase editor transforms exist
+    from ui.streamlit.panels.phrase_detail import build_edited_actions
+    has_edits = any(
+        k.startswith("phrase_transform_")
+        and st.session_state[k].get("transform_key", "passthrough") != "passthrough"
+        for k in st.session_state
+    )
+    if has_edits:
+        _proj = st.session_state.get("project")
+        if _proj and _proj.is_loaded:
+            _all_phrases = _proj.assessment.to_dict().get("phrases", [])
+            selector_actions = build_edited_actions(_all_phrases, original_actions)
+        else:
+            selector_actions = original_actions
+        st.info("These edits have not been saved — ready for export.", icon="💾")
+    else:
+        selector_actions = original_actions
+
+    # Selector chart
     _draw_selector_chart(
-        actions=original_actions,
+        actions=selector_actions,
         cycles=cycles,
         selected_idx=phrase_idx,
         duration_ms=duration_ms,
         selected_label=selected_label,
     )
 
-    # ------------------------------------------------------------------
-    # Instance table — click a row to select that phrase
-    # ------------------------------------------------------------------
+    # Instance table
     _render_instance_table(
         cycles=cycles,
         selected_label=selected_label,
         phrase_idx=phrase_idx,
     )
 
-    # ------------------------------------------------------------------
-    # Detail editor for the selected instance
-    # ------------------------------------------------------------------
     st.divider()
 
-    cycle = cycles[phrase_idx]
-    start_ms: int = cycle["start_ms"]
-    end_ms: int   = cycle["end_ms"]
-    inst_idx: int = phrase_idx
+    cycle    = cycles[phrase_idx]
+    start_ms = cycle["start_ms"]
+    end_ms   = cycle["end_ms"]
+    inst_idx = phrase_idx
 
-    # Resolve transform from session state
-    catalog_keys = list(TRANSFORM_CATALOG.keys())
-    catalog_labels = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
-
-    sel_key = f"pe_tx_sel_{selected_label}_{inst_idx}"
-    sel_label_val = st.session_state.get(sel_key)
-    if sel_label_val and sel_label_val in catalog_labels:
-        transform_key = catalog_keys[catalog_labels.index(sel_label_val)]
-    else:
-        stored = st.session_state.get(f"pe_transform_{selected_label}_{inst_idx}", {})
-        transform_key = stored.get("transform_key", "passthrough")
-
-    spec = TRANSFORM_CATALOG.get(transform_key, TRANSFORM_CATALOG["passthrough"])
-
-    # Read current param values from session state
-    param_values: Dict[str, Any] = {}
-    for pk, param in spec.params.items():
-        sv = st.session_state.get(f"pe_tx_{selected_label}_{inst_idx}_{pk}")
-        param_values[pk] = sv if sv is not None else param.default
-
-    # Compute preview window only — no deepcopy of full action list
+    # Original window — full instance, untransformed
     original_window = [a for a in original_actions if start_ms <= a["at"] <= end_ms]
-    preview_window  = _apply_transform_to_window(original_window, cycle, spec, param_values)
 
-    # Three-column layout: original | preview | controls
-    col_orig, col_prev, col_ctrl = st.columns([2, 2, 1])
+    # Preview — transform applied to this instance
+    preview_window = _build_combined_preview(original_actions, cycle, selected_label, inst_idx)
+
+    # Stable preview key — changes when transform changes
+    _tx_state   = str(_get_seg_transform(selected_label, inst_idx, 0))
+    preview_key = f"pe_prev_{selected_label}_{inst_idx}_{hash(_tx_state) % 1_000_000}"
+
+    col_orig, col_prev, col_ctrl = st.columns([2, 2, 1.5])
 
     with col_orig:
         st.caption(f"**Original — #{inst_idx + 1}**")
@@ -242,18 +418,20 @@ def _detail_fragment(
             actions=original_window,
             start_ms=start_ms,
             end_ms=end_ms,
-            key=f"pe_orig_{selected_label}_{inst_idx}_{transform_key}",
+            key=f"pe_orig_{selected_label}_{inst_idx}",
             height=220,
+            split_points=[],
         )
 
     with col_prev:
-        st.caption(f"**Preview — {spec.name}**")
+        st.caption("**Preview**")
         _draw_instance_chart(
             actions=preview_window,
             start_ms=start_ms,
             end_ms=end_ms,
-            key=f"pe_prev_{selected_label}_{inst_idx}_{transform_key}_{'_'.join(str(v) for v in param_values.values())}",
+            key=preview_key,
             height=220,
+            split_points=[],
         )
         st.caption("*(not saved)*")
 
@@ -279,41 +457,46 @@ def _render_instance_table(
     selected_label: str,
     phrase_idx: int,
 ) -> None:
-    """Render a selectable dataframe of all phrase instances for the active tag."""
+    """Render a selectable data-editor of all phrase instances for the active tag."""
     import pandas as pd
     from assessment.classifier import TAGS
     from utils import ms_to_timestamp
 
-    meta = TAGS.get(selected_label)
+    meta      = TAGS.get(selected_label)
     suggested = meta.suggested_transform if meta else "—"
 
     rows = []
     for i, cy in enumerate(cycles):
         m      = cy.get("metrics", {})
-        stored = st.session_state.get(f"pe_transform_{selected_label}_{i}", {})
-        tx_key = stored.get("transform_key", "")
-        has_tx = bool(tx_key and tx_key != "passthrough")
-        apply  = st.session_state.get(f"pe_apply_{selected_label}_{i}", True)
-        marker = "▶" if i == phrase_idx else ""
+        splits = _get_splits(selected_label, i)
+        n_segs = len(splits) + 1
+
+        if n_segs > 1:
+            tx_display = f"{n_segs} segments"
+        else:
+            stored = _get_seg_transform(selected_label, i, 0)
+            tx_key = stored.get("transform_key", "")
+            tx_display = tx_key if (tx_key and tx_key != "passthrough") else suggested
+
+        apply = st.session_state.get(f"pe_apply_{selected_label}_{i}", True)
         rows.append({
-            " ":        marker,
-            "#":        i + 1,
-            "Apply":    apply,
-            "Pattern":  cy.get("pattern_label", "—"),
-            "Start":    ms_to_timestamp(cy["start_ms"]),
-            "End":      ms_to_timestamp(cy["end_ms"]),
-            "Duration": ms_to_timestamp(cy["end_ms"] - cy["start_ms"]),
-            "BPM":      round(cy.get("bpm", 0), 1),
-            "Span":     round(m.get("span", 0), 1),
-            "Centre":   round(m.get("mean_pos", 50), 1),
-            "Velocity": round(m.get("mean_velocity", 0), 3),
-            "CV BPM":   round(m.get("cv_bpm", 0), 3),
-            "Transform": tx_key if has_tx else suggested,
+            "#":         i + 1,
+            "Apply":     apply,
+            "Pattern":   cy.get("pattern_label", "—"),
+            "Start":     ms_to_timestamp(cy["start_ms"]),
+            "End":       ms_to_timestamp(cy["end_ms"]),
+            "Duration":  ms_to_timestamp(cy["end_ms"] - cy["start_ms"]),
+            "BPM":       round(cy.get("bpm", 0), 1),
+            "Span":      round(m.get("span", 0), 1),
+            "Centre":    round(m.get("mean_pos", 50), 1),
+            "Velocity":  round(m.get("mean_velocity", 0), 3),
+            "CV BPM":    round(m.get("cv_bpm", 0), 3),
+            "Transform": tx_display,
         })
 
     df = pd.DataFrame(rows)
 
-    _READ_ONLY = [" ", "#", "Pattern", "Start", "End", "Duration",
+    _READ_ONLY = ["#", "Pattern", "Start", "End", "Duration",
                   "BPM", "Span", "Centre", "Velocity", "CV BPM", "Transform"]
 
     edited = st.data_editor(
@@ -322,7 +505,6 @@ def _render_instance_table(
         key=f"pe_instance_table_{selected_label}",
         disabled=_READ_ONLY,
         column_config={
-            " ":         st.column_config.TextColumn(width="small"),
             "#":         st.column_config.NumberColumn(width="small"),
             "Apply":     st.column_config.CheckboxColumn("Apply", default=True, width="small"),
             "Pattern":   st.column_config.TextColumn(width="medium"),
@@ -341,6 +523,299 @@ def _render_instance_table(
     # Persist Apply states so _build_all_transforms can read them
     for i, row in edited.iterrows():
         st.session_state[f"pe_apply_{selected_label}_{i}"] = bool(row["Apply"])
+
+
+# ------------------------------------------------------------------
+# Controls column — splits management + per-segment transform
+# ------------------------------------------------------------------
+
+
+def _render_controls(
+    selected_label: str,
+    inst_idx: int,
+    cycle: dict,
+    cycles: List[dict],
+    n_instances: int,
+    original_actions: List[dict],
+    funscript_path: str,
+) -> None:
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER
+    from utils import ms_to_timestamp
+
+    catalog_keys    = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
+    catalog_labels  = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
+    passthrough_idx = catalog_keys.index("passthrough") if "passthrough" in catalog_keys else 0
+
+    # Always single segment (no splits)
+    active_seg = 0
+
+    # ------------------------------------------------------------------
+    # Prev / Next navigation — top of controls
+    # ------------------------------------------------------------------
+    st.caption(f"#{inst_idx + 1} of {n_instances}")
+    col_p, col_n = st.columns(2)
+    with col_p:
+        if st.button(
+            "◀ Prev",
+            key=f"pe_prev_{selected_label}_{inst_idx}",
+            disabled=(inst_idx == 0),
+            width="stretch",
+        ):
+            st.session_state.pe_selected_instance = inst_idx - 1
+            st.rerun(scope="app")
+    with col_n:
+        if st.button(
+            "Next ▶",
+            key=f"pe_next_{selected_label}_{inst_idx}",
+            disabled=(inst_idx >= n_instances - 1),
+            width="stretch",
+        ):
+            st.session_state.pe_selected_instance = inst_idx + 1
+            st.rerun(scope="app")
+
+    st.divider()
+
+    # ------------------------------------------------------------------
+    # Transform
+    # ------------------------------------------------------------------
+    st.markdown("**Transform**")
+
+    stored      = _get_seg_transform(selected_label, inst_idx, active_seg)
+    stored_key  = stored.get("transform_key", "passthrough")
+    try:
+        default_idx = catalog_keys.index(stored_key)
+    except ValueError:
+        default_idx = passthrough_idx
+
+    chosen_label = st.selectbox(
+        "Select transform",
+        options=catalog_labels,
+        index=default_idx,
+        key=f"pe_tx_sel_{selected_label}_{inst_idx}_{active_seg}",
+        label_visibility="collapsed",
+    )
+    chosen_key = catalog_keys[catalog_labels.index(chosen_label)]
+    spec       = TRANSFORM_CATALOG[chosen_key]
+
+    st.caption(spec.description)
+
+    cycle_duration_ms = cycle["end_ms"] - cycle["start_ms"]
+
+    # UI overrides for beat_accent
+    _ui_int_overrides: dict = {}
+    if chosen_key == "beat_accent":
+        _ui_int_overrides["start_at_ms"] = dict(max_value=cycle_duration_ms, step=500)
+        _ui_int_overrides["max_accents"]  = dict(max_value=60)
+
+    # Clamp any stale session state values before rendering sliders
+    for _pk, _ov in _ui_int_overrides.items():
+        _sk  = f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{_pk}"
+        _cap = _ov.get("max_value")
+        if _cap is not None and st.session_state.get(_sk, 0) > _cap:
+            st.session_state[_sk] = _cap
+
+    param_values: Dict[str, Any] = {}
+    for pk, param in spec.params.items():
+        if param.type == "float":
+            param_values[pk] = st.slider(
+                param.label,
+                min_value=float(param.min_val or 0.0),
+                max_value=float(param.max_val or 1.0),
+                value=float(param.default),
+                step=float(param.step or 0.05),
+                help=param.help,
+                key=f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{pk}",
+            )
+        elif param.type == "int":
+            overrides = _ui_int_overrides.get(pk, {})
+            param_values[pk] = st.slider(
+                param.label,
+                min_value=int(param.min_val or 0),
+                max_value=int(overrides.get("max_value", param.max_val or 100)),
+                value=int(param.default),
+                step=int(overrides.get("step", param.step or 1)),
+                help=param.help,
+                key=f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{pk}",
+            )
+
+    # Persist transform for this instance
+    _set_seg_transform(selected_label, inst_idx, active_seg, {
+        "transform_key": chosen_key,
+        "param_values":  param_values,
+    })
+
+    st.divider()
+
+    # Apply to this instance only
+    if st.button(
+        "Apply",
+        key=f"pe_apply_{selected_label}_{inst_idx}_single",
+        width="stretch",
+        type="primary",
+        help="Mark this instance as done and go to Export.",
+    ):
+        _proj = st.session_state.get("project")
+        if _proj and _proj.is_loaded:
+            for wi in _proj.work_items:
+                if wi.start_ms == cycle["start_ms"]:
+                    _proj.set_item_status(wi.id, "done")
+        st.session_state.goto_tab = 5
+        st.rerun(scope="app")
+
+    # Apply this instance's transform to all other instances
+    if st.button(
+        "Apply to all",
+        key=f"pe_apply_all_{selected_label}_{inst_idx}",
+        width="stretch",
+        help=f"Copy this transform to all {n_instances} instances of '{selected_label}' and go to Export.",
+    ):
+        _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
+        # Mark every matching work item as done
+        _proj = st.session_state.get("project")
+        if _proj and _proj.is_loaded:
+            cycle_starts = {cy["start_ms"] for cy in cycles}
+            for wi in _proj.work_items:
+                if wi.start_ms in cycle_starts:
+                    _proj.set_item_status(wi.id, "done")
+        st.session_state.goto_tab = 5
+        st.rerun(scope="app")
+
+    st.divider()
+
+    # Save current instance's raw actions to the pattern catalog
+    with st.expander("Save to catalog", expanded=False):
+        default_name = f"{selected_label} #{inst_idx + 1}"
+        pattern_name = st.text_input(
+            "Pattern name",
+            value=default_name,
+            key=f"pe_save_name_{selected_label}_{inst_idx}",
+        )
+        if st.button(
+            "Save raw actions",
+            key=f"pe_save_catalog_{selected_label}_{inst_idx}",
+            width="stretch",
+        ):
+            catalog = st.session_state.get("pattern_catalog")
+            if catalog is None:
+                st.error("Pattern catalog not available.")
+            else:
+                window = [
+                    a for a in original_actions
+                    if cycle["start_ms"] <= a["at"] <= cycle["end_ms"]
+                ]
+                if not window:
+                    st.error("No actions found in this phrase window.")
+                else:
+                    fname = os.path.basename(funscript_path)
+                    phrase_metrics = {}
+                    phrase_bpm = 0.0
+                    phrase_tags: List[str] = []
+                    # Pull metrics from the cycle dict if present
+                    if "bpm" in cycle:
+                        phrase_bpm = float(cycle["bpm"])
+                    if "tags" in cycle:
+                        phrase_tags = list(cycle["tags"])
+                    if "metrics" in cycle:
+                        phrase_metrics = dict(cycle["metrics"])
+                    pid = catalog.save_pattern(
+                        name=pattern_name,
+                        actions=window,
+                        source_funscript=fname,
+                        source_start_ms=cycle["start_ms"],
+                        source_end_ms=cycle["end_ms"],
+                        bpm=phrase_bpm,
+                        tags=phrase_tags,
+                        metrics=phrase_metrics,
+                    )
+                    catalog.save()
+                    st.success(f"Saved as **{pattern_name}** (id: {pid})")
+
+    # Replace selected instance's actions with a saved catalog pattern
+    catalog = st.session_state.get("pattern_catalog")
+    saved_patterns = catalog.get_saved_patterns() if catalog else []
+    if saved_patterns:
+        with st.expander("Replace with saved pattern", expanded=False):
+            pat_names = [p["name"] for p in saved_patterns]
+            chosen_idx = st.selectbox(
+                "Pattern",
+                options=range(len(pat_names)),
+                format_func=lambda i: pat_names[i],
+                key=f"pe_replace_sel_{selected_label}_{inst_idx}",
+                label_visibility="collapsed",
+            )
+            chosen_pat = saved_patterns[chosen_idx]
+
+            st.caption(
+                f"{ms_to_timestamp(chosen_pat['duration_ms'])} · "
+                f"{chosen_pat['bpm']:.0f} BPM · "
+                f"from {chosen_pat['source_funscript']}"
+            )
+
+            fit = st.checkbox(
+                "Scale to fit window",
+                value=True,
+                key=f"pe_replace_fit_{selected_label}_{inst_idx}",
+                help="Scale pattern timestamps to fill the phrase window exactly.",
+            )
+
+            window_ms = cycle["end_ms"] - cycle["start_ms"]
+            pat_ms    = chosen_pat["duration_ms"]
+            if fit:
+                st.caption(f"Pattern scaled {ms_to_timestamp(pat_ms)} → {ms_to_timestamp(window_ms)}")
+            else:
+                delta = window_ms - pat_ms
+                if delta > 0:
+                    st.caption(f"Gap of {ms_to_timestamp(delta)} at end of window")
+                elif delta < 0:
+                    st.caption(f"Pattern overflows window by {ms_to_timestamp(-delta)}")
+
+            try:
+                with open(funscript_path, encoding="utf-8") as _f:
+                    _funscript = json.load(_f)
+                _existing = _funscript.get("actions", [])
+                _trimmed  = [a for a in _existing
+                             if not (cycle["start_ms"] <= a["at"] <= cycle["end_ms"])]
+                _pat_acts = chosen_pat["actions"]
+                if fit and pat_ms > 0:
+                    _scale    = window_ms / pat_ms
+                    _new_acts = [
+                        {"at": cycle["start_ms"] + round(a["at"] * _scale), "pos": a["pos"]}
+                        for a in _pat_acts
+                    ]
+                else:
+                    _new_acts = [
+                        {"at": a["at"] + cycle["start_ms"], "pos": a["pos"]}
+                        for a in _pat_acts
+                    ]
+                _funscript["actions"] = sorted(_trimmed + _new_acts, key=lambda a: a["at"])
+                _out_bytes = json.dumps(_funscript, indent=2).encode("utf-8")
+                _fname_b   = os.path.basename(funscript_path)
+                _stem      = _fname_b.rsplit(".", 1)[0]
+                _dl_name   = (
+                    f"{_stem}.replaced_{chosen_pat['name'].replace(' ', '_')}.funscript"
+                )
+                st.download_button(
+                    "Download with replacement",
+                    data=_out_bytes,
+                    file_name=_dl_name,
+                    mime="application/json",
+                    key=(
+                        f"pe_replace_dl_{selected_label}_{inst_idx}"
+                        f"_{chosen_idx}_{int(fit)}"
+                    ),
+                    width="stretch",
+                )
+            except Exception as _exc:
+                st.error(f"Could not build patched funscript: {_exc}")
+
+    st.divider()
+
+    _render_finalize_and_download(
+        selected_label=selected_label,
+        cycles=cycles,
+        original_actions=original_actions,
+        funscript_path=funscript_path,
+    )
 
 
 # ------------------------------------------------------------------
@@ -379,10 +854,10 @@ def _draw_selector_chart(
                if cy["start_ms"] <= a["at"] <= cy["end_ms"]]
         if not seg:
             continue
-        sx, sy = zip(*seg)
-        is_sel = (i == selected_idx)
-        color = "rgba(255,255,255,0.95)" if is_sel else "rgba(255,165,0,0.60)"
-        width = 2 if is_sel else 1.5
+        sx, sy  = zip(*seg)
+        is_sel  = (i == selected_idx)
+        color   = "rgba(255,255,255,0.95)" if is_sel else "rgba(255,165,0,0.60)"
+        width   = 2 if is_sel else 1.5
         fig.add_trace(go.Scatter(
             x=sx, y=sy,
             mode="lines",
@@ -434,6 +909,7 @@ def _draw_instance_chart(
     end_ms: int,
     key: str,
     height: int = 220,
+    split_points: Optional[List[int]] = None,
 ) -> None:
     import plotly.graph_objects as go
 
@@ -452,6 +928,17 @@ def _draw_instance_chart(
         marker=dict(size=3, color="rgba(200,200,200,0.7)"),
         showlegend=False, hoverinfo="skip",
     ))
+
+    # Draw split boundaries as dashed orange vertical lines
+    if split_points:
+        for sp in split_points:
+            if start_ms < sp < end_ms:
+                fig.add_vline(
+                    x=sp,
+                    line_dash="dash",
+                    line_color="rgba(255,165,0,0.65)",
+                    line_width=1.5,
+                )
 
     _BG = "rgba(14,14,18,1)"
     fig.update_layout(
@@ -483,156 +970,16 @@ def _apply_transform_to_window(
     spec,
     param_values: dict,
 ) -> List[dict]:
-    """Apply *spec* to *window_actions* (already filtered to the cycle window).
+    """Apply *spec* to *window_actions* (already filtered to the window).
 
-    Returns a list of actions covering the same window with the transform applied.
-    Only the window slice is copied — the full action list is never touched.
+    Returns a list of actions with the transform applied.  Only the window
+    slice is deep-copied — the full action list is never touched.
     """
     if not window_actions:
         return []
-
-    slice_copy = copy.deepcopy(window_actions)
+    slice_copy  = copy.deepcopy(window_actions)
     transformed = spec.apply(slice_copy, param_values)
     return transformed
-
-
-# ------------------------------------------------------------------
-# Controls column
-# ------------------------------------------------------------------
-
-
-def _render_controls(
-    selected_label: str,
-    inst_idx: int,
-    cycle: dict,
-    cycles: List[dict],
-    n_instances: int,
-    original_actions: List[dict],
-    funscript_path: str,
-) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
-
-    catalog_keys = list(TRANSFORM_CATALOG.keys())
-    catalog_labels = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
-    passthrough_idx = catalog_keys.index("passthrough") if "passthrough" in catalog_keys else 0
-
-    # Determine current index for selectbox default
-    stored = st.session_state.get(f"pe_transform_{selected_label}_{inst_idx}", {})
-    stored_key = stored.get("transform_key", "passthrough")
-    try:
-        default_idx = catalog_keys.index(stored_key)
-    except ValueError:
-        default_idx = passthrough_idx
-
-    st.markdown("**Transform**")
-
-    chosen_label = st.selectbox(
-        "Select transform",
-        options=catalog_labels,
-        index=default_idx,
-        key=f"pe_tx_sel_{selected_label}_{inst_idx}",
-        label_visibility="collapsed",
-    )
-    chosen_key = catalog_keys[catalog_labels.index(chosen_label)]
-    spec = TRANSFORM_CATALOG[chosen_key]
-
-    st.caption(spec.description)
-
-    cycle_duration_ms = cycle["end_ms"] - cycle["start_ms"]
-
-    # UI overrides for beat_accent
-    _ui_int_overrides: dict = {}
-    if chosen_key == "beat_accent":
-        _ui_int_overrides["start_at_ms"] = dict(
-            max_value=cycle_duration_ms,
-            step=500,
-        )
-        _ui_int_overrides["max_accents"] = dict(max_value=60)
-
-    # Clamp stale session state values
-    for _pk, _ov in _ui_int_overrides.items():
-        _sk = f"pe_tx_{selected_label}_{inst_idx}_{_pk}"
-        _cap = _ov.get("max_value")
-        if _cap is not None and st.session_state.get(_sk, 0) > _cap:
-            st.session_state[_sk] = _cap
-
-    param_values: Dict[str, Any] = {}
-    for pk, param in spec.params.items():
-        if param.type == "float":
-            param_values[pk] = st.slider(
-                param.label,
-                min_value=float(param.min_val or 0.0),
-                max_value=float(param.max_val or 1.0),
-                value=float(param.default),
-                step=float(param.step or 0.05),
-                help=param.help,
-                key=f"pe_tx_{selected_label}_{inst_idx}_{pk}",
-            )
-        elif param.type == "int":
-            overrides = _ui_int_overrides.get(pk, {})
-            param_values[pk] = st.slider(
-                param.label,
-                min_value=int(param.min_val or 0),
-                max_value=int(overrides.get("max_value", param.max_val or 100)),
-                value=int(param.default),
-                step=int(overrides.get("step", param.step or 1)),
-                help=param.help,
-                key=f"pe_tx_{selected_label}_{inst_idx}_{pk}",
-            )
-
-    # Persist transform state
-    st.session_state[f"pe_transform_{selected_label}_{inst_idx}"] = {
-        "transform_key": chosen_key,
-        "param_values": param_values,
-    }
-
-    # Apply to all button
-    if st.button(
-        "Apply to all",
-        key=f"pe_apply_all_{selected_label}_{inst_idx}",
-        use_container_width=True,
-        help=f"Copy this transform to all {n_instances} instances of '{selected_label}'",
-    ):
-        for i in range(n_instances):
-            st.session_state[f"pe_transform_{selected_label}_{i}"] = {
-                "transform_key": chosen_key,
-                "param_values": copy.deepcopy(param_values),
-            }
-        st.rerun(scope="app")
-
-    st.write("")
-
-    # Prev / Next navigation
-    st.caption(f"#{inst_idx + 1} of {n_instances}")
-    col_p, col_n = st.columns(2)
-    with col_p:
-        if st.button(
-            "⏮ Prev",
-            key=f"pe_prev_{selected_label}_{inst_idx}",
-            disabled=(inst_idx == 0),
-            use_container_width=True,
-        ):
-            st.session_state.pe_selected_instance = inst_idx - 1
-            st.rerun(scope="app")
-    with col_n:
-        if st.button(
-            "Next ⏭",
-            key=f"pe_next_{selected_label}_{inst_idx}",
-            disabled=(inst_idx >= n_instances - 1),
-            use_container_width=True,
-        ):
-            st.session_state.pe_selected_instance = inst_idx + 1
-            st.rerun(scope="app")
-
-    st.divider()
-
-    # Finalize + download
-    _render_finalize_and_download(
-        selected_label=selected_label,
-        cycles=cycles,
-        original_actions=original_actions,
-        funscript_path=funscript_path,
-    )
 
 
 # ------------------------------------------------------------------
@@ -646,85 +993,23 @@ def _render_finalize_and_download(
     original_actions: List[dict],
     funscript_path: str,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    # Build download only on explicit request — not on every slider tick
+    if st.button(
+        "Build download",
+        key=f"pe_build_{selected_label}",
+        width="stretch",
+        help="Compile all transforms into a downloadable funscript.",
+    ):
+        edited = _build_all_transforms(cycles, selected_label, original_actions)
 
-    with st.expander("Finalize options", expanded=False):
-        st.caption("Applied to the full script before download.")
+        try:
+            with open(funscript_path) as f:
+                raw = json.load(f)
+        except Exception:
+            raw = {}
 
-        apply_seams = st.checkbox(
-            "Blend seams",
-            value=True,
-            key=f"pe_fin_blend_seams_{selected_label}",
-            help="Smooth high-velocity transitions at cycle boundaries.",
-        )
-        apply_smooth = st.checkbox(
-            "Final smooth",
-            value=True,
-            key=f"pe_fin_final_smooth_{selected_label}",
-            help="Light global LPF finishing pass.",
-        )
-
-        seam_params: dict = {}
-        smooth_params: dict = {}
-
-        if apply_seams:
-            sp = TRANSFORM_CATALOG["blend_seams"].params
-            seam_params["max_velocity"] = st.slider(
-                sp["max_velocity"].label,
-                min_value=float(sp["max_velocity"].min_val),
-                max_value=float(sp["max_velocity"].max_val),
-                value=float(sp["max_velocity"].default),
-                step=float(sp["max_velocity"].step),
-                help=sp["max_velocity"].help,
-                key=f"pe_fin_seam_vel_{selected_label}",
-            )
-            seam_params["max_strength"] = st.slider(
-                sp["max_strength"].label,
-                min_value=float(sp["max_strength"].min_val),
-                max_value=float(sp["max_strength"].max_val),
-                value=float(sp["max_strength"].default),
-                step=float(sp["max_strength"].step),
-                help=sp["max_strength"].help,
-                key=f"pe_fin_seam_str_{selected_label}",
-            )
-
-        if apply_smooth:
-            fp = TRANSFORM_CATALOG["final_smooth"].params
-            smooth_params["strength"] = st.slider(
-                fp["strength"].label,
-                min_value=float(fp["strength"].min_val),
-                max_value=float(fp["strength"].max_val),
-                value=float(fp["strength"].default),
-                step=float(fp["strength"].step),
-                help=fp["strength"].help,
-                key=f"pe_fin_smooth_str_{selected_label}",
-            )
-
-        st.divider()
-
-        # Build download only on explicit request — not on every slider tick
-        if st.button(
-            "Build download",
-            key=f"pe_build_{selected_label}",
-            use_container_width=True,
-            help="Compile all transforms + finalize passes into a downloadable funscript.",
-        ):
-            edited = _build_all_transforms(cycles, selected_label, original_actions)
-
-            finalized = copy.deepcopy(edited)
-            if apply_seams:
-                finalized = TRANSFORM_CATALOG["blend_seams"].apply(finalized, seam_params or None)
-            if apply_smooth:
-                finalized = TRANSFORM_CATALOG["final_smooth"].apply(finalized, smooth_params or None)
-
-            try:
-                with open(funscript_path) as f:
-                    raw = json.load(f)
-            except Exception:
-                raw = {}
-
-            raw["actions"] = sorted(finalized, key=lambda a: a["at"])
-            st.session_state[f"pe_download_bytes_{selected_label}"] = json.dumps(raw, indent=2).encode()
+        raw["actions"] = sorted(edited, key=lambda a: a["at"])
+        st.session_state[f"pe_download_bytes_{selected_label}"] = json.dumps(raw, indent=2).encode()
 
     # Download button — shown once bytes have been built
     dl_bytes = st.session_state.get(f"pe_download_bytes_{selected_label}")
@@ -740,7 +1025,7 @@ def _render_finalize_and_download(
             file_name=download_name,
             mime="application/json",
             key=f"pe_download_{selected_label}",
-            use_container_width=True,
+            width="stretch",
             help=f"Download as {download_name}",
         )
     else:
@@ -748,7 +1033,7 @@ def _render_finalize_and_download(
 
 
 # ------------------------------------------------------------------
-# Build edited actions for all instances of a label
+# Build edited actions — all instances, all segments
 # ------------------------------------------------------------------
 
 
@@ -757,7 +1042,7 @@ def _build_all_transforms(
     selected_label: str,
     original_actions: List[dict],
 ) -> List[dict]:
-    """Apply all stored per-instance transforms to original_actions."""
+    """Apply all stored per-instance, per-segment transforms to *original_actions*."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
 
     result = copy.deepcopy(original_actions)
@@ -765,39 +1050,28 @@ def _build_all_transforms(
     for i, cycle in enumerate(cycles):
         if not st.session_state.get(f"pe_apply_{selected_label}_{i}", True):
             continue
-        stored = st.session_state.get(f"pe_transform_{selected_label}_{i}", {})
-        tx_key = stored.get("transform_key")
-        if not tx_key or tx_key == "passthrough":
-            continue
-        param_values = stored.get("param_values", {})
-        spec = TRANSFORM_CATALOG.get(tx_key)
-        if not spec:
-            continue
 
-        c_start = cycle["start_ms"]
-        c_end = cycle["end_ms"]
-        cycle_slice = [a for a in result if c_start <= a["at"] <= c_end]
-        transformed = spec.apply(copy.deepcopy(cycle_slice), param_values)
+        segments = _get_segments(selected_label, i, cycle)
+        for seg_idx, (seg_s, seg_e) in enumerate(segments):
+            stored  = _get_seg_transform(selected_label, i, seg_idx)
+            tx_key  = stored.get("transform_key")
+            if not tx_key or tx_key == "passthrough":
+                continue
+            param_values = stored.get("param_values", {})
+            spec = TRANSFORM_CATALOG.get(tx_key)
+            if not spec:
+                continue
 
-        if spec.structural:
-            outside = [a for a in result if not (c_start <= a["at"] <= c_end)]
-            result = sorted(outside + transformed, key=lambda a: a["at"])
-        else:
-            t_to_pos = {a["at"]: a["pos"] for a in transformed}
-            for a in result:
-                if a["at"] in t_to_pos:
-                    a["pos"] = t_to_pos[a["at"]]
+            seg_slice   = [a for a in result if seg_s <= a["at"] <= seg_e]
+            transformed = spec.apply(copy.deepcopy(seg_slice), param_values)
+
+            if spec.structural:
+                outside = [a for a in result if not (seg_s <= a["at"] <= seg_e)]
+                result  = sorted(outside + transformed, key=lambda a: a["at"])
+            else:
+                t_to_pos = {a["at"]: a["pos"] for a in transformed}
+                for a in result:
+                    if a["at"] in t_to_pos:
+                        a["pos"] = t_to_pos[a["at"]]
 
     return result
-
-
-# ------------------------------------------------------------------
-# Helper
-# ------------------------------------------------------------------
-
-
-def _instance_has_transform(selected_label: str, inst_idx: int) -> bool:
-    """Return True if a non-passthrough transform is stored for this instance."""
-    stored = st.session_state.get(f"pe_transform_{selected_label}_{inst_idx}", {})
-    tx_key = stored.get("transform_key")
-    return bool(tx_key and tx_key != "passthrough")

@@ -1,4 +1,4 @@
-"""Funscript Updater — Streamlit UI entry point.
+"""Funscript Forge — Streamlit UI entry point.
 
 Launch with:
     streamlit run ui/streamlit/app.py
@@ -11,11 +11,12 @@ Sidebar
   • Export buttons
 
 Main area  (tabs)
-  1. Viewer      — three-panel colour-coded chart with assessment navigator
-  2. Assessment  — pipeline output inspection
-  3. Work Items  — interactive section tagger
-  4. Edit        — detail panel for the selected item
-  5. Export      — summary of output files
+  1. Assessment        — pipeline output inspection
+  2. Phrase Editor     — three-panel colour-coded chart with assessment navigator
+  3. Pattern Behaviors — catalog of tagged phrase patterns
+  4. Pattern Editor    — per-instance waveform shaping
+  5. Transform Catalog — reference guide for all phrase transforms
+  6. Export            — summary of output files
 """
 
 from __future__ import annotations
@@ -32,22 +33,22 @@ import streamlit as st
 
 from ui.common.project import Project
 from ui.common.view_state import ViewState
-from ui.common.work_items import ItemType, WorkItem
+from ui.common.work_items import ItemType, WorkItem  # WorkItem kept for sidebar manual-add
 from ui.streamlit.panels import assessment as assessment_panel
-from ui.streamlit.panels import assessment_nav as assessment_nav_panel
 from ui.streamlit.panels import catalog_view as catalog_view_panel
-from ui.streamlit.panels import detail as detail_panel
+from ui.streamlit.panels import export_panel
 from ui.streamlit.panels import pattern_editor as pattern_editor_panel
+from ui.streamlit.panels import transform_catalog as transform_catalog_panel
 from ui.streamlit.panels import viewer as viewer_panel
-from ui.streamlit.panels import work_items as work_items_panel
 
 # ------------------------------------------------------------------
 # Page config (must be the first Streamlit call)
 # ------------------------------------------------------------------
 
+_LOGO = os.path.join(_ROOT, "media", "funscriptforge.png")
 st.set_page_config(
-    page_title="Funscript Updater",
-    page_icon="🎵",
+    page_title="Funscript Forge",
+    page_icon=_LOGO if os.path.exists(_LOGO) else "🎵",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -94,7 +95,11 @@ if "last_loaded_cfg" not in st.session_state:
 
 
 def _sidebar() -> None:
-    st.sidebar.title("Funscript Updater")
+    _logo = os.path.join(_ROOT, "media", "funscriptforge.png")
+    if os.path.exists(_logo):
+        st.sidebar.image(_logo, width="stretch")
+    else:
+        st.sidebar.title("Funscript Forge")
     st.sidebar.markdown("---")
 
     # --- File selection ---
@@ -183,6 +188,8 @@ def _sidebar() -> None:
             st.session_state.last_loaded_cfg  = cfg_key
             st.session_state.last_loaded_file = selected_file
             st.session_state.view_state       = ViewState()
+            st.session_state.export_rejected  = set()
+            st.session_state.export_accepted  = set()
 
             # Auto-update the pattern catalog with this funscript's tagged phrases
             try:
@@ -279,7 +286,7 @@ def _main() -> None:
     project: Project | None = st.session_state.project
 
     if project is None or not project.is_loaded:
-        st.title("Funscript Updater")
+        st.title("Funscript Forge")
         st.markdown(
             "Use the **sidebar** to select a funscript and click **Load / Analyse** "
             "to begin.  The assessment pipeline will detect phases, cycles, patterns, "
@@ -295,34 +302,42 @@ def _main() -> None:
         )
         return
 
-    tab_viewer, tab_assessment, tab_nav, tab_work_items, tab_edit, tab_pattern, tab_catalog, tab_export = st.tabs(
-        ["Phrase Selector", "Assessment", "Navigator", "Work Items", "Edit", "Pattern Editor", "Catalog", "Export"]
+    tab_assessment, tab_viewer, tab_catalog, tab_pattern, tab_transforms, tab_export = st.tabs(
+        ["Assessment", "Phrase Editor", "Pattern Behaviors", "Pattern Editor", "Transform Catalog", "Export"]
     )
-
-    with tab_viewer:
-        _render_viewer_tab(project)
 
     with tab_assessment:
         assessment_panel.render(project)
 
-    with tab_nav:
-        st.subheader("Assessment Navigator")
-        assessment_nav_panel.render(project, view_state=st.session_state.view_state)
-
-    with tab_work_items:
-        work_items_panel.render(project)
-
-    with tab_edit:
-        detail_panel.render(project)
-
-    with tab_pattern:
-        pattern_editor_panel.render(project)
+    with tab_viewer:
+        _render_viewer_tab(project)
 
     with tab_catalog:
         catalog_view_panel.render(project)
 
+    with tab_pattern:
+        pattern_editor_panel.render(project)
+
+    with tab_transforms:
+        transform_catalog_panel.render()
+
     with tab_export:
-        _render_export_tab(project)
+        export_panel.render(project)
+
+    # Programmatic tab navigation: set st.session_state.goto_tab = <0-based index>
+    # before calling st.rerun(); the JS below clicks the tab after DOM is ready.
+    if "goto_tab" in st.session_state:
+        tab_idx = st.session_state.pop("goto_tab")
+        import streamlit.components.v1 as components
+        components.html(
+            f"""<script>
+                (function() {{
+                    var tabs = window.parent.document.querySelectorAll('[data-testid="stTab"]');
+                    if (tabs[{tab_idx}]) tabs[{tab_idx}].click();
+                }})();
+            </script>""",
+            height=0,
+        )
 
 
 def _render_viewer_tab(project: Project) -> None:
@@ -356,36 +371,6 @@ def _commit_actions(project: Project, committed_actions: list) -> None:
     os.unlink(tmp_path)
     st.success("Committed. Assessment rebuilt.")
     st.rerun()
-
-
-def _render_export_tab(project: Project) -> None:
-    st.subheader("Export")
-
-    typed = [w for w in project.work_items if w.item_type != ItemType.NEUTRAL]
-    if not typed:
-        st.info("Tag some work items as Performance, Break, or Raw first.")
-        return
-
-    for itype, label, icon in [
-        (ItemType.PERFORMANCE, "Performance", "🔥"),
-        (ItemType.BREAK, "Break", "🌊"),
-        (ItemType.RAW, "Raw", "🎯"),
-    ]:
-        items = [w for w in project.work_items if w.item_type == itype]
-        if items:
-            st.markdown(f"**{icon} {label} windows ({len(items)})**")
-            rows = [{"start": w.start_ts, "end": w.end_ts, "label": w.label or "—"} for w in items]
-            import pandas as pd
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-    st.divider()
-    if st.button("Write JSON files", type="primary"):
-        written = project.export_windows(st.session_state.output_dir)
-        if written:
-            for type_name, path in written.items():
-                st.success(f"{type_name}: `{path}`")
-        else:
-            st.warning("Nothing to export.")
 
 
 # ------------------------------------------------------------------

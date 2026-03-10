@@ -218,10 +218,27 @@ __marimo__/
 # code workspace settings
 .code-workspace
 
+# Claude Code project data (AI session state, personal memory)
+.claude/
+
 # test text
 test.txt
-test_funscript/LongandCut_hdr.mp4
-test_funscript/Timeline1.mov
+test_funscript/*.mp4
+test_funscript/*.mov
 
 # output artifacts
 output/
+# media — ignore large video/audio files, keep images
+media/*.mp4
+media/*.mkv
+media/*.mov
+media/*.mp3
+media/*.m4a
+media/*.wav
+media/*.ogg
+
+# User-defined transforms and plugins (keep README + example_* files)
+user_transforms/*.json
+!user_transforms/example_*.json
+plugins/*.py
+!plugins/example_*.py

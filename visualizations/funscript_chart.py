@@ -215,11 +215,14 @@ class FunscriptChart:
 
         # --- Layout ---
         tickvals, ticktext = _compute_ticks(x_start, x_end)
+        # Angle tick labels when the span exceeds 15 minutes to prevent overlap
+        tickangle = -45 if (x_end - x_start) > 900_000 else 0
+        bottom_margin = 60 if tickangle else 30
 
         fig.update_layout(
             title=dict(text=self.title, font=dict(size=12)) if self.title else None,
             height=height,
-            margin=dict(l=45, r=10, t=30 if self.title else 10, b=30),
+            margin=dict(l=45, r=10, t=30 if self.title else 10, b=bottom_margin),
             paper_bgcolor="#0e1117",
             plot_bgcolor="#1a1d23",
             font=dict(color="#cccccc"),
@@ -230,7 +233,7 @@ class FunscriptChart:
                 showgrid=False,
                 tickvals=tickvals,
                 ticktext=ticktext,
-                tickangle=0,
+                tickangle=tickangle,
                 fixedrange=True,
             ),
             yaxis=dict(
@@ -251,15 +254,21 @@ class FunscriptChart:
 # Helpers
 # ------------------------------------------------------------------
 
-def _compute_ticks(start_ms: int, end_ms: int) -> Tuple[List[int], List[str]]:
-    """Return (tickvals, ticktext) for a human-readable time axis."""
+def _compute_ticks(
+    start_ms: int, end_ms: int, max_ticks: int = 20
+) -> Tuple[List[int], List[str]]:
+    """Return (tickvals, ticktext) for a human-readable time axis.
+
+    The step size is chosen so there are at most *max_ticks* labels.
+    """
     span = end_ms - start_ms
-    if   span > 600_000: step = 60_000
-    elif span > 120_000: step = 30_000
-    elif span > 30_000:  step = 10_000
-    elif span > 10_000:  step = 5_000
-    elif span > 3_000:   step = 1_000
-    else:                step = 500
+    candidates = [500, 1_000, 5_000, 10_000, 30_000, 60_000, 120_000,
+                  300_000, 600_000, 900_000, 1_800_000]
+    step = candidates[-1]
+    for c in candidates:
+        if span / c <= max_ticks:
+            step = c
+            break
 
     first = ceil(start_ms / step) * step
     vals  = list(range(first, end_ms + 1, step))

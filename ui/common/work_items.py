@@ -1,4 +1,4 @@
-"""Work item models for the Funscript Updater UI.
+"""Work item models for the Funscript Forge UI.
 
 A WorkItem represents a tagged time window in a funscript that the user has
 reviewed and assigned a type (performance, break, raw, or neutral).  Each
@@ -86,11 +86,17 @@ class WorkItem:
     bpm: float = 0.0
     source: str = "manual"
     config: Dict[str, Any] = field(default_factory=dict)
+    # Status lifecycle: "todo" → "in_progress" → "done"
+    status: str = "todo"
 
     def __post_init__(self) -> None:
         # Populate config with type defaults if empty.
         if not self.config:
             self.config = _default_config(self.item_type)
+
+    @property
+    def completed(self) -> bool:
+        return self.status == "done"
 
     # ------------------------------------------------------------------
     # Derived properties
@@ -147,6 +153,7 @@ class WorkItem:
             "bpm": self.bpm,
             "source": self.source,
             "config": self.config,
+            "status": self.status,
         }
 
     @classmethod
@@ -160,6 +167,8 @@ class WorkItem:
             bpm=d.get("bpm", 0.0),
             source=d.get("source", "manual"),
             config=d.get("config", {}),
+            # migrate old bool "completed" field
+            status=d.get("status", "done" if d.get("completed", False) else "todo"),
         )
 
 

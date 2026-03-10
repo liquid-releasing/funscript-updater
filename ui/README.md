@@ -1,6 +1,6 @@
 # ui — Streamlit UI
 
-Interactive local app for the Funscript Updater pipeline.
+Interactive local app for the Funscript Forge pipeline.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ triggers an automatic re-assessment.
 | Control | Default | Effect |
 | --- | --- | --- |
 | Min phrase length (s) | 20 s | Phrases shorter than this are merged into a neighbour |
-| Amplitude sensitivity | Medium (0.30) | How much stroke-depth change triggers a new phrase boundary (Low = 0.35, Medium = 0.30, High = 0.25) |
+| Amplitude sensitivity | Medium (0.30) | How much stroke-depth change triggers a new phrase boundary |
 
 A **Re-analyse** button forces a fresh assessment even when the file and
 settings have not changed.
@@ -42,153 +42,62 @@ settings have not changed.
 
 | Control | Default | Effect |
 | --- | --- | --- |
-| Fast rendering threshold (actions) | 10,000 | Funscripts above this action count use a single grey connecting line for speed; smaller ones use per-segment coloured lines |
+| Fast rendering threshold (actions) | 10,000 | Funscripts above this count use a grey line for speed |
+| Transform BPM threshold | 120 | Phrases at/above this BPM receive the Amplitude Scale suggestion |
 
 ### Session summary
 
 Once a funscript is loaded, the sidebar shows the file name, total
-duration, average BPM, phrase count, and BPM-transition count, plus a
-breakdown of tagged work items by type.
+duration, average BPM, phrase count, and BPM-transition count.
 
 ### Add manual item
 
 An expander lets you define a work item by typing start/end times (ms),
-choosing a type, and optionally adding a label. Useful for sections the
-automatic assessment did not detect.
+choosing a type, and optionally adding a label.
 
 ### Export
 
-Two buttons are available after a funscript is loaded:
-
 - **Export window JSONs** — writes `performance.json`, `break.json`, and
-  `raw.json` to the `output/` directory, ready for the customizer.
-- **Save project** — writes a full project snapshot (work items, types,
-  per-item configs) to `output/<name>.project.json`.
+  `raw.json` to `output/`, ready for the customizer.
+- **Save project** — writes a full project snapshot to `output/<name>.project.json`.
 
 ---
 
 ## Tabs
 
-### Phrase Selector
+### 1. Assessment
 
-A full-width interactive chart of the funscript with phrase bounding boxes
-overlaid. Use it to visually select and inspect phrases.
+Full pipeline output: summary metrics, phrases table with Focus buttons,
+BPM transitions chart and table with Focus buttons, behavioral patterns
+bar chart and table with Focus buttons, and a phases expander.
 
-**Navigation:**
+### 2. Phrase Editor
 
-- **Prev / Next buttons** — step through phrases one at a time; the
-  viewport scrolls to keep the active phrase centred.
-- **P1, P2, … buttons** — jump directly to any phrase (arranged in rows
-  of 10).
-- **Click a point on the chart** — selects the phrase that contains that
-  timestamp.
-- **Drag a box on the chart** — sets the viewport to that time range.
+Full-funscript interactive chart with phrase bounding boxes and a
+per-phrase detail panel for transform editing (Original + Preview charts,
+transform controls, Apply / Apply to all).
 
-**Viewport controls** (scroll / zoom toolbar above the chart):
+### 3. Pattern Behaviors
 
-- Left (◀) / Right (▶) — scroll by one-third of the current window width.
-- All — reset to the full funscript.
-- +/− — zoom in (halve the window) or out (double the window).
-- The two text fields accept timestamps in `M:SS` or `HH:MM:SS.mmm` format
-  and move the viewport immediately on entry.
+Cross-funscript behavioral pattern catalog — Gantt timeline, tag summary
+with Sample waveform previews, and aggregate library stats.
 
-**Colour mode** toggle switches the dot colours between velocity-coded
-and amplitude-coded.
+### 4. Pattern Editor
 
-Selecting a phrase shows a detail row below the chart: start, end,
-duration, BPM, pattern label, and cycle count.
+Behavioral pattern batch-fix workspace. Phrases are pre-classified into
+8 tags (Stingy, Giggle, Plateau, Drift, Half Stroke, Drone, Lazy,
+Frantic). Select a tag, navigate instances with Prev/Next, apply
+transforms individually or to all instances, then build a download.
 
-### Assessment
+### 5. Transform Catalog
 
-Read-only display of the full pipeline output for the loaded funscript.
+Reference guide for all 17 phrase transforms grouped by capability.
+Each entry shows description, best-fit tags, a parameter table, and
+live Before/After charts with interactive sliders.
 
-- **Summary** — eight metrics: duration, average BPM, action count, phase
-  count, cycle count, pattern count, phrase count, BPM-transition count.
-- **Phases** — direction-breakdown bar chart plus a table of the first 20
-  phases (start, end, label).
-- **Cycles → Patterns** — table of detected patterns sorted by occurrence
-  count, with average duration and BPM.
-- **Phrases & BPM transitions** — a colour-coded SVG timeline bar (blue =
-  low BPM, red = high BPM), a BPM-transitions table showing each
-  from/to change and percentage, and an expandable phrase-detail table.
+### 6. Export
 
-### Navigator
-
-A clickable list of every assessment item grouped into five inner tabs:
-Phases, Cycles, Patterns, Phrases, and BPM Transitions.
-
-Each row has a **Focus** button that scrolls the Phrase Selector chart to
-that item's time range and highlights it. Use this tab to quickly jump to
-any specific phase, cycle, or BPM transition.
-
-### Work Items
-
-The main tagging workspace. Every detected section (phrase or BPM
-transition) appears as a row showing its time range, duration, BPM, and
-current type. A dropdown on each row lets you re-classify it:
-
-| Type | Icon | What the customizer does |
-| --- | --- | --- |
-| Performance | 🔥 | Velocity limiting, reversal softening, position compression |
-| Break | 🌊 | Amplitude reduction, pull toward centre |
-| Raw | 🎯 | Copy original actions verbatim, no transforms |
-| Neutral | ⚪ | Transformer decides automatically (no manual window) |
-
-Click **Edit** on any row to open that item in the Edit tab.
-
-### Edit
-
-Controls for the currently selected work item.
-
-**Time window** — adjust start and end times (ms) and add an optional
-label. Changes take effect immediately.
-
-**Performance items** expose three expanders:
-
-- *Velocity & reversals* — max velocity, reversal softening, height blend
-- *Position compression* — bottom and top position limits
-- *Smoothing & jitter* — low-pass filter strength, timing jitter (ms)
-
-**Break items** expose:
-
-- Amplitude reduction (fraction pulled toward centre)
-- Low-pass filter strength
-
-**Raw items** show a notice that the section will be preserved verbatim.
-
-**Neutral items** show a prompt to tag the section if manual control is
-needed.
-
-A **Reset to defaults** button restores all controls for the item to the
-`CustomizerConfig` defaults.
-
-### Export tab
-
-A summary table of all typed work items (Performance, Break, Raw) grouped
-by type. A **Write JSON files** button writes the window files to `output/`:
-
-| File | Contents |
-| --- | --- |
-| `<name>.performance.json` | Performance windows for the customizer |
-| `<name>.break.json` | Break windows |
-| `<name>.raw.json` | Raw preserve windows |
-
----
-
-## Adaptive rendering threshold
-
-The **Fast rendering threshold** sidebar control (default 10,000 actions)
-determines the chart rendering strategy:
-
-- **Below threshold** — each segment between consecutive actions is drawn
-  in a colour that matches the surrounding dot colours (velocity or
-  amplitude). This gives the most informative view but is slower for large
-  files.
-- **At or above threshold** — all connecting lines are drawn in a single
-  grey pass for speed, while dots retain their individual colours.
-
-Reduce the threshold if segment colours are important for a large file and
-rendering time is acceptable; raise it if the chart feels slow.
+Transform change log showing every planned transform (from Phrase Editor, Pattern Editor, or auto-recommended) with start/end time, duration, transform name, source, and before → after BPM / cycle count.  Each row has a 🗑 reject button.  A **Download edited funscript** button builds and streams the result.  Also accessible via `python cli.py export-plan`.
 
 ---
 
@@ -196,15 +105,15 @@ rendering time is acceptable; raise it if the chart feels slow.
 
 | Directory | Contents |
 | --- | --- |
-| `common/` | Framework-agnostic business logic: `Project`, `WorkItem`, `ViewState`, pipeline helpers. No Streamlit dependency. See [`common/README.md`](common/README.md). |
-| `streamlit/` | Streamlit app entry point (`app.py`) and panel modules. |
+| `common/` | Framework-agnostic business logic: `Project`, `WorkItem`, `ViewState`. No Streamlit dependency. See [`common/README.md`](common/README.md). |
+| `streamlit/` | Streamlit app entry point (`app.py`) and panel modules. See [`streamlit/README.md`](streamlit/README.md). |
 
 ## Tests
 
 ```bash
-# UI common-layer tests (38 tests)
+# UI common-layer tests (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# Core pipeline tests (76 tests)
-python -m unittest discover -s tests -v
+# Full test suite (482 tests)
+python cli.py test
 ```

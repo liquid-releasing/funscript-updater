@@ -25,6 +25,7 @@ A tagged time window in a funscript.  Properties:
 | `bpm` | Representative BPM (informational) |
 | `config` | Type-specific customizer settings (pre-filled with defaults) |
 | `source` | How it was created: `"phrase"`, `"bpm_transition"`, `"manual"` |
+| `status` | Lifecycle state: `"todo"` → `"in_progress"` → `"done"` |
 
 `WorkItem.to_window_dict()` returns a dict compatible with the
 `WindowCustomizer`'s JSON window-file format.
@@ -66,7 +67,7 @@ project2 = Project.load_project("output/file.project.json")
 python -m unittest discover -s ui/common/tests -v
 ```
 
-All 38 tests run in < 0.1 s with no external dependencies.
+All 60 tests run in < 0.1 s with no external dependencies.
 
 ## Deployment targets
 

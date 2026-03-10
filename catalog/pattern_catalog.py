@@ -5,10 +5,13 @@ appended to a JSON catalog file.  Over time this builds a dataset of what
 behavioral patterns exist across your library, their typical metric ranges,
 and which funscripts exhibit each issue.
 
+Users can also explicitly save raw actions from any phrase as a named
+"saved pattern", which can later be pasted into another funscript.
+
 Catalog file schema (output/pattern_catalog.json)
 --------------------------------------------------
 {
-  "version": "1.0",
+  "version": "1.1",
   "entries": [
     {
       "funscript":   "Timeline1.original.funscript",
@@ -29,6 +32,21 @@ Catalog file schema (output/pattern_catalog.json)
         }
       ]
     }
+  ],
+  "saved_patterns": [
+    {
+      "id":               "a1b2c3d4",
+      "name":             "Rising climax",
+      "saved_at":         "2026-03-09T10:05:00",
+      "source_funscript": "Timeline1.original.funscript",
+      "source_start_ms":  5000,
+      "source_end_ms":    45000,
+      "duration_ms":      40000,
+      "bpm":              145.0,
+      "tags":             ["stingy"],
+      "metrics":          {"mean_pos": 50.2, "span": 82.0},
+      "actions":          [{"at": 0, "pos": 0}, {"at": 500, "pos": 100}]
+    }
   ]
 }
 """
@@ -41,7 +59,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 
-_SCHEMA_VERSION = "1.0"
+_SCHEMA_VERSION = "1.1"
 
 
 class PatternCatalog:
@@ -65,10 +83,15 @@ class PatternCatalog:
         if os.path.exists(self.path):
             try:
                 with open(self.path, encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                # Migrate v1.0 → v1.1: add saved_patterns if missing
+                if "saved_patterns" not in data:
+                    data["saved_patterns"] = []
+                    data["version"] = _SCHEMA_VERSION
+                return data
             except (json.JSONDecodeError, OSError):
                 pass
-        return {"version": _SCHEMA_VERSION, "entries": []}
+        return {"version": _SCHEMA_VERSION, "entries": [], "saved_patterns": []}
 
     def save(self) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -212,6 +235,68 @@ class PatternCatalog:
                 if tag in ph.get("tags", []):
                     result.append({**ph, "_funscript": entry["funscript"]})
         return result
+
+    # ------------------------------------------------------------------
+    # Saved patterns (raw actions)
+    # ------------------------------------------------------------------
+
+    def save_pattern(
+        self,
+        name: str,
+        actions: List[dict],
+        source_funscript: str,
+        source_start_ms: int,
+        source_end_ms: int,
+        bpm: float = 0.0,
+        tags: Optional[List[str]] = None,
+        metrics: Optional[dict] = None,
+    ) -> str:
+        """Save raw actions as a named pattern.
+
+        Actions are time-normalised (shifted so the first action is at t=0)
+        before storage, making the pattern position-independent.
+
+        Returns
+        -------
+        str
+            The newly assigned pattern id.
+        """
+        import uuid
+
+        if not actions:
+            raise ValueError("Cannot save an empty action list.")
+
+        origin = actions[0]["at"]
+        normalised = [{"at": a["at"] - origin, "pos": a["pos"]} for a in actions]
+
+        pattern_id = uuid.uuid4().hex[:8]
+        self._data["saved_patterns"].append({
+            "id":               pattern_id,
+            "name":             name.strip() or "Unnamed",
+            "saved_at":         datetime.now().isoformat(timespec="seconds"),
+            "source_funscript": source_funscript,
+            "source_start_ms":  source_start_ms,
+            "source_end_ms":    source_end_ms,
+            "duration_ms":      source_end_ms - source_start_ms,
+            "bpm":              round(bpm, 2),
+            "tags":             tags or [],
+            "metrics":          metrics or {},
+            "actions":          normalised,
+        })
+        return pattern_id
+
+    def get_saved_patterns(self) -> List[dict]:
+        """Return all saved patterns, most-recently saved first."""
+        return list(reversed(self._data.get("saved_patterns", [])))
+
+    def delete_saved_pattern(self, pattern_id: str) -> bool:
+        """Remove a saved pattern by id.  Returns True if found."""
+        before = len(self._data["saved_patterns"])
+        self._data["saved_patterns"] = [
+            p for p in self._data["saved_patterns"]
+            if p.get("id") != pattern_id
+        ]
+        return len(self._data["saved_patterns"]) < before
 
     def summary(self) -> dict:
         """Return a high-level summary dict."""

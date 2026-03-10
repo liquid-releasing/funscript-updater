@@ -14,7 +14,7 @@ Layout (when a phrase is selected)
                                     ┌──────────────┐
                                     │  ⏮ Prev      │
                                     │     Next ⏭   │
-                                    │  💾 Save      │
+                                    │  ✓ Accept     │
                                     │  ✕ Cancel    │
                                     └──────────────┘
 
@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 from typing import Any, Dict, List, Optional
 
 import streamlit as st  # needed at module level for @st.fragment
@@ -97,7 +96,7 @@ def _detail_fragment(
     bpm_threshold: float,
     duration_ms: int,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER, suggest_transform
 
     view_state = st.session_state.view_state
     phrase     = phrases[phrase_idx]
@@ -105,28 +104,47 @@ def _detail_fragment(
     with open(funscript_path) as f:
         original_actions = json.load(f)["actions"]
 
+    split_mode = st.session_state.get(f"split_mode_{phrase_idx}", False)
+
+    # Derive split_ms from the cycle slider before the chart renders
+    split_ms = None
+    if split_mode:
+        _split_cycle = st.session_state.get(f"split_cycle_{phrase_idx}")
+        if _split_cycle is not None:
+            try:
+                _project = st.session_state.project
+                _ph_cycles = sorted(
+                    [cy for cy in _project.assessment.cycles
+                     if phrase["start_ms"] <= cy.start_ms and cy.end_ms <= phrase["end_ms"]],
+                    key=lambda cy: cy.start_ms,
+                )
+                if _split_cycle < len(_ph_cycles):
+                    split_ms = _ph_cycles[_split_cycle].start_ms
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
-    # Resolve transform — read directly from the selectbox/slider session
-    # state keys so the preview is always in sync (not one rerun behind).
+    # Resolve transform (only needed when not in split mode)
     # ------------------------------------------------------------------
-    catalog_keys   = list(TRANSFORM_CATALOG.keys())
-    catalog_labels = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
+    if not split_mode:
+        catalog_keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
+        catalog_labels = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
 
-    sel_label = st.session_state.get(f"transform_sel_{phrase_idx}")
-    if sel_label and sel_label in catalog_labels:
-        transform_key = catalog_keys[catalog_labels.index(sel_label)]
-    else:
-        _stored = st.session_state.get(f"phrase_transform_{phrase_idx}", {})
-        transform_key = _stored.get("transform_key", "passthrough")
+        sel_label = st.session_state.get(f"transform_sel_{phrase_idx}")
+        if sel_label and sel_label in catalog_labels:
+            transform_key = catalog_keys[catalog_labels.index(sel_label)]
+        else:
+            _stored = st.session_state.get(f"phrase_transform_{phrase_idx}", {})
+            transform_key = _stored.get("transform_key", "passthrough")
 
-    spec = TRANSFORM_CATALOG.get(transform_key, TRANSFORM_CATALOG["passthrough"])
+        spec = TRANSFORM_CATALOG.get(transform_key, TRANSFORM_CATALOG["passthrough"])
 
-    param_values: Dict[str, Any] = {}
-    for pk, param in spec.params.items():
-        sv = st.session_state.get(f"param_{phrase_idx}_{pk}")
-        param_values[pk] = sv if sv is not None else param.default
+        param_values: Dict[str, Any] = {}
+        for pk, param in spec.params.items():
+            sv = st.session_state.get(f"param_{phrase_idx}_{pk}")
+            param_values[pk] = sv if sv is not None else param.default
 
-    preview_actions = _apply_transform_to_window(original_actions, phrase, spec, param_values)
+        preview_actions = _apply_transform_to_window(original_actions, phrase, spec, param_values)
 
     # ------------------------------------------------------------------
     # Two-column layout: charts (left 3) | transform controls (right 1)
@@ -144,28 +162,38 @@ def _detail_fragment(
             win_end=win_end,
             view_state=view_state,
             chart_key=f"detail_orig_{phrase_idx}_{win_start}",
+            split_ms=split_ms,
         )
 
-        st.subheader(f"Preview — {spec.name}")
-        st.caption(_phrase_description(phrase))
-        _render_chart(
-            actions=preview_actions,
-            phrases=phrases,
-            phrase_idx=phrase_idx,
-            win_start=win_start,
-            win_end=win_end,
-            view_state=view_state,
-            chart_key=f"detail_prev_{phrase_idx}_{win_start}_{transform_key}",
-        )
-        _render_preview_stats(preview_actions, phrase)
-        st.caption("*(not saved)*")
+        if not split_mode:
+            st.subheader(f"Preview — {spec.name}")
+            st.caption(_phrase_description(phrase))
+            _render_chart(
+                actions=preview_actions,
+                phrases=phrases,
+                phrase_idx=phrase_idx,
+                win_start=win_start,
+                win_end=win_end,
+                view_state=view_state,
+                chart_key=f"detail_prev_{phrase_idx}_{win_start}_{transform_key}",
+            )
+            _render_preview_stats(preview_actions, phrase)
+            st.caption("*(not saved)*")
 
     with col_right:
-        _render_transform_controls(phrase, bpm_threshold, phrase_idx)
+        if split_mode:
+            confirmed_split_ms = _render_split_controls(
+                phrase_idx, phrase, original_actions, view_state, duration_ms
+            )
+            if confirmed_split_ms is not None:
+                _split_phrase(phrase_idx, confirmed_split_ms, view_state, duration_ms)
+        else:
+            _render_transform_controls(phrase, bpm_threshold, phrase_idx)
+
         st.write("")
         _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
         st.write("")
-        _render_save_cancel(phrases, original_actions, view_state)
+        _render_save_cancel(phrase_idx, view_state)
 
 
 # ------------------------------------------------------------------
@@ -243,6 +271,7 @@ def _render_chart(
     win_end: int,
     view_state,
     chart_key: str,
+    split_ms: Optional[int] = None,
 ) -> None:
     from visualizations.chart_data import (
         compute_chart_data, compute_annotation_bands, slice_bands,
@@ -292,6 +321,40 @@ def _render_chart(
         font=dict(size=11, color="rgba(255,220,50,1.0)"),
         bgcolor="rgba(0,0,0,0)",
     )
+
+    # Add cycle number to dot hover tooltip
+    _project = st.session_state.get("project")
+    if _project and getattr(_project, "is_loaded", False):
+        _ph_cycles = sorted(
+            [cy for cy in _project.assessment.cycles
+             if sel_phrase["start_ms"] <= cy.start_ms and cy.end_ms <= sel_phrase["end_ms"]],
+            key=lambda cy: cy.start_ms,
+        )
+        if _ph_cycles:
+            def _cy_num(ms_val):
+                for j, cy in enumerate(_ph_cycles):
+                    if cy.start_ms <= ms_val <= cy.end_ms:
+                        return j + 1
+                return "—"
+            for trace in reversed(fig.data):
+                if getattr(trace, "mode", "") == "markers" and getattr(trace, "hovertemplate", ""):
+                    trace.customdata = [_cy_num(t) for t in trace.x]
+                    trace.hovertemplate = (
+                        "t=%{x} ms  pos=%{y}  cycle %{customdata}<extra></extra>"
+                    )
+                    break
+
+    # Split point marker
+    if split_ms is not None and win_start <= split_ms <= win_end:
+        fig.add_vline(
+            x=split_ms,
+            line_color="rgba(255,255,255,0.9)",
+            line_width=2,
+            line_dash="dash",
+            annotation_text="split",
+            annotation_font_size=10,
+            annotation_font_color="rgba(255,255,255,0.9)",
+        )
 
     # Lock x-axis to the fixed window (no autorange)
     fig.update_xaxes(range=[win_start, win_end], autorange=False)
@@ -383,10 +446,10 @@ def _apply_transform_to_window(
 # ------------------------------------------------------------------
 
 def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: int) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER, suggest_transform
 
-    suggested_key = suggest_transform(phrase, bpm_threshold)
-    keys   = list(TRANSFORM_CATALOG.keys())
+    suggested_key, _ = suggest_transform(phrase, bpm_threshold)
+    keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
     labels = [TRANSFORM_CATALOG[k].name for k in keys]
 
     passthrough_idx = keys.index("passthrough") if "passthrough" in keys else 0
@@ -453,6 +516,170 @@ def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: i
         "param_values":  param_values,
     }
 
+    st.write("")
+    if st.button(
+        "✂ Split phrase",
+        key=f"split_start_{phrase_idx}",
+        help="Split this phrase into two at a chosen timestamp",
+        width="stretch",
+    ):
+        st.session_state[f"split_mode_{phrase_idx}"] = True
+        _clear_split_state(phrase_idx)
+        st.rerun(scope="fragment")
+
+
+# ------------------------------------------------------------------
+# Split phrase controls
+# ------------------------------------------------------------------
+
+def _render_split_controls(
+    phrase_idx: int,
+    phrase: dict,
+    original_actions: list,
+    view_state,
+    duration_ms: int,
+) -> Optional[int]:
+    """Render split mode UI: cycle slider + confirm/cancel buttons.
+
+    The slider selects a cycle boundary (split *after* cycle N).
+    The white split-line on the chart updates on each slider move.
+
+    Returns split_ms (int) when the user clicks the Split confirm button,
+    or None otherwise.
+    """
+    phrase_start = phrase["start_ms"]
+    phrase_end   = phrase["end_ms"]
+
+    st.markdown("**Split phrase**")
+
+    def _cancel():
+        st.session_state.pop(f"split_mode_{phrase_idx}", None)
+        _clear_split_state(phrase_idx)
+        st.rerun(scope="fragment")
+
+    # Fetch cycles within this phrase from the live assessment
+    try:
+        _project = st.session_state.project
+        ph_cycles = sorted(
+            [cy for cy in _project.assessment.cycles
+             if phrase_start <= cy.start_ms and cy.end_ms <= phrase_end],
+            key=lambda cy: cy.start_ms,
+        )
+    except Exception:
+        ph_cycles = []
+
+    n_cycles = len(ph_cycles)
+
+    if n_cycles < 2:
+        st.warning(
+            "Not enough cycle data to split by cycle. "
+            "This phrase may have been manually split or has no detected cycles."
+        )
+        if st.button("Cancel split", key=f"split_cancel_{phrase_idx}", width="stretch"):
+            _cancel()
+        return None
+
+    split_cycle_key = f"split_cycle_{phrase_idx}"
+
+    if split_cycle_key not in st.session_state:
+        st.session_state[split_cycle_key] = n_cycles // 2
+
+    split_after = st.slider(
+        f"Split on cycle (1–{n_cycles - 1})",
+        min_value=1,
+        max_value=n_cycles - 1,
+        key=split_cycle_key,
+    )
+
+    # Split point = start of the cycle immediately after the selected one
+    split_ms = ph_cycles[split_after].start_ms
+    st.caption(
+        f"Splits between cycle {split_after} and {split_after + 1} · **{ms_to_timestamp(split_ms)}**"
+    )
+
+    col_split, col_cancel = st.columns(2)
+    do_split = col_split.button(
+        "✂ Split", key=f"split_confirm_{phrase_idx}",
+        type="primary", width="stretch",
+    )
+    if col_cancel.button("Cancel split", key=f"split_cancel_{phrase_idx}", width="stretch"):
+        _cancel()
+
+    return split_ms if do_split else None
+
+
+def _split_phrase(
+    phrase_idx: int,
+    split_ms: int,
+    view_state,
+    duration_ms: int,
+) -> None:
+    """Split the phrase at split_ms into two new Phrase objects in-place."""
+    from models import Phrase as PhraseModel
+
+    project = st.session_state.project
+    phrases = project.assessment.phrases
+    orig    = phrases[phrase_idx]
+
+    phrase_start = orig.start_ms
+    phrase_end   = orig.end_ms
+    total_dur    = phrase_end - phrase_start
+
+    if total_dur <= 0 or not (phrase_start < split_ms < phrase_end):
+        return
+
+    frac_a = (split_ms - phrase_start) / total_dur
+    osc_a  = max(1, round(orig.oscillation_count * frac_a))
+    osc_b  = max(1, orig.oscillation_count - osc_a)
+    cyc_a  = max(1, round(orig.cycle_count * frac_a))
+    cyc_b  = max(1, orig.cycle_count - cyc_a)
+
+    phrase_a = PhraseModel(
+        start_ms=phrase_start,
+        end_ms=split_ms,
+        pattern_label=orig.pattern_label,
+        cycle_count=cyc_a,
+        description=orig.description + " (A)",
+        oscillation_count=osc_a,
+    )
+    phrase_a.tags    = list(orig.tags)
+    phrase_a.metrics = dict(orig.metrics)
+
+    phrase_b = PhraseModel(
+        start_ms=split_ms,
+        end_ms=phrase_end,
+        pattern_label=orig.pattern_label,
+        cycle_count=cyc_b,
+        description=orig.description + " (B)",
+        oscillation_count=osc_b,
+    )
+    phrase_b.tags    = list(orig.tags)
+    phrase_b.metrics = dict(orig.metrics)
+
+    phrases[phrase_idx : phrase_idx + 1] = [phrase_a, phrase_b]
+
+    # Clear ALL split state — indices shift after a split so stale keys
+    # would mis-trigger split mode on the wrong phrases.
+    _clear_all_split_state()
+
+    view_state.set_selection(phrase_a.start_ms, phrase_a.end_ms)
+    st.rerun(scope="app")
+
+
+def _clear_split_state(phrase_idx: int) -> None:
+    st.session_state.pop(f"split_cycle_{phrase_idx}", None)
+
+
+def _clear_all_split_state() -> None:
+    """Remove every split_mode_* and split_cycle_* key from session state.
+
+    Called on navigation so that index-shifted keys from earlier splits
+    never accidentally activate split mode on the wrong phrase.
+    """
+    for k in [k for k in st.session_state
+              if k.startswith("split_mode_") or k.startswith("split_cycle_")]:
+        st.session_state.pop(k, None)
+
 
 # ------------------------------------------------------------------
 # Phrase navigation buttons
@@ -467,6 +694,7 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
         if st.button("⏮ Prev", key="pd_phrase_prev",
                      disabled=(phrase_idx == 0),
                      width="stretch"):
+            _clear_all_split_state()
             _select_and_zoom(phrases[phrase_idx - 1], view_state, duration_ms)
             st.rerun(scope="app")
 
@@ -474,6 +702,7 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
         if st.button("Next ⏭", key="pd_phrase_next",
                      disabled=(phrase_idx >= n - 1),
                      width="stretch"):
+            _clear_all_split_state()
             _select_and_zoom(phrases[phrase_idx + 1], view_state, duration_ms)
             st.rerun(scope="app")
 
@@ -482,124 +711,47 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
 # Save / Cancel buttons
 # ------------------------------------------------------------------
 
-def _render_save_cancel(phrases: list, original_actions: list, view_state) -> None:
-    """Save applies all stored transforms, runs finalize passes, then downloads.
-    Cancel discards all stored transforms and returns to phrase selector.
+def _render_save_cancel(phrase_idx: int, view_state) -> None:
+    """Accept stores the current transform and returns to the phrase selector.
+    Cancel discards only this phrase's proposed transform and returns to the selector.
     """
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
-
-    edited_actions = _build_edited_actions(phrases, original_actions)
-
-    # ------------------------------------------------------------------
-    # Finalize options — collapsed by default, always applied on save.
-    # ------------------------------------------------------------------
-    with st.expander("⚙ Finalize options", expanded=False):
-        st.caption("Applied to the full script before download.")
-
-        apply_seams = st.checkbox(
-            "Blend seams",
-            value=True,
-            key="fin_blend_seams",
-            help="Smooth high-velocity transitions at phrase boundaries.",
-        )
-        apply_smooth = st.checkbox(
-            "Final smooth",
-            value=True,
-            key="fin_final_smooth",
-            help="Light global LPF finishing pass.",
-        )
-
-        seam_params   = {}
-        smooth_params = {}
-
-        if apply_seams:
-            sp = TRANSFORM_CATALOG["blend_seams"].params
-            seam_params["max_velocity"] = st.slider(
-                sp["max_velocity"].label,
-                min_value=float(sp["max_velocity"].min_val),
-                max_value=float(sp["max_velocity"].max_val),
-                value=float(sp["max_velocity"].default),
-                step=float(sp["max_velocity"].step),
-                help=sp["max_velocity"].help,
-                key="fin_seam_vel",
-            )
-            seam_params["max_strength"] = st.slider(
-                sp["max_strength"].label,
-                min_value=float(sp["max_strength"].min_val),
-                max_value=float(sp["max_strength"].max_val),
-                value=float(sp["max_strength"].default),
-                step=float(sp["max_strength"].step),
-                help=sp["max_strength"].help,
-                key="fin_seam_str",
-            )
-
-        if apply_smooth:
-            fp = TRANSFORM_CATALOG["final_smooth"].params
-            smooth_params["strength"] = st.slider(
-                fp["strength"].label,
-                min_value=float(fp["strength"].min_val),
-                max_value=float(fp["strength"].max_val),
-                value=float(fp["strength"].default),
-                step=float(fp["strength"].step),
-                help=fp["strength"].help,
-                key="fin_smooth_str",
-            )
-
-    # Apply finalize passes to the full action list before serialising.
-    finalized = copy.deepcopy(edited_actions)
-    if apply_seams:
-        finalized = TRANSFORM_CATALOG["blend_seams"].apply(finalized, seam_params or None)
-    if apply_smooth:
-        finalized = TRANSFORM_CATALOG["final_smooth"].apply(finalized, smooth_params or None)
-
-    funscript_path = st.session_state.project.funscript_path
-    try:
-        with open(funscript_path) as f:
-            raw = json.load(f)
-    except Exception:
-        raw = {}
-    raw["actions"] = sorted(finalized, key=lambda a: a["at"])
-    edited_bytes = json.dumps(raw, indent=2).encode()
-
-    stem = os.path.splitext(os.path.basename(funscript_path))[0]
-    if stem.endswith(".original"):
-        stem = stem[:-9]
-    download_name = f"{stem}.edited.funscript"
-
     col_save, col_cancel = st.columns(2)
     with col_save:
-        if st.download_button(
-            "💾 Save",
-            data=edited_bytes,
-            file_name=download_name,
-            mime="application/json",
+        if st.button(
+            "✓ Accept",
             key="pd_save",
             width="stretch",
-            help=f"Download as {download_name}",
+            type="primary",
+            help="Accept this transform and return to phrase selector",
         ):
-            _return_to_selector(view_state)
+            # Keep phrase_transform state — just navigate back to the selector
+            view_state.clear_selection()
+            st.session_state.phrase_sel_chart_instance = (
+                st.session_state.get("phrase_sel_chart_instance", 0) + 1
+            )
+            st.rerun(scope="app")
 
     with col_cancel:
         if st.button(
             "✕ Cancel",
             key="pd_cancel",
             width="stretch",
-            help="Discard transforms and return to phrase selector",
+            help="Discard this phrase's transform and return to phrase selector",
         ):
-            _return_to_selector(view_state)
+            # Clear only the current phrase's transform keys, leave others intact
+            st.session_state.pop(f"phrase_transform_{phrase_idx}", None)
+            st.session_state.pop(f"transform_sel_{phrase_idx}", None)
+            for k in [k for k in st.session_state
+                      if k.startswith(f"param_{phrase_idx}_")]:
+                st.session_state.pop(k, None)
+            view_state.clear_selection()
+            st.session_state.phrase_sel_chart_instance = (
+                st.session_state.get("phrase_sel_chart_instance", 0) + 1
+            )
+            st.rerun(scope="app")
 
 
-def _return_to_selector(view_state) -> None:
-    """Clear transforms + selection and force a fresh phrase-selector chart."""
-    _clear_transform_state()
-    view_state.clear_selection()
-    st.session_state.phrase_sel_chart_instance = (
-        st.session_state.get("phrase_sel_chart_instance", 0) + 1
-    )
-    st.rerun(scope="app")
-
-
-def _build_edited_actions(phrases: list, original_actions: list) -> list:
+def build_edited_actions(phrases: list, original_actions: list) -> list:
     """Apply all stored phrase transforms to original_actions."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
 
@@ -628,10 +780,6 @@ def _build_edited_actions(phrases: list, original_actions: list) -> list:
 
     return result
 
-
-def _clear_transform_state() -> None:
-    for k in [k for k in st.session_state if k.startswith("phrase_transform_")]:
-        del st.session_state[k]
 
 
 # ------------------------------------------------------------------

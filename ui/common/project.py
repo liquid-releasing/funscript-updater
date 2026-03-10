@@ -1,4 +1,4 @@
-"""Project session state for the Funscript Updater UI.
+"""Project session state for the Funscript Forge UI.
 
 A Project holds everything needed to drive one editing session:
   - which funscript is loaded
@@ -176,6 +176,16 @@ class Project:
         if item:
             item.start_ms = start_ms
             item.end_ms = end_ms
+
+    def set_item_status(self, item_id: str, status: str) -> None:
+        """Set a work item's status: 'todo', 'in_progress', or 'done'."""
+        item = self.get_item(item_id)
+        if item:
+            item.status = status
+
+    def set_item_completed(self, item_id: str, completed: bool) -> None:
+        """Mark a work item as done (True) or reopen it as todo (False)."""
+        self.set_item_status(item_id, "done" if completed else "todo")
 
     def add_item(self, item: WorkItem) -> None:
         """Insert a new work item (e.g. manually drawn)."""
