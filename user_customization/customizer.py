@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """WindowCustomizer: user-defined performance, break, and raw window customization (Part 3).
 
 Layers on top of the FunscriptTransformer output. The user defines windows

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """CLI tests — invoke each subcommand via subprocess and verify outputs.
 
 Tests run the real CLI entry point so they cover argument parsing,

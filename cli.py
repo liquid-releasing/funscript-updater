@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Funscript Forge CLI
 
 Full-pipeline shortcut (Steps 1 + 3 + 4 in one command):

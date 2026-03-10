@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """FunscriptTransformer: BPM-threshold based transformation (Part 2).
 
 For each action, the transformer looks up which phrase it belongs to and

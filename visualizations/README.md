@@ -62,3 +62,7 @@ Add new visualizers as separate modules in this directory (e.g., `heatmap.py`, `
 1. Guard against missing matplotlib with a `HAS_MATPLOTLIB` flag
 2. Accept an `AssessmentResult` and/or raw actions list
 3. Expose a `plot(output_path: str) -> None` method
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

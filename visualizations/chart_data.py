@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """chart_data.py — Pure data computation for funscript visualization.
 
 No UI or matplotlib dependency.  All functions return plain Python

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Shared data models for assessment and pattern_catalog."""
 
 import json

@@ -122,3 +122,7 @@ Phase 5 features can be shipped incrementally in any phase.
 - Pricing validated against: Udio ($10/mo), ElevenLabs ($5–22/mo), similar creative tools
 - Revenue target: 500 Creator + 50 Studio = $5,950 MRR at steady state
 - Infrastructure cost at that scale: ~$400–500/month → healthy margin
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

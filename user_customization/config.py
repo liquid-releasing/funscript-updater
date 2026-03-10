@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """CustomizerConfig: tunable parameters for user-defined window customization."""
 
 import dataclasses

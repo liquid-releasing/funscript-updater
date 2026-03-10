@@ -135,3 +135,7 @@ It is intentionally short so tests run in < 0.1 s.
 | other modules | *(see `tests/` directory)* |
 | `ui/common/tests/` | 60 |
 | **Total** | **511** |
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

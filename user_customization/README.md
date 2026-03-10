@@ -140,3 +140,7 @@ python cli.py customize transformed.funscript \
 ```bash
 python -m unittest tests.test_customizer -v
 ```
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

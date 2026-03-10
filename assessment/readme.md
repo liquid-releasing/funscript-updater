@@ -225,3 +225,7 @@ result = AssessmentResult.load("output/assessment.json")
 print(result.bpm)          # global average BPM
 print(len(result.phrases)) # number of detected phrases
 ```
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

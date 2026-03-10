@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Work items panel — review and track phrase editing tasks.
 
 Each work item corresponds to a time window (phrase) from the assessment.

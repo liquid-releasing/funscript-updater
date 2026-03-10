@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """MotionVisualizer: plots the raw motion curve and phase boundaries.
 
 Requires matplotlib. Install with: pip install matplotlib

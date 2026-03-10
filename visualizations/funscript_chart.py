@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """funscript_chart.py — Reusable Plotly-based funscript chart widget.
 
 Renders a single funscript channel as a colour-coded line chart with

@@ -156,3 +156,7 @@ python -m unittest discover -s tests -v
 # UI common-layer tests only (45)
 python -m unittest discover -s ui/common/tests -v
 ```
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](LICENSE).  Written by human and Claude AI (Claude Sonnet).*

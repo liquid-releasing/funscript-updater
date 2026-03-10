@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """Transform Catalog panel — reference guide for all phrase transforms.
 
 Each transform entry shows:

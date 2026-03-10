@@ -54,3 +54,7 @@ Or open the **Transform Catalog** tab in the UI.
 ## Example
 
 See `example_recipe.json` in this directory.
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

@@ -77,3 +77,7 @@ All 60 tests run in < 0.1 s with no external dependencies.
 | Streamlit Cloud | `ui/streamlit/` | ✓ |
 | Flask/web (SaaS) | `ui/web/` | ✓ (planned) |
 | Local desktop | `ui/local/` | ✓ (planned) |
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

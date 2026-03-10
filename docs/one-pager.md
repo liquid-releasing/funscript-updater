@@ -179,3 +179,7 @@ Step 5 — Route to device(s) (MultiFunPlayer, Restim)
 
 Funscript Forge does not play back media or drive devices directly — it is the
 quality and structure layer that makes every downstream tool work better.
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](../LICENSE).  Written by human and Claude AI (Claude Sonnet).*

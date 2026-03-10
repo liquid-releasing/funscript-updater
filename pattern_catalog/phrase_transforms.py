@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """phrase_transforms.py — Catalog of per-phrase funscript transforms.
 
 Each PhraseTransform describes one named transform that can be applied to

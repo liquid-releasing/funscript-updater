@@ -84,3 +84,7 @@ Notes: core pipeline modules are already framework-agnostic — the API layer is
 ## Done
 
 *(nothing yet)*
+
+---
+
+*© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](LICENSE).  Written by human and Claude AI (Claude Sonnet).*

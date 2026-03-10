@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """ViewState — shared zoom/selection state for the funscript viewer.
 
 Framework-agnostic.  The Streamlit app stores one instance in

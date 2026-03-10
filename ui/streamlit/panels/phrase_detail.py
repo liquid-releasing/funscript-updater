@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """phrase_detail.py — Detailed view for a selected phrase.
 
 Layout (when a phrase is selected)

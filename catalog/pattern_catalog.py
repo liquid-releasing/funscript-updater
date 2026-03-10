@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """pattern_catalog.py — Persistent cross-funscript pattern catalog.
 
 Each time a funscript is assessed, its tagged phrases (with metrics) are

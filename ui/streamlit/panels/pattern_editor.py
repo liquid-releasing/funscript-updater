@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
+# Written by human and Claude AI (Claude Sonnet).
+
 """pattern_editor.py — Behavioral pattern editor.
 
 Phrases are classified into behavioral tags (stingy, giggle, drone, …)
