@@ -24,7 +24,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 # Allow imports from the project root regardless of CWD.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -78,6 +78,7 @@ class Project:
         path: str,
         analyzer_config: Optional[AnalyzerConfig] = None,
         existing_assessment_path: Optional[str] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> "Project":
         """Create a Project and run (or load) the assessment.
 
@@ -89,12 +90,15 @@ class Project:
             Optional custom analyzer settings.
         existing_assessment_path:
             If provided, load the assessment JSON instead of re-running it.
+        progress_callback:
+            Optional callable forwarded to :meth:`FunscriptAnalyzer.analyze`
+            for stage-by-stage progress reporting.
         """
         project = cls(funscript_path=path)
         if existing_assessment_path and os.path.exists(existing_assessment_path):
             project.assessment = AssessmentResult.load(existing_assessment_path)
         else:
-            project.run_assessment(analyzer_config)
+            project.run_assessment(analyzer_config, progress_callback=progress_callback)
         project._init_work_items()
         return project
 
@@ -103,12 +107,14 @@ class Project:
     # ------------------------------------------------------------------
 
     def run_assessment(
-        self, config: Optional[AnalyzerConfig] = None
+        self,
+        config: Optional[AnalyzerConfig] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> AssessmentResult:
         """Run the analyzer on the loaded funscript and cache the result."""
         analyzer = FunscriptAnalyzer(config=config or AnalyzerConfig())
         analyzer.load(self.funscript_path)
-        self.assessment = analyzer.analyze()
+        self.assessment = analyzer.analyze(progress_callback=progress_callback)
         return self.assessment
 
     def save_assessment(self, output_path: str) -> None:

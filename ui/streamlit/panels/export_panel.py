@@ -63,6 +63,109 @@ def _clamp_sort_dedup(actions: list) -> int:
 
 
 # ------------------------------------------------------------------
+# Quality gate (#13)
+# ------------------------------------------------------------------
+
+def _check_quality(actions: list) -> List[dict]:
+    """Run device-safety checks on a final action list.
+
+    Checks
+    ------
+    * Velocity > 200 pos/s  — warning (may exceed device limits)
+    * Velocity > 300 pos/s  — error   (likely exceeds device limits)
+    * Interval < 50 ms      — warning (some devices ignore short gaps)
+
+    Returns a list of issue dicts: ``{level, message, at}``.
+    """
+    issues: List[dict] = []
+    for i in range(1, len(actions)):
+        a0, a1 = actions[i - 1], actions[i]
+        dt_ms = a1["at"] - a0["at"]
+        if dt_ms <= 0:
+            continue
+        dp = abs(a1["pos"] - a0["pos"])
+        velocity = dp / dt_ms * 1000  # pos per second
+
+        if velocity > 300:
+            issues.append({
+                "level": "error",
+                "message": f"Velocity {velocity:.0f} pos/s — likely exceeds device limit",
+                "at": a0["at"],
+            })
+        elif velocity > 200:
+            issues.append({
+                "level": "warning",
+                "message": f"Velocity {velocity:.0f} pos/s — may exceed device limit",
+                "at": a0["at"],
+            })
+
+        if dt_ms < 50:
+            issues.append({
+                "level": "warning",
+                "message": f"Short interval {dt_ms} ms — some devices ignore gaps < 50 ms",
+                "at": a0["at"],
+            })
+
+    return issues
+
+
+def _render_quality_gate(project, plan: List[dict]) -> None:
+    """Collapsible quality check section — runs on the proposed export output."""
+    with st.expander("Quality check", expanded=False):
+        st.caption(
+            "Analyses the proposed export (all accepted transforms applied) for "
+            "velocity spikes and short intervals that may cause device issues."
+        )
+        if st.button("Run quality check", key="quality_run_btn"):
+            with st.spinner("Checking…"):
+                with open(project.funscript_path, encoding="utf-8") as _f:
+                    _fs = json.load(_f)
+                _rej = st.session_state.get("export_rejected", set())
+                _acc = st.session_state.get("export_accepted", set())
+                _actions = _apply_plan_transforms(_fs.get("actions", []), plan, _rej, _acc)
+                _issues  = _check_quality(_actions)
+                st.session_state["quality_gate_result"] = {
+                    "issues":       _issues,
+                    "action_count": len(_actions),
+                    "source_file":  project.funscript_path,
+                }
+            st.rerun()
+
+        qr = st.session_state.get("quality_gate_result")
+        if qr and qr.get("source_file") == project.funscript_path:
+            issues   = qr["issues"]
+            errors   = [i for i in issues if i["level"] == "error"]
+            warnings = [i for i in issues if i["level"] == "warning"]
+
+            if not issues:
+                st.success(f"✅ All checks passed — {qr['action_count']} actions")
+            elif errors:
+                st.error(
+                    f"❌ {len(errors)} error{'s' if len(errors) != 1 else ''}, "
+                    f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''} "
+                    f"— {qr['action_count']} actions"
+                )
+            else:
+                st.warning(
+                    f"⚠️ {len(warnings)} warning{'s' if len(warnings) != 1 else ''} "
+                    f"— {qr['action_count']} actions"
+                )
+
+            if issues:
+                _hdr = st.columns([1.0, 1.2, 6.0])
+                _hdr[0].caption("Level")
+                _hdr[1].caption("Time")
+                _hdr[2].caption("Issue")
+                for issue in issues[:50]:
+                    _row = st.columns([1.0, 1.2, 6.0])
+                    _row[0].markdown("🔴 Error" if issue["level"] == "error" else "🟡 Warn")
+                    _row[1].caption(ms_to_timestamp(issue["at"]))
+                    _row[2].caption(issue["message"])
+                if len(issues) > 50:
+                    st.caption(f"… and {len(issues) - 50} more issues not shown")
+
+
+# ------------------------------------------------------------------
 # Public entry point
 # ------------------------------------------------------------------
 
@@ -190,7 +293,14 @@ def render(project: "Project") -> None:
     st.divider()
 
     # ----------------------------------------------------------------
-    # Section 3 — Full pipeline (BPM Transformer + Window Customizer)
+    # Section 3 — Quality gate (#13)
+    # ----------------------------------------------------------------
+    _render_quality_gate(project, full_plan)
+
+    st.divider()
+
+    # ----------------------------------------------------------------
+    # Section 4 — Full pipeline (BPM Transformer + Window Customizer)
     # ----------------------------------------------------------------
     _render_pipeline_section(project)
 
