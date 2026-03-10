@@ -40,6 +40,11 @@ class AnalyzerConfig:
     # After phrase detection, merge any phrase shorter than this into its
     # shortest neighbour.  Set to 0 to disable.
     min_phrase_duration_ms: int = 20_000
+    # During phrase detection, force a phrase boundary once the accumulated
+    # duration would exceed this value even if the pattern is still uniform.
+    # Prevents a single giant phrase on perfectly uniform funscripts (e.g.
+    # VictoriaOaks).  Set to 0 to disable.
+    max_phrase_duration_ms: int = 300_000  # 5 minutes
     # Flag BPM transitions whose absolute percentage change exceeds this value
     bpm_change_threshold_pct: float = 40.0
 
@@ -316,9 +321,23 @@ class FunscriptAnalyzer:
                 amp_changed = deviation > self.config.amplitude_tolerance
 
             if not label_changed and not amp_changed:
-                current.append((start, end))
-                current_oscillations += osc
-                current_amp_sum += amp
+                # Duration-based fallback split: prevent one giant phrase on
+                # perfectly uniform funscripts (fixes VictoriaOaks / issue #2).
+                max_dur = self.config.max_phrase_duration_ms
+                duration_exceeded = (
+                    max_dur > 0
+                    and (end - current[0][0]) > max_dur
+                )
+                if duration_exceeded:
+                    phrases.append(self._make_phrase(current, current_label, current_oscillations))
+                    current = [(start, end)]
+                    current_label = label
+                    current_oscillations = osc
+                    current_amp_sum = amp
+                else:
+                    current.append((start, end))
+                    current_oscillations += osc
+                    current_amp_sum += amp
             else:
                 phrases.append(self._make_phrase(current, current_label, current_oscillations))
                 current = [(start, end)]
