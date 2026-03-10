@@ -579,6 +579,52 @@ def _main() -> None:
             height=0,
         )
 
+    # Keyboard shortcuts — registered once per page load via a sentinel flag on
+    # window.parent so reruns don't stack duplicate listeners.
+    #   Ctrl+Z        → Undo
+    #   Ctrl+Y        → Redo
+    #   Ctrl+Shift+Z  → Redo (macOS convention)
+    #   Ctrl+S        → Save project
+    import streamlit.components.v1 as _comp
+    _comp.html(
+        """<script>
+        (function() {
+            var p = window.parent;
+            if (p.__forgeKeysRegistered) return;
+            p.__forgeKeysRegistered = true;
+
+            function clickButton(startsWith) {
+                var btns = p.document.querySelectorAll('button');
+                for (var i = 0; i < btns.length; i++) {
+                    if (btns[i].textContent.trim().startsWith(startsWith)
+                            && !btns[i].disabled) {
+                        btns[i].click();
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            p.document.addEventListener('keydown', function(e) {
+                var ctrl = e.ctrlKey || e.metaKey;
+                if (!ctrl) return;
+
+                if (e.key === 'z' && !e.shiftKey) {
+                    e.preventDefault();
+                    clickButton('\u21a9');        // ↩ Undo
+                } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+                    e.preventDefault();
+                    clickButton('\u21aa');        // ↪ Redo
+                } else if (e.key === 's') {
+                    e.preventDefault();
+                    clickButton('Save project'); // sidebar Save project
+                }
+            });
+        })();
+        </script>""",
+        height=0,
+    )
+
 
 def _render_welcome() -> None:
     """Onboarding welcome screen shown before any funscript is loaded."""
