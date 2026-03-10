@@ -17,7 +17,7 @@ The AssessmentResult contains:
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from models import Phase, Cycle, Pattern, Phrase, BpmTransition, AssessmentResult
 from utils import ms_to_timestamp
@@ -99,16 +99,37 @@ class FunscriptAnalyzer:
         self._actions = data["actions"]
         self._source_file = path
 
-    def analyze(self) -> AssessmentResult:
-        """Run the full analysis pipeline and return an AssessmentResult."""
+    def analyze(
+        self,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> AssessmentResult:
+        """Run the full analysis pipeline and return an AssessmentResult.
+
+        Parameters
+        ----------
+        progress_callback:
+            Optional callable invoked at the start of each pipeline stage with
+            a human-readable stage label, e.g. ``"Detecting phases…"``.
+            Useful for updating progress indicators in a UI.
+        """
         if not self._actions:
             raise RuntimeError("No actions loaded. Call load() first.")
 
+        def _cb(stage: str) -> None:
+            if progress_callback:
+                progress_callback(stage)
+
+        _cb("Detecting phases…")
         phases = self._detect_phases()
+        _cb("Detecting cycles…")
         cycles = self._detect_cycles(phases)
+        _cb("Detecting patterns…")
         patterns = self._detect_patterns(cycles)
+        _cb("Detecting phrases…")
         phrases = self._detect_phrases(patterns)
+        _cb("Detecting BPM transitions…")
         bpm_transitions = self._detect_bpm_transitions(phrases)
+        _cb("Classifying behaviors…")
 
         # Behavioral classification — adds "tags" and "metrics" to each phrase dict
         from assessment.classifier import annotate_phrases

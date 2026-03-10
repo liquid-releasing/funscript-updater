@@ -34,22 +34,39 @@ Stage 2 toggle, ▶ Run Pipeline button, and a separate ⬇ Download pipeline re
 
 ---
 
-## Priority 2 — Friction Reduction (High Value for Solo Use)
+## Priority 2 — Friction Reduction ✅ COMPLETE
 
-### 2.1 Upload funscripts via browser · [#5](https://github.com/liquid-releasing/funscript-forge/issues/5)
+### ~~2.1 Upload funscripts via browser~~ · [#5](https://github.com/liquid-releasing/funscript-forge/issues/5) ✅
 
-Add `st.file_uploader` to the sidebar. Save uploaded file to `output/uploads/`. Removes the
-requirement to manually copy files to `test_funscript/`.
+`st.file_uploader` added to the sidebar. Uploaded files are saved to `output/uploads/` and
+appear at the top of the selectbox with a `[↑]` prefix. Auto-selects the most recently
+uploaded file. 3 unit tests in `tests/test_priority2.py`.
 
-### 2.2 Automated quality gate · [#13](https://github.com/liquid-releasing/funscript-forge/issues/13) `enhancement`
+### ~~2.2 Automated quality gate~~ · [#13](https://github.com/liquid-releasing/funscript-forge/issues/13) ✅
 
-After export, run a velocity-limits and device-safety-range check on the result and show a
-pass/fail badge with specific warnings (e.g. "3 actions exceed 200 pos/s").
+`_check_quality()` added to `export_panel.py`. Checks velocity (warn > 200 pos/s, error > 300)
+and short intervals (warn < 50 ms) on the proposed export output. Exposed as a collapsible
+"Quality check" expander with a **Run quality check** button; results show a pass/fail badge and
+a table of issues (capped at 50 rows). 10 unit tests in `tests/test_priority2.py`.
 
-### 2.3 Progress indicator for long assessments · [#14](https://github.com/liquid-releasing/funscript-forge/issues/14) `enhancement`
+### ~~2.3 Progress indicator for long assessments~~ · [#14](https://github.com/liquid-releasing/funscript-forge/issues/14) ✅
 
-Long funscripts (60+ min) can take several seconds to assess. Show a progress spinner / bar and
-allow cancellation.
+`FunscriptAnalyzer.analyze()` now accepts a `progress_callback: Callable[[str], None]` arg.
+Called at the start of each pipeline stage (Detecting phases → cycles → patterns → phrases →
+BPM transitions → Classifying behaviors). Parameter threaded through `Project.run_assessment()`
+and `Project.from_funscript()`. In `app.py`, a sidebar `st.empty()` placeholder streams stage
+labels in real-time during the `st.spinner()`. 7 unit tests in `tests/test_priority2.py`.
+
+### 2.4 Audio/video file upload for context playback · `enhancement`
+
+Allow uploading an audio or video file alongside the funscript so the user can play the
+corresponding clip while editing phrases or patterns.
+
+- `st.file_uploader` in the sidebar accepting `.mp3`, `.m4a`, `.wav`, `.mp4`, `.mkv`
+- File saved to `output/uploads/` next to the funscript
+- In Phrase Editor and Pattern Editor: an inline `st.audio()` / `st.video()` player
+  cued to the phrase start time (HTML `#t=<seconds>` anchor on the src URL)
+- Phase 2 (later sprint): show a video thumbnail strip matching the phrase time window
 
 ---
 
@@ -175,7 +192,7 @@ These items are explicitly deferred until the SaaS / multi-user phase:
 ### Gaps identified ⚠️
 
 | Gap | Severity | Linked issue |
-|-----|----------|--------------|
+| --- | --- | --- |
 | No post-transform position clamp (pos can exceed 0–100) | High — corrupts output | #9 |
 | No timestamp dedup/sort after slice stitching | High — invalid funscript output | #10 |
 | No export log — applied params not recorded | Medium — reproducibility | #12 |

@@ -105,24 +105,58 @@ def _sidebar() -> None:
         st.sidebar.title("Funscript Forge")
     st.sidebar.markdown("---")
 
-    # --- File selection ---
+    # --- File upload (#5) ---
     st.sidebar.subheader("Funscript")
-    funscript_dir = os.path.join(_ROOT, "test_funscript")
-    candidates = sorted(
-        f for f in os.listdir(funscript_dir)
-        if f.endswith(".funscript")
-    ) if os.path.isdir(funscript_dir) else []
+    uploaded = st.sidebar.file_uploader(
+        "Upload a funscript",
+        type=["funscript"],
+        label_visibility="collapsed",
+        help="Upload a .funscript file to analyse it.",
+    )
+    if uploaded is not None:
+        uploads_dir = os.path.join(st.session_state.output_dir, "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        save_path = os.path.join(uploads_dir, uploaded.name)
+        with open(save_path, "wb") as _fh:
+            _fh.write(uploaded.read())
+        st.session_state["last_upload_name"] = uploaded.name
 
-    if not candidates:
-        st.sidebar.warning(f"No .funscript files found in {funscript_dir}")
+    # Build candidate list: uploaded files first, then test_funscript/
+    _path_for: dict[str, str] = {}   # display label → full path
+
+    uploads_dir = os.path.join(st.session_state.output_dir, "uploads")
+    if os.path.isdir(uploads_dir):
+        for _f in sorted(os.listdir(uploads_dir)):
+            if _f.endswith(".funscript"):
+                _path_for[f"[↑] {_f}"] = os.path.join(uploads_dir, _f)
+
+    funscript_dir = os.path.join(_ROOT, "test_funscript")
+    if os.path.isdir(funscript_dir):
+        for _f in sorted(os.listdir(funscript_dir)):
+            if _f.endswith(".funscript"):
+                _path_for[_f] = os.path.join(funscript_dir, _f)
+
+    if not _path_for:
+        st.sidebar.warning("No .funscript files found. Upload one above.")
         return
 
-    selected_file = st.sidebar.selectbox(
+    candidate_labels = list(_path_for.keys())
+
+    # Auto-select the most recently uploaded file if one was just saved.
+    _default_idx = 0
+    _last_upload = st.session_state.get("last_upload_name")
+    if _last_upload:
+        _upload_label = f"[↑] {_last_upload}"
+        if _upload_label in candidate_labels:
+            _default_idx = candidate_labels.index(_upload_label)
+
+    selected_label = st.sidebar.selectbox(
         "Select funscript",
-        options=candidates,
-        index=0,
+        options=candidate_labels,
+        index=_default_idx,
     )
-    funscript_path = os.path.join(funscript_dir, selected_file)
+    funscript_path = _path_for[selected_label]
+    selected_file = os.path.basename(funscript_path)
 
     # --- Phrase detection parameters ---
     with st.sidebar.expander("Phrase detection settings", expanded=True):
@@ -181,11 +215,19 @@ def _sidebar() -> None:
 
     if needs_load or st.sidebar.button("Re-analyse", type="primary"):
         import time
+
+        # Progress indicator (#14): sidebar placeholder shows current stage.
+        _stage_ph = st.sidebar.empty()
+
+        def _on_stage(stage: str) -> None:
+            _stage_ph.caption(f"⟳ {stage}")
+
         with st.spinner("Running assessment…"):
             _t0 = time.time()
             st.session_state.project = Project.from_funscript(
                 funscript_path,
                 analyzer_config=analyzer_cfg,
+                progress_callback=_on_stage,
             )
             st.session_state.last_assessment_elapsed = time.time() - _t0
             st.session_state.last_loaded_cfg  = cfg_key
@@ -208,6 +250,7 @@ def _sidebar() -> None:
             except Exception:
                 pass  # catalog update is best-effort; never block the UI
 
+        _stage_ph.empty()
         st.rerun()
 
     st.sidebar.markdown("---")
