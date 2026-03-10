@@ -328,13 +328,9 @@ def _render_phrase_table(phrases: list, view_state) -> None:
     if selected:
         phrase_idx = selected[0]
         ph = phrases[phrase_idx]
-        if not (
-            view_state.has_selection()
-            and view_state.selection_start_ms == ph["start_ms"]
-            and view_state.selection_end_ms   == ph["end_ms"]
-        ):
-            _select_phrase(ph, view_state)
-            st.rerun(scope="app")
+        # on_select="rerun" already fired a full-app rerun to get here.
+        # Updating view_state is sufficient — no second st.rerun() needed.
+        _select_phrase(ph, view_state)
 
 
 # ------------------------------------------------------------------
