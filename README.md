@@ -9,19 +9,40 @@ expressive performance sections, and gentle breaks.
 
 ---
 
-## Current state
+## Features
 
-| Capability | Status |
-| --- | --- |
-| Structural analysis (phases, cycles, patterns, phrases, BPM transitions) | ✅ Available |
-| Behavioral classification (8 tags: stingy, giggle, drone, …) | ✅ Available |
-| Cross-funscript pattern catalog (persistent JSON) | ✅ Available |
-| Interactive assessment viewer (Streamlit UI) | ✅ Available |
-| Pattern Editor — batch-fix behavioral issues with per-phrase transforms | ✅ Available |
-| Pattern Editor — split a phrase into sub-ranges, each with its own transform | ✅ Available |
-| Work-item tagger (performance / break / raw / neutral) | ✅ Available |
-| Transform + customize pipeline | ✅ Available via CLI |
-| Transform + customize inside the UI | 🔜 Coming soon |
+**Analysis**
+- Structural analysis: phases → cycles → patterns → phrases → BPM transitions
+- Behavioral classification into 8 tags (stingy, giggle, plateau, drift, half-stroke, drone, lazy, frantic)
+- Cross-funscript pattern catalog — accumulates stats across all analysed files (persistent JSON)
+
+**Phrase Editor (Streamlit UI)**
+- Full-funscript colour-coded chart with phrase bounding boxes; click any phrase to open its detail panel
+- Per-phrase transform selection with live parameter sliders and Before / After preview
+- Cycle-based phrase split — slider selects the split boundary; a dashed line marks it on the chart; hover any dot to see its cycle number
+- ✓ Accept stores the transform in session state; ✕ Cancel discards only the current phrase's pending change
+- Selector chart shows the accumulated edited funscript (with banner) once any transform has been accepted
+
+**Pattern Editor (Streamlit UI)**
+- Select phrases by behavioral tag; view all matching instances at once
+- Per-instance transform + per-segment split (split into non-overlapping sub-ranges, each with its own transform)
+- Apply to all — copies the current instance's transform (or split structure, scaled proportionally) to every other instance of the same tag
+- Selector chart also reflects accepted phrase-editor transforms
+
+**Export (Streamlit UI)**
+- Static preview chart at the top shows the full proposed export
+- Completed transforms (from Phrase Editor or Pattern Editor) listed with reject / restore per row
+- Recommended transforms (tag-aware auto-suggestions) listed separately; each must be explicitly accepted before it is included in the download
+- Optional post-processing: blend seams (bilateral LPF at high-velocity style boundaries) and final smooth (light global LPF)
+- Download builds the full result on demand
+
+**CLI**
+- `assess`, `transform`, `customize`, `pipeline` — full analysis and transform pipeline
+- `phrase-transform` — apply any catalog transform to individual phrases from the command line
+- `finalize` — blend seams + final smooth as standalone post-processing
+- `export-plan` — mirror of the UI Export tab; supports `--apply` to write output directly
+- `catalog` — query and manage the cross-funscript pattern catalog
+- `test` — run all 511 tests
 
 ---
 
