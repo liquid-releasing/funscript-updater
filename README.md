@@ -348,7 +348,7 @@ python cli.py test
 | [visualizations/README.md](visualizations/README.md) | Matplotlib motion chart components |
 | [tests/README.md](tests/README.md) | Test suite structure and coverage |
 | [internal/ACCESSIBILITY.md](internal/ACCESSIBILITY.md) | WCAG 2.1 AA accessibility assessment — issues, severity, recommended fixes |
-| [BUILD.md](BUILD.md) | Building a standalone installer on Windows and macOS |
+| [internal/BUILD.md](internal/BUILD.md) | Building a standalone installer on Windows and macOS |
 
 ---
 
