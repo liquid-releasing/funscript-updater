@@ -605,20 +605,6 @@ def _main() -> None:
         _render_welcome()
         return
 
-    # Single decorative icon on the right, just above the tab bar.
-    _mdir = os.path.join(_ROOT, "media")
-    _tab_icon_files = [
-        os.path.join(_mdir, "anvil.png"),      # Phrase Selector
-        os.path.join(_mdir, "oven.png"),        # Pattern Editor
-        os.path.join(_mdir, "worktable.png"),   # Transform Catalog
-        os.path.join(_mdir, "spark.png"),       # Export
-    ]
-    _active_tab  = st.session_state.get("active_tab", 0)
-    _active_icon = _tab_icon_files[_active_tab] if 0 <= _active_tab < len(_tab_icon_files) else _tab_icon_files[0]
-    _, _icon_col = st.columns([4, 1])
-    if os.path.exists(_active_icon):
-        _icon_col.image(_active_icon, width=120)
-
     # Tab indices: 0=Phrase Selector, 1=Pattern Editor, 2=Transform Catalog, 3=Export
     tab_viewer, tab_pattern, tab_transforms, tab_export = st.tabs(
         ["Phrase Selector", "Pattern Editor", "Transform Catalog", "Export"]
