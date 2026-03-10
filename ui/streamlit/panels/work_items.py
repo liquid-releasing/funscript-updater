@@ -85,7 +85,7 @@ def _render_item_row(project: "Project", item) -> None:
 
         # BPM
         if item.bpm > 0:
-            col_bpm.metric("BPM", f"{item.bpm:.1f}", label_visibility="collapsed")
+            col_bpm.metric("BPM", f"{item.bpm:.1f}")
         else:
             col_bpm.write("—")
 
@@ -96,7 +96,6 @@ def _render_item_row(project: "Project", item) -> None:
             options=_STATUS_OPTIONS,
             index=_STATUS_OPTIONS.index(current_label),
             key=f"status_{item.id}",
-            label_visibility="collapsed",
         )
         new_status = _STATUS_KEYS[_STATUS_OPTIONS.index(new_label)]
         if new_status != item.status:

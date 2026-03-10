@@ -179,6 +179,14 @@ def _render_phrases_timeline(phrases: List[Dict]) -> None:
             f"{ph.get('start_ts', '')} – {ph.get('end_ts', '')} | {bpm:.1f} BPM"
         )
 
+    # Show BPM numbers on bars so colour is not the sole indicator (WCAG C3 / 1.4.1).
+    # Short bars get no label to avoid overlap.
+    total_dur = sum(bar_widths) or 1
+    bar_texts = [
+        f"{ph.get('bpm', 0):.0f}" if (w / total_dur) > 0.04 else ""
+        for ph, w in zip(phrases, bar_widths)
+    ]
+
     fig = go.Figure(go.Bar(
         base=bar_bases,
         x=bar_widths,
@@ -187,6 +195,10 @@ def _render_phrases_timeline(phrases: List[Dict]) -> None:
         marker_color=bar_colors,
         hovertext=hover_texts,
         hoverinfo="text",
+        text=bar_texts,
+        textposition="inside",
+        textfont=dict(color="#ffffff", size=9),
+        insidetextanchor="middle",
         showlegend=False,
     ))
     fig.update_layout(
@@ -329,6 +341,12 @@ def _render_bpm_step_chart(phrases: List[Dict], transitions: List[Dict]) -> None
         showlegend=False,
     )
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    _n_trans = len(transitions)
+    _trans_desc = f"{_n_trans} transition{'s' if _n_trans != 1 else ''}" if transitions else "no transitions"
+    st.caption(
+        f"BPM step chart: {len(phrases)} phrases, {_trans_desc}. "
+        "Vertical markers show significant tempo changes. Hover for exact values."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +394,10 @@ def _render_patterns_section(patterns: List[Dict], phrases: List[Dict]) -> None:
         showlegend=False,
     )
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.caption(
+        f"Behavioral tag frequency: {len(sorted_tags)} tag{'s' if len(sorted_tags) != 1 else ''} "
+        "detected. Bar length = phrase count per tag."
+    )
 
     # -- Per-row: label, description, phrase count, BPM range, Focus --
     _bhv_cols = [2.0, 3.5, 1.0, 2.0, 1.8]

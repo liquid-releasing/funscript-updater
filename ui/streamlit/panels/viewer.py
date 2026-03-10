@@ -190,7 +190,6 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
             index=0 if view_state.color_mode == "velocity" else 1,
             horizontal=True,
             key="viewer_color_mode",
-            label_visibility="collapsed",
         )
 
     # Keys include the current zoom values so the widgets re-initialize
@@ -199,7 +198,6 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
         t0_val = st.text_input(
             "From", value=ms_to_timestamp(zoom_start),
             key=f"ctrl_t0_{zoom_start}",
-            label_visibility="collapsed",
             placeholder="M:SS",
         )
 
@@ -207,7 +205,6 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
         t1_val = st.text_input(
             "To", value=ms_to_timestamp(zoom_end),
             key=f"ctrl_t1_{zoom_end}",
-            label_visibility="collapsed",
             placeholder="M:SS",
         )
 

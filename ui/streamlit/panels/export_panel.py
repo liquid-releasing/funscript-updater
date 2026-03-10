@@ -417,7 +417,11 @@ def _render_completed(plan: List[dict]) -> None:
         rc = st.columns(_COL_W_DONE)
         if is_rej:
             _dim = lambda s: f"<span style='opacity:0.35'>{s}</span>"
-            rc[0].markdown(_dim(f"<s>{idx + 1}</s>"), unsafe_allow_html=True)
+            # sr-only span ensures screen readers announce "Rejected" (WCAG C2).
+            rc[0].markdown(
+                "<span class='sr-only'>Rejected — </span>" + _dim(f"<s>{idx + 1}</s>"),
+                unsafe_allow_html=True,
+            )
             rc[1].markdown(_dim(time_str),             unsafe_allow_html=True)
             rc[2].markdown(_dim(dur_s),                unsafe_allow_html=True)
             rc[3].markdown(_dim(f"<s>{entry['tx_name']}</s>"), unsafe_allow_html=True)
@@ -493,7 +497,11 @@ def _render_recommended(plan: List[dict]) -> None:
         rc = st.columns(_COL_W_REC)
         if is_rej:
             _dim = lambda s: f"<span style='opacity:0.35'>{s}</span>"
-            rc[0].markdown(_dim(f"<s>{idx + 1}</s>"), unsafe_allow_html=True)
+            # sr-only span ensures screen readers announce "Rejected" (WCAG C2).
+            rc[0].markdown(
+                "<span class='sr-only'>Rejected — </span>" + _dim(f"<s>{idx + 1}</s>"),
+                unsafe_allow_html=True,
+            )
             rc[1].markdown(_dim(time_str),             unsafe_allow_html=True)
             rc[2].markdown(_dim(dur_s),                unsafe_allow_html=True)
             rc[3].markdown(_dim(f"<s>{entry['tx_name']}</s>"), unsafe_allow_html=True)
@@ -570,6 +578,11 @@ def _render_export_preview(project, assessment_dict: dict, plan: List[dict]) -> 
         fig,
         config={"displayModeBar": False, "staticPlot": True},
         key="export_preview_chart",
+    )
+    n_actions = len(preview_actions)
+    st.caption(
+        f"Export preview: {n_actions:,} actions after applying selected transforms. "
+        "Colour represents stroke velocity (blue = slow, red = fast)."
     )
 
     n_active = sum(
