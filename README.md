@@ -11,25 +11,29 @@ expressive performance sections, and gentle breaks.
 
 ## Features
 
-**Analysis**
+### Analysis
+
 - Structural analysis: phases → cycles → patterns → phrases → BPM transitions
 - Behavioral classification into 8 tags (stingy, giggle, plateau, drift, half-stroke, drone, lazy, frantic)
 - Cross-funscript pattern catalog — accumulates stats across all analysed files (persistent JSON)
 
-**Phrase Editor (Streamlit UI)**
+### Phrase Selector (Streamlit UI)
+
 - Full-funscript colour-coded chart with phrase bounding boxes; click any phrase to open its detail panel
 - Per-phrase transform selection with live parameter sliders and Before / After preview
 - Cycle-based phrase split — slider selects the split boundary; a dashed line marks it on the chart; hover any dot to see its cycle number
 - ✓ Accept stores the transform in session state; ✕ Cancel discards only the current phrase's pending change
 - Selector chart shows the accumulated edited funscript (with banner) once any transform has been accepted
 
-**Pattern Editor (Streamlit UI)**
+### Pattern Editor (Streamlit UI)
+
 - Select phrases by behavioral tag; view all matching instances at once
 - Per-instance transform + per-segment split (split into non-overlapping sub-ranges, each with its own transform)
 - Apply to all — copies the current instance's transform (or split structure, scaled proportionally) to every other instance of the same tag
 - Selector chart also reflects accepted phrase-editor transforms
 
-**Export (Streamlit UI)**
+### Export (Streamlit UI)
+
 - Static preview chart at the top shows the full proposed export
 - Completed transforms (from Phrase Editor or Pattern Editor) listed with reject / restore per row
 - Recommended transforms (tag-aware auto-suggestions) listed separately; each must be explicitly accepted before it is included in the download
@@ -39,7 +43,8 @@ expressive performance sections, and gentle breaks.
 - **Full pipeline export** — collapsible panel runs BPM Transformer + Window Customizer directly in the browser; result downloads as a separate `_pipeline.funscript` independent of phrase-editor transforms
 - Download builds the full result on demand
 
-**CLI**
+### CLI
+
 - `assess`, `transform`, `customize`, `pipeline` — full analysis and transform pipeline
 - `phrase-transform` — apply any catalog transform to individual phrases from the command line
 - `finalize` — blend seams + final smooth as standalone post-processing
@@ -302,7 +307,7 @@ python cli.py test
 | [assessment/readme.md](assessment/readme.md) | Structural analysis pipeline — phases, cycles, patterns, phrases, BPM transitions (Step 1) |
 | [pattern_catalog/README.md](pattern_catalog/README.md) | BPM-threshold baseline transformer (Step 2) |
 | [user_customization/README.md](user_customization/README.md) | Window-based fine-tuning customizer (Step 3) |
-| [ui/README.md](ui/README.md) | Streamlit UI overview — sidebar controls, all six tabs |
+| [ui/README.md](ui/README.md) | Streamlit UI overview — launcher, local mode, sidebar controls, all four tabs |
 | [ui/streamlit/README.md](ui/streamlit/README.md) | Detailed Streamlit panel reference — Phrase Editor, Pattern Editor, Export |
 | [ui/streamlit/UNDO.md](ui/streamlit/UNDO.md) | Undo/redo — what is captured, how to use it, architecture, extending it |
 | [ui/common/README.md](ui/common/README.md) | Framework-agnostic business logic: `Project`, `WorkItem`, `ViewState` |

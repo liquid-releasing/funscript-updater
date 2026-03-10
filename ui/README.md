@@ -8,25 +8,50 @@ Interactive local app for the Funscript Forge pipeline.
 # Install dependencies (once, from the project root)
 pip install -r ui/streamlit/requirements.txt
 
-# Launch
+# Desktop launcher (recommended) — opens browser automatically
+python launcher.py
+
+# Or run Streamlit directly
 streamlit run ui/streamlit/app.py
 ```
 
-Opens at `http://localhost:8501`. The app can also be deployed to
-Streamlit Community Cloud with no code changes.
+The desktop launcher starts a local media file server alongside Streamlit,
+enabling large audio/video files to stream directly without base64 encoding.
+The app can also be deployed to Streamlit Community Cloud (web mode).
+
+---
+
+## Welcome screen
+
+Before any funscript is loaded the app shows an onboarding screen with:
+
+- Wide wordmark logo + cinematic banner
+- Icon row showing the three main workflow tabs (Phrase Selector, Pattern Editor, Transform Catalog)
+- "How to get started" steps and "What the assessment detects" table
 
 ---
 
 ## Sidebar
 
-The sidebar is always visible and controls which funscript is loaded and
-how the assessment is run.
+The sidebar is always visible.
 
 ### File picker
 
-A dropdown lists every `.funscript` file found in the `test_funscript/`
-directory. Selecting a different file or changing any setting below
-triggers an automatic re-assessment.
+**Local (desktop) mode** — a dropdown lists recently used `.funscript` files.
+Type any absolute path to load a file not in the recents list.
+The last 20 paths are remembered across sessions in `output/recent_funscripts.json`.
+
+**Web mode** — `st.file_uploader` widget for `.funscript` files.
+
+Selecting a different file or changing any setting triggers an automatic re-assessment.
+
+### Media file
+
+**Local mode** — a path input for the matching audio or video file.
+The local media server streams it directly to the browser with no file size limit.
+File integrity is checked against magic-byte signatures before loading.
+
+**Web mode** — `st.file_uploader` for audio/video.
 
 ### Phrase detection settings
 
@@ -35,8 +60,7 @@ triggers an automatic re-assessment.
 | Min phrase length (s) | 20 s | Phrases shorter than this are merged into a neighbour |
 | Amplitude sensitivity | Medium (0.30) | How much stroke-depth change triggers a new phrase boundary |
 
-A **Re-analyse** button forces a fresh assessment even when the file and
-settings have not changed.
+A **Re-analyse** button forces a fresh assessment.
 
 ### Chart settings
 
@@ -47,8 +71,14 @@ settings have not changed.
 
 ### Session summary
 
-Once a funscript is loaded, the sidebar shows the file name, total
-duration, average BPM, phrase count, and BPM-transition count.
+Once a funscript is loaded, the sidebar shows the file name, duration, average
+BPM, phrase count, and BPM-transition count.
+
+### Undo / Redo
+
+**↩ Undo** and **↪ Redo** buttons appear once a project is loaded.
+50-level history. Tooltip shows the label of the operation being undone/redone.
+See [streamlit/UNDO.md](streamlit/UNDO.md) for full details.
 
 ### Add manual item
 
@@ -65,39 +95,33 @@ choosing a type, and optionally adding a label.
 
 ## Tabs
 
-### 1. Assessment
+### 0. Phrase Selector
 
-Full pipeline output: summary metrics, phrases table with Focus buttons,
-BPM transitions chart and table with Focus buttons, behavioral patterns
-bar chart and table with Focus buttons, and a phases expander.
+Full-funscript interactive chart with phrase bounding boxes. Click any phrase
+to open the detail panel for transform editing. An **Assessment details**
+expander below the chart shows full pipeline output: summary metrics, phrases
+table, BPM transitions, behavioral patterns, and phases.
 
-### 2. Phrase Editor
+### 1. Pattern Editor
 
-Full-funscript interactive chart with phrase bounding boxes and a
-per-phrase detail panel for transform editing (Original + Preview charts,
-transform controls, Apply / Apply to all).
+Behavioral pattern batch-fix workspace. Phrases are pre-classified into 8 tags.
+A **Pattern Behaviors catalog** expander at the top shows the cross-funscript
+catalog (Gantt timeline, tag stats, library aggregate). Below it, the editor
+lets you select a tag, navigate instances, apply transforms individually or to
+all instances, and split instances into sub-segments.
 
-### 3. Pattern Behaviors
-
-Cross-funscript behavioral pattern catalog — Gantt timeline, tag summary
-with Sample waveform previews, and aggregate library stats.
-
-### 4. Pattern Editor
-
-Behavioral pattern batch-fix workspace. Phrases are pre-classified into
-8 tags (Stingy, Giggle, Plateau, Drift, Half Stroke, Drone, Lazy,
-Frantic). Select a tag, navigate instances with Prev/Next, apply
-transforms individually or to all instances, then build a download.
-
-### 5. Transform Catalog
+### 2. Transform Catalog
 
 Reference guide for all 17 phrase transforms grouped by capability.
 Each entry shows description, best-fit tags, a parameter table, and
 live Before/After charts with interactive sliders.
 
-### 6. Export
+### 3. Export
 
-Transform change log showing every planned transform (from Phrase Editor, Pattern Editor, or auto-recommended) with start/end time, duration, transform name, source, and before → after BPM / cycle count.  Each row has a 🗑 reject button.  A **Download edited funscript** button builds and streams the result.  Also accessible via `python cli.py export-plan`.
+Transform change log showing every planned transform with start/end time,
+duration, transform name, source, and before → after BPM/cycle count.
+Each row has a 🗑 reject button. A **Download edited funscript** button
+builds and streams the result. Also accessible via `python cli.py export-plan`.
 
 ---
 
@@ -111,10 +135,10 @@ Transform change log showing every planned transform (from Phrase Editor, Patter
 ## Tests
 
 ```bash
-# UI common-layer tests (60 tests)
+# UI common-layer tests
 python -m unittest discover -s ui/common/tests -v
 
-# Full test suite (482 tests)
+# Full test suite
 python cli.py test
 ```
 
