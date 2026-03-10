@@ -23,12 +23,12 @@ funscript is loaded.
 
 ## How to use
 
-| Action | How |
-| --- | --- |
-| Undo last operation | Click **↩ Undo** in the sidebar |
-| Redo (after undoing) | Click **↪ Redo** in the sidebar |
-| See what will be undone/redone | Hover the button — the tooltip names the operation |
-| Buttons are greyed out | Nothing left to undo/redo in that direction |
+| Action | Keyboard | Button |
+| --- | --- | --- |
+| Undo last operation | `Ctrl+Z` (Win/Linux) · `⌘Z` (Mac) | **↩ Undo** in sidebar |
+| Redo | `Ctrl+Y` or `Ctrl+Shift+Z` · `⌘Y` or `⌘⇧Z` | **↪ Redo** in sidebar |
+| Save project | `Ctrl+S` · `⌘S` | **Save project** in sidebar |
+| See what will be undone/redone | — | Hover the button for a tooltip |
 
 Undo and Redo are always visible in the sidebar when a project is loaded.
 They are disabled (greyed) when the stack is empty or already at one end.
@@ -55,10 +55,10 @@ They are disabled (greyed) when the stack is empty or already at one end.
 
 ## Architecture
 
-```
+```text
 ui/common/undo_stack.py          Framework-agnostic UndoStack + Snapshot
 ui/streamlit/undo_helpers.py     push_undo() and apply_snapshot() (Streamlit layer)
-ui/streamlit/app.py              Stack init, sidebar buttons, _commit_actions hook
+ui/streamlit/app.py              Stack init, sidebar buttons, keyboard shortcuts, _commit_actions hook
 ui/streamlit/panels/
     pattern_editor.py            push_undo() before add/remove split, apply-to-all
 tests/
@@ -110,12 +110,16 @@ skips if `undo_stack` is not in `session_state`.
 ## Adding undo support to a new operation
 
 1. Import the helper at the call site:
+
    ```python
    from ui.streamlit.undo_helpers import push_undo
    ```
+
 2. Call it **before** the mutating code with a short, human-readable label:
+
    ```python
    push_undo("My operation description")
    do_the_mutation()
    ```
-3. That's it — the sidebar buttons handle the rest automatically.
+
+3. That's it — the sidebar buttons and keyboard shortcuts handle the rest automatically.
