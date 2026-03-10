@@ -638,7 +638,6 @@ def _render_controls(
         options=catalog_labels,
         index=default_idx,
         key=f"pe_tx_sel_{selected_label}_{inst_idx}_{active_seg}",
-        label_visibility="collapsed",
     )
     chosen_key = catalog_keys[catalog_labels.index(chosen_label)]
     spec       = TRANSFORM_CATALOG[chosen_key]
@@ -789,7 +788,6 @@ def _render_controls(
                 options=range(len(pat_names)),
                 format_func=lambda i: pat_names[i],
                 key=f"pe_replace_sel_{selected_label}_{inst_idx}",
-                label_visibility="collapsed",
             )
             chosen_pat = saved_patterns[chosen_idx]
 

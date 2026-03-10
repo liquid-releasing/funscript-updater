@@ -465,7 +465,6 @@ def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: i
         options=labels,
         index=passthrough_idx,
         key=f"transform_sel_{phrase_idx}",
-        label_visibility="collapsed",
     )
     chosen_key = keys[labels.index(chosen_label)]
     spec = TRANSFORM_CATALOG[chosen_key]
