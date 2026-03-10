@@ -202,6 +202,8 @@ def _add_split_point(label: str, i: int, cycle: dict, new_ms: int) -> bool:
     the left half's transform.  All subsequent transforms are renumbered +1.
     Returns True on success, False if the split is invalid.
     """
+    from ui.streamlit.undo_helpers import push_undo
+    push_undo(f"Add split at {new_ms // 1000 // 60}:{(new_ms // 1000) % 60:02d}")
     splits = _get_splits(label, i)
     if new_ms <= cycle["start_ms"] or new_ms >= cycle["end_ms"]:
         return False
@@ -243,6 +245,9 @@ def _remove_split_boundary(label: str, i: int, cycle: dict, split_idx: int) -> b
     the left segment's transform.  Subsequent segments renumbered -1.
     Returns True on success.
     """
+    from ui.streamlit.undo_helpers import push_undo
+    push_undo("Remove split")
+
     splits = _get_splits(label, i)
     if not splits or split_idx >= len(splits):
         return False
@@ -710,6 +715,8 @@ def _render_controls(
         width="stretch",
         help=f"Copy this transform to all {n_instances} instances of '{selected_label}' and go to Export.",
     ):
+        from ui.streamlit.undo_helpers import push_undo
+        push_undo(f"Apply transform to all '{selected_label}'")
         _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
         # Mark every matching work item as done
         proj = st.session_state.get("project")
