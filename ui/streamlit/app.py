@@ -608,10 +608,10 @@ def _main() -> None:
     # Single decorative icon on the right, just above the tab bar.
     _mdir = os.path.join(_ROOT, "media")
     _tab_icon_files = [
-        os.path.join(_mdir, "anvil.png"),
-        os.path.join(_mdir, "worktable.png"),
-        os.path.join(_mdir, "oven.png"),
-        os.path.join(_mdir, "spark.png"),
+        os.path.join(_mdir, "anvil.png"),      # Phrase Selector
+        os.path.join(_mdir, "oven.png"),        # Pattern Editor
+        os.path.join(_mdir, "worktable.png"),   # Transform Catalog
+        os.path.join(_mdir, "spark.png"),       # Export
     ]
     _active_tab  = st.session_state.get("active_tab", 0)
     _active_icon = _tab_icon_files[_active_tab] if 0 <= _active_tab < len(_tab_icon_files) else _tab_icon_files[0]
