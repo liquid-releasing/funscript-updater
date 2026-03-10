@@ -276,3 +276,20 @@ python -m unittest discover -s ui/common/tests -v
 # All at once (482 tests)
 python cli.py test
 ```
+
+---
+
+## Documentation
+
+| README | Description |
+| --- | --- |
+| [assessment/readme.md](assessment/readme.md) | Structural analysis pipeline — phases, cycles, patterns, phrases, BPM transitions (Step 1) |
+| [pattern_catalog/README.md](pattern_catalog/README.md) | BPM-threshold baseline transformer (Step 2) |
+| [user_customization/README.md](user_customization/README.md) | Window-based fine-tuning customizer (Step 3) |
+| [ui/README.md](ui/README.md) | Streamlit UI overview — sidebar controls, all six tabs |
+| [ui/streamlit/README.md](ui/streamlit/README.md) | Detailed Streamlit panel reference — Phrase Editor, Pattern Editor, Export |
+| [ui/common/README.md](ui/common/README.md) | Framework-agnostic business logic: `Project`, `WorkItem`, `ViewState` |
+| [user_transforms/README.md](user_transforms/README.md) | Adding custom transforms via JSON recipe files |
+| [plugins/README.md](plugins/README.md) | Adding custom transforms via Python plugins |
+| [visualizations/README.md](visualizations/README.md) | Matplotlib motion chart components |
+| [tests/README.md](tests/README.md) | Test suite structure and coverage |
