@@ -104,8 +104,15 @@ def _detail_fragment(
     view_state = st.session_state.view_state
     phrase     = phrases[phrase_idx]
 
-    with open(funscript_path) as f:
-        original_actions = json.load(f)["actions"]
+    try:
+        with open(funscript_path) as f:
+            original_actions = json.load(f)["actions"]
+    except (FileNotFoundError, PermissionError) as _e:
+        st.error(f"Funscript file not found: {funscript_path}\n\n{_e}")
+        return
+    except (json.JSONDecodeError, KeyError) as _e:
+        st.error(f"Could not parse funscript: {_e}")
+        return
 
     split_mode = st.session_state.get(f"split_mode_{phrase_idx}", False)
 

@@ -10,12 +10,13 @@ The Edit button zooms the Phrase Editor to that time range.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 import streamlit as st
 
 if TYPE_CHECKING:
     from ui.common.project import Project
+    from ui.common.work_items import WorkItem
 
 
 from dataclasses import dataclass as _dataclass
@@ -38,6 +39,52 @@ _STATUS_OPTIONS = [s.label for s in _STATUSES.values()]
 _STATUS_KEYS    = list(_STATUSES.keys())
 
 
+def _validate_work_items(items: List, duration_ms: int) -> List[str]:
+    """Return a list of human-readable validation error strings.
+
+    Checks
+    ------
+    * Any item where end_ms <= start_ms (zero or negative duration)
+    * Any item where start_ms < 0 or end_ms > duration_ms (out of bounds)
+    * Any pair of overlapping items
+    * Any item covering > 80% of the total duration (UX4 warning)
+    """
+    issues: List[str] = []
+    sorted_items = sorted(items, key=lambda w: w.start_ms)
+
+    for item in sorted_items:
+        ts = f"{item.start_ts} → {item.end_ts}"
+        dur = item.end_ms - item.start_ms
+
+        if dur <= 0:
+            issues.append(f"Zero/negative duration: {ts}")
+            continue
+
+        if item.start_ms < 0:
+            issues.append(f"Start time is negative: {ts}")
+
+        if duration_ms > 0 and item.end_ms > duration_ms:
+            issues.append(f"End time exceeds funscript length: {ts}")
+
+        if duration_ms > 0 and dur > duration_ms * 0.80:
+            pct = dur / duration_ms * 100
+            issues.append(
+                f"Item covers {pct:.0f}% of the funscript — consider splitting it: {ts}"
+            )
+
+    # Overlap check (O(n²) but n is small)
+    for i in range(len(sorted_items)):
+        for j in range(i + 1, len(sorted_items)):
+            a, b = sorted_items[i], sorted_items[j]
+            if a.end_ms > b.start_ms:
+                issues.append(
+                    f"Overlapping items: "
+                    f"{a.start_ts}–{a.end_ts} and {b.start_ts}–{b.end_ts}"
+                )
+
+    return issues
+
+
 def render(project: "Project") -> None:
     if not project.is_loaded:
         st.info("Load a funscript to see work items.")
@@ -58,6 +105,17 @@ def render(project: "Project") -> None:
         st.success("All work items completed.")
     elif n_done > 0:
         st.progress(n_done / n_total, text=f"{n_done} of {n_total} done")
+
+    # --- Validate button (F8) ---
+    duration_ms = project.assessment.duration_ms if project.assessment else 0
+    if st.button("Validate work items", key="wi_validate_btn",
+                 help="Check for overlaps, out-of-bounds times, and items covering the whole file."):
+        issues = _validate_work_items(project.work_items, duration_ms)
+        if issues:
+            for msg in issues:
+                st.warning(f"⚠ {msg}")
+        else:
+            st.success("All work items are valid.")
 
     st.divider()
 

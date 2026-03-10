@@ -15,6 +15,8 @@ expressive performance sections, and gentle breaks.
 
 - Structural analysis: phases → cycles → patterns → phrases → BPM transitions
 - Behavioral classification into 8 tags (stingy, giggle, plateau, drift, half-stroke, drone, lazy, frantic)
+- Duration-based phrase splitting for uniform-tempo funscripts (no more single-phrase output on long uniform files)
+- Real-time progress indicator shows each pipeline stage as it runs
 - Cross-funscript pattern catalog — accumulates stats across all analysed files (persistent JSON)
 
 ### Phrase Selector (Streamlit UI)
@@ -32,6 +34,15 @@ expressive performance sections, and gentle breaks.
 - Apply to all — copies the current instance's transform (or split structure, scaled proportionally) to every other instance of the same tag
 - Selector chart also reflects accepted phrase-editor transforms
 
+### Audio / Video Player
+
+- Phrase-restricted HTML5 player embedded in the sidebar — plays only the currently selected phrase window
+- Animated red playhead overlaid on the waveform chart; Back 5 s / Forward 5 s controls
+- **📌 Set split here** — click during playback to send the current timestamp to the Pattern Editor as a split point
+- Local mode: media streams directly from disk at full quality (no file size limit, no upload wait)
+- Web mode: media uploaded via browser and encoded inline; no server required
+- Magic-byte validation on all 10 supported types (MP3, MP4, M4A, MOV, WAV, OGG, WebM, MKV, AAC, AVI)
+
 ### Export (Streamlit UI)
 
 - Static preview chart at the top shows the full proposed export
@@ -41,7 +52,21 @@ expressive performance sections, and gentle breaks.
 - **Output integrity** — all positions clamped to [0, 100] and timestamps sorted/deduplicated automatically; warning shown if any actions were clamped
 - **Export log** — every downloaded funscript contains a `_forge_log` key recording the transform name, parameters, source, and export timestamp for each change (reproducible sessions)
 - **Full pipeline export** — collapsible panel runs BPM Transformer + Window Customizer directly in the browser; result downloads as a separate `_pipeline.funscript` independent of phrase-editor transforms
+- **Quality gate** — velocity and short-interval checks before download; pass/fail badge with an issues table (capped at 50 rows)
 - Download builds the full result on demand
+
+### Undo / Redo
+
+- 50-level undo/redo stack for accepted phrase transforms
+- Sidebar ↩ Undo / ↪ Redo buttons with operation-label tooltips
+- Keyboard shortcuts: `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo, `Ctrl+S` save
+
+### Accessibility
+
+- WCAG 2.1 Level AA — all Critical items and five of seven Major items resolved
+- `aria-label` on all audio player buttons; `role="timer"` on the time display
+- Screen-reader-only text on rejected export rows; BPM value labels on phrase timeline bars
+- Keyboard shortcut support throughout; `lang="en"` injected at page load
 
 ### CLI
 
@@ -50,7 +75,7 @@ expressive performance sections, and gentle breaks.
 - `finalize` — blend seams + final smooth as standalone post-processing
 - `export-plan` — mirror of the UI Export tab; supports `--apply` to write output directly
 - `catalog` — query and manage the cross-funscript pattern catalog
-- `test` — run all 498 tests
+- `test` — run all 698 tests
 
 ---
 
@@ -183,11 +208,18 @@ pip install -r ui/streamlit/requirements.txt
 ### Launch the UI
 
 ```bash
+# Desktop launcher (recommended) — starts local HTTP media server for audio/video streaming
+python launcher.py
+
+# Or run directly (web/upload mode)
 streamlit run ui/streamlit/app.py
 ```
 
 Opens at `http://localhost:8501`. Select a funscript from the sidebar and
 click **Load / Analyse** to see the assessment results immediately.
+
+The desktop launcher enables local mode: file paths are entered directly, recent files are
+remembered across sessions, and audio/video streams from disk with no upload or size limit.
 
 ### Analyze from the command line
 
@@ -288,13 +320,13 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline + integration tests (498 tests)
+# Core pipeline + integration + UI tests (638 tests)
 python -m unittest discover -s tests -v
 
-# UI layer
+# UI layer (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# All at once
+# All at once (698 tests)
 python cli.py test
 ```
 

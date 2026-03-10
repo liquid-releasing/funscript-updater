@@ -180,7 +180,17 @@ class Project:
     def update_item_times(
         self, item_id: str, start_ms: int, end_ms: int
     ) -> None:
-        """Adjust the time window of a work item."""
+        """Adjust the time window of a work item.
+
+        Raises
+        ------
+        ValueError
+            If ``end_ms <= start_ms``.
+        """
+        if end_ms <= start_ms:
+            raise ValueError(
+                f"end_ms ({end_ms}) must be greater than start_ms ({start_ms})"
+            )
         item = self.get_item(item_id)
         if item:
             item.start_ms = start_ms

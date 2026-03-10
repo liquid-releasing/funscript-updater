@@ -45,6 +45,8 @@ def push_undo(label: str) -> None:
             pe_state=pe_state,
         )
     )
+    # Mark the project as having unsaved changes (UX7).
+    st.session_state["project_dirty"] = True
 
 
 def apply_snapshot(snapshot: Snapshot) -> None:

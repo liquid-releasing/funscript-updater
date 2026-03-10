@@ -99,7 +99,14 @@ if "output_dir" not in st.session_state:
 if "pattern_catalog" not in st.session_state:
     from catalog.pattern_catalog import PatternCatalog
     _catalog_path = os.path.join(_ROOT, "output", "pattern_catalog.json")
-    st.session_state.pattern_catalog = PatternCatalog(_catalog_path)
+    try:
+        st.session_state.pattern_catalog = PatternCatalog(_catalog_path)
+    except Exception:
+        # Corrupt catalog — back it up and start fresh so the app can still load.
+        if os.path.exists(_catalog_path):
+            os.rename(_catalog_path, _catalog_path + ".bak")
+        st.session_state.pattern_catalog = PatternCatalog(_catalog_path)
+        st.session_state["_catalog_reset_warning"] = True
 
 if "view_state" not in st.session_state:
     st.session_state.view_state = ViewState()
@@ -121,6 +128,9 @@ if "bpm_threshold" not in st.session_state:
 
 if "last_loaded_cfg" not in st.session_state:
     st.session_state.last_loaded_cfg = None
+
+if "project_dirty" not in st.session_state:
+    st.session_state.project_dirty = False
 
 if "undo_stack" not in st.session_state:
     from ui.common.undo_stack import UndoStack
@@ -242,6 +252,12 @@ def _media_picker_local(funscript_path: str, output_dir: str) -> None:
 
 
 def _sidebar() -> None:
+    if st.session_state.pop("_catalog_reset_warning", False):
+        st.sidebar.warning(
+            "Pattern catalog was corrupt and has been reset. "
+            "The old file was backed up as `pattern_catalog.json.bak`."
+        )
+
     _logo = os.path.join(_ROOT, "media", "funscriptforge.png")
     if os.path.exists(_logo):
         st.sidebar.image(_logo, width="stretch")
@@ -390,12 +406,17 @@ def _sidebar() -> None:
     )
     cfg_key = (funscript_path, min_phrase_s, amp_sensitivity)
 
-    # Auto-load when the file or settings change.
-    needs_load = (
-        cfg_key != st.session_state.last_loaded_cfg
-    )
+    # Auto-load only when the selected file changes; settings changes require
+    # an explicit Re-analyse click so rapid slider adjustments don't trigger
+    # a full re-assessment on every interaction (T3 debounce).
+    _last_cfg = st.session_state.last_loaded_cfg
+    file_changed     = _last_cfg is None or cfg_key[0] != _last_cfg[0]
+    settings_changed = not file_changed and cfg_key != _last_cfg
 
-    if needs_load or st.sidebar.button("Re-analyse", type="primary"):
+    if settings_changed:
+        st.sidebar.info("Settings changed — click **Re-analyse** to apply.")
+
+    if file_changed or st.sidebar.button("Re-analyse", type="primary"):
         import time
 
         # Progress indicator (#14): sidebar placeholder shows current stage.
@@ -431,8 +452,9 @@ def _sidebar() -> None:
                     duration_ms=_proj.assessment.duration_ms,
                 )
                 _cat.save()
-            except Exception:
-                pass  # catalog update is best-effort; never block the UI
+            except Exception as _cat_err:
+                # Best-effort — never block the UI, but surface disk/permission errors.
+                st.sidebar.warning(f"Pattern catalog could not be saved: {_cat_err}")
 
         _stage_ph.empty()
         st.rerun()
@@ -530,9 +552,35 @@ def _sidebar() -> None:
         project_save_path = os.path.join(
             st.session_state.output_dir, f"{project.name}.project.json"
         )
-        if st.sidebar.button("Save project"):
+        _dirty = st.session_state.get("project_dirty", False)
+        _save_label = "● Save project" if _dirty else "Save project"
+        _save_help  = "Unsaved changes — click to save." if _dirty else "Save the current project state."
+        if st.sidebar.button(_save_label, help=_save_help):
             project.export_project(project_save_path)
+            st.session_state.project_dirty = False
             st.sidebar.success(f"Saved to {project_save_path}")
+
+    _render_sidebar_footer()
+
+
+def _render_sidebar_footer() -> None:
+    """Liquid Releasing logo + copyright notice at the bottom of the sidebar."""
+    _lr_logo = os.path.join(_ROOT, "media", "liquid-releasing-Color-Logo.svg")
+    st.sidebar.markdown("---")
+    if os.path.exists(_lr_logo):
+        with open(_lr_logo, encoding="utf-8") as _f:
+            _svg = _f.read()
+        # Render as an inline HTML block — Streamlit supports SVG via unsafe_allow_html.
+        st.sidebar.markdown(
+            f'<div style="display:flex;align-items:center;gap:8px;opacity:0.65;">'
+            f'<div style="width:80px;flex-shrink:0;">{_svg}</div>'
+            f'<span style="font-size:10px;color:#888;line-height:1.3;">'
+            f'© 2026 Liquid Releasing<br>MIT License</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.sidebar.caption("© 2026 Liquid Releasing · MIT License")
 
 
 # ------------------------------------------------------------------
