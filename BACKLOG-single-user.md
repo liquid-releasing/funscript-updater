@@ -117,7 +117,7 @@ cinematic banner, workflow icon row, "How to get started" steps,
 
 ## Priority 4 — Accessibility ✅ COMPLETE
 
-Full assessment documented in [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md).
+Full assessment documented in [`internal/ACCESSIBILITY.md`](internal/ACCESSIBILITY.md).
 Evaluated against WCAG 2.1 Level AA.  All Critical items and five of seven Major items fixed.
 
 ### ~~4.1 Critical — Audio player accessible button names~~ ✅
