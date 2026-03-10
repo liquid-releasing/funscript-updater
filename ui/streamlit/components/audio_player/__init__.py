@@ -44,23 +44,25 @@ _component_func = components.declare_component(
 
 def phrase_audio_player(
     *,
-    audio_b64: str,
-    audio_mime: str,
     audio_hash: str,
     start_ms: int,
     end_ms: int,
     actions: list,
     split_points: list,
+    # Local mode: stream directly from the media server.
+    audio_url: str | None = None,
+    # Web mode: base64-encoded audio embedded in the component.
+    audio_b64: str | None = None,
+    audio_mime: str | None = None,
     key: str | None = None,
 ) -> dict | None:
     """Render the phrase-restricted audio player component.
 
+    Exactly one of *audio_url* (local/desktop mode) or *audio_b64* + *audio_mime*
+    (web mode) must be supplied.
+
     Parameters
     ----------
-    audio_b64:
-        Base64-encoded audio bytes.
-    audio_mime:
-        MIME type, e.g. ``"audio/mpeg"`` or ``"audio/wav"``.
     audio_hash:
         Short string that changes only when the audio file changes (e.g.
         ``f"{path}:{mtime}"``).  Used by the component to decide whether to
@@ -73,6 +75,13 @@ def phrase_audio_player(
         List of ``{"at": int, "pos": int}`` dicts for the phrase chart.
     split_points:
         Existing split ms values shown as dashed vertical lines on the chart.
+    audio_url:
+        HTTP URL served by the local media server.  When set, ``audio_b64``
+        and ``audio_mime`` are ignored.
+    audio_b64:
+        Base64-encoded audio bytes (web mode only).
+    audio_mime:
+        MIME type, e.g. ``"audio/mpeg"`` or ``"audio/wav"`` (web mode only).
     key:
         Streamlit widget key.  Change when switching phrase instances to
         reset the component state.
@@ -84,6 +93,7 @@ def phrase_audio_player(
         ``None`` otherwise.
     """
     return _component_func(
+        audio_url=audio_url,
         audio_b64=audio_b64,
         audio_mime=audio_mime,
         audio_hash=audio_hash,

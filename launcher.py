@@ -10,7 +10,9 @@ and opens the default browser automatically.
 
 from __future__ import annotations
 
+import http.server
 import os
+import re
 import socket
 import sys
 import threading
@@ -39,6 +41,72 @@ def _base_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+class _MediaHandler(http.server.BaseHTTPRequestHandler):
+    """Minimal HTTP handler that serves local media files by absolute path.
+
+    URL format: GET /media?path=<url-encoded-absolute-path>
+
+    Supports HTTP Range requests so browsers can seek large audio/video files
+    without downloading the whole file first.
+    """
+
+    _MIME = {
+        ".mp3": "audio/mpeg",  ".m4a": "audio/mp4",
+        ".wav": "audio/wav",   ".ogg": "audio/ogg",  ".aac": "audio/aac",
+        ".mp4": "video/mp4",   ".mkv": "video/x-matroska",
+        ".mov": "video/quicktime", ".webm": "video/webm",
+    }
+
+    def do_GET(self) -> None:  # noqa: N802
+        from urllib.parse import urlparse, parse_qs, unquote
+        qs = parse_qs(urlparse(self.path).query)
+        file_path = unquote(qs.get("path", [""])[0])
+
+        if not file_path or not os.path.isabs(file_path) or not os.path.isfile(file_path):
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        ext          = os.path.splitext(file_path)[1].lower()
+        content_type = self._MIME.get(ext, "application/octet-stream")
+        file_size    = os.path.getsize(file_path)
+        range_header = self.headers.get("Range", "")
+
+        if range_header:
+            m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+            if m:
+                start  = int(m.group(1))
+                end    = int(m.group(2)) if m.group(2) else file_size - 1
+                length = end - start + 1
+                self.send_response(206)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(length))
+                self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                self.send_header("Accept-Ranges", "bytes")
+                self.end_headers()
+                with open(file_path, "rb") as fh:
+                    fh.seek(start)
+                    self.wfile.write(fh.read(length))
+                return
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(file_size))
+        self.send_header("Accept-Ranges", "bytes")
+        self.end_headers()
+        with open(file_path, "rb") as fh:
+            self.wfile.write(fh.read())
+
+    def log_message(self, *_args) -> None:  # noqa: D401
+        pass  # suppress console noise
+
+
+def _start_media_server(port: int) -> None:
+    """Run the media file server (blocking — call in a daemon thread)."""
+    server = http.server.HTTPServer(("127.0.0.1", port), _MediaHandler)
+    server.serve_forever()
+
+
 def main() -> None:
     base = _base_dir()
     app_path = os.path.join(base, "ui", "streamlit", "app.py")
@@ -46,8 +114,13 @@ def main() -> None:
     if not os.path.exists(app_path):
         sys.exit(f"[Funscript Forge] Cannot find app.py at: {app_path}")
 
-    port = _find_free_port()
-    url = f"http://localhost:{port}"
+    port       = _find_free_port()
+    media_port = _find_free_port()
+    url        = f"http://localhost:{port}"
+
+    # Mark this as a local desktop session so the UI can skip file-upload widgets.
+    os.environ["FUNSCRIPT_FORGE_LOCAL"]      = "1"
+    os.environ["FUNSCRIPT_FORGE_MEDIA_PORT"] = str(media_port)
 
     # Configure Streamlit via environment variables (before import).
     os.environ.setdefault("STREAMLIT_SERVER_PORT", str(port))
@@ -60,6 +133,10 @@ def main() -> None:
     # Add project root to sys.path so all package imports resolve.
     if base not in sys.path:
         sys.path.insert(0, base)
+
+    # Start the local media file server (serves audio/video by absolute path).
+    threading.Thread(target=_start_media_server, args=(media_port,), daemon=True).start()
+    print(f"[Funscript Forge] Media server on port {media_port}")
 
     print(f"[Funscript Forge] Starting on {url}")
 

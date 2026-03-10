@@ -24,6 +24,7 @@ Main area  (tabs)
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -33,6 +34,10 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 import streamlit as st
+
+# True when launched from launcher.py (desktop / PyInstaller).
+# False when accessed via the web UI or plain `streamlit run`.
+_IS_LOCAL = os.environ.get("FUNSCRIPT_FORGE_LOCAL") == "1"
 
 from ui.common.project import Project
 from ui.common.view_state import ViewState
@@ -93,6 +98,111 @@ if "last_loaded_cfg" not in st.session_state:
     st.session_state.last_loaded_cfg = None
 
 # ------------------------------------------------------------------
+# Local-mode helpers: recent-files list and path pickers
+# ------------------------------------------------------------------
+
+_RECENTS_FILE = "recent_funscripts.json"
+_RECENTS_MAX  = 10
+
+
+def _load_recents(output_dir: str) -> list[str]:
+    """Load the list of recently used funscript paths from disk."""
+    path = os.path.join(output_dir, _RECENTS_FILE)
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        return [p for p in data if isinstance(p, str) and os.path.isfile(p)]
+    except Exception:
+        return []
+
+
+def _save_recents(output_dir: str, file_path: str) -> None:
+    """Prepend *file_path* to the recents list and persist."""
+    recents = _load_recents(output_dir)
+    if file_path in recents:
+        recents.remove(file_path)
+    recents.insert(0, file_path)
+    recents = recents[:_RECENTS_MAX]
+    path = os.path.join(output_dir, _RECENTS_FILE)
+    os.makedirs(output_dir, exist_ok=True)
+    with open(path, "w") as fh:
+        json.dump(recents, fh, indent=2)
+
+
+_BROWSE_SENTINEL = "— enter a path below —"
+
+
+def _funscript_picker_local(output_dir: str) -> str | None:
+    """Local-mode funscript picker: selectbox of recents + text-input fallback.
+
+    Returns the selected absolute path, or ``None`` if nothing valid is chosen.
+    """
+    st.sidebar.subheader("Funscript")
+    recents = _load_recents(output_dir)
+    options = recents + [_BROWSE_SENTINEL]
+    sel = st.sidebar.selectbox(
+        "Recent files",
+        options=options,
+        format_func=lambda p: os.path.basename(p) if p != _BROWSE_SENTINEL else p,
+        key="local_funscript_sel",
+        label_visibility="collapsed",
+    )
+
+    if sel == _BROWSE_SENTINEL:
+        typed = st.sidebar.text_input(
+            "Path to .funscript",
+            key="local_funscript_typed",
+            placeholder=r"C:\path\to\video.funscript",
+            label_visibility="collapsed",
+        ).strip()
+        if not typed:
+            st.sidebar.caption("Paste or type the full path to a .funscript file.")
+            return None
+        if not os.path.isfile(typed):
+            st.sidebar.warning("File not found.")
+            return None
+        return typed
+
+    return sel  # already validated by _load_recents
+
+
+def _media_picker_local(funscript_path: str, output_dir: str) -> None:
+    """Local-mode media picker: auto-detect by stem, or type a path manually."""
+    # Auto-detect once per funscript switch.
+    if st.session_state.get("media_auto_for") != funscript_path:
+        from ui.streamlit.panels.media_player import find_matching_media, MEDIA_EXTS
+        _auto = find_matching_media(funscript_path, os.path.dirname(funscript_path))
+        if _auto:
+            st.session_state["media_path"] = _auto
+        st.session_state["media_auto_for"] = funscript_path
+
+    # Show current media + clear button.
+    _mp = st.session_state.get("media_path")
+    if _mp and os.path.exists(_mp):
+        _mc1, _mc2 = st.sidebar.columns([5, 1])
+        _mc1.caption(f"🎵 {os.path.basename(_mp)}")
+        if _mc2.button("✕", key="clear_media", help="Remove media"):
+            st.session_state.pop("media_path", None)
+            st.session_state.pop("media_auto_for", None)
+            st.rerun()
+        return  # don't show picker when a file is already loaded
+
+    # Manual path entry.
+    typed = st.sidebar.text_input(
+        "Audio/video path (optional)",
+        key="local_media_typed",
+        placeholder=r"C:\path\to\video.mp4",
+        label_visibility="collapsed",
+    ).strip()
+    if typed:
+        if os.path.isfile(typed):
+            st.session_state["media_path"] = typed
+            st.rerun()
+        else:
+            st.sidebar.warning("Media file not found.")
+
+
+# ------------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------------
 
@@ -105,92 +215,96 @@ def _sidebar() -> None:
         st.sidebar.title("Funscript Forge")
     st.sidebar.markdown("---")
 
-    # --- File upload (#5) ---
-    st.sidebar.subheader("Funscript")
-    uploaded = st.sidebar.file_uploader(
-        "Upload a funscript",
-        type=["funscript"],
-        label_visibility="collapsed",
-        help="Upload a .funscript file to analyse it.",
-    )
-    if uploaded is not None:
-        uploads_dir = os.path.join(st.session_state.output_dir, "uploads")
-        os.makedirs(uploads_dir, exist_ok=True)
-        save_path = os.path.join(uploads_dir, uploaded.name)
-        with open(save_path, "wb") as _fh:
-            _fh.write(uploaded.read())
-        st.session_state["last_upload_name"] = uploaded.name
+    # --- File picker: local path input or web upload ---
+    output_dir = st.session_state.output_dir
 
-    # --- Media upload (#2.4) ---
-    media_uploaded = st.sidebar.file_uploader(
-        "Upload audio/video for context playback",
-        type=["mp3", "m4a", "wav", "ogg", "mp4", "mkv", "mov"],
-        label_visibility="collapsed",
-        help="Upload audio or video matching this funscript to enable playback while editing.",
-    )
-    if media_uploaded is not None:
-        uploads_dir = os.path.join(st.session_state.output_dir, "uploads")
-        os.makedirs(uploads_dir, exist_ok=True)
-        media_save_path = os.path.join(uploads_dir, media_uploaded.name)
-        with open(media_save_path, "wb") as _mfh:
-            _mfh.write(media_uploaded.read())
-        st.session_state["media_path"] = media_save_path
+    if _IS_LOCAL:
+        funscript_path = _funscript_picker_local(output_dir)
+        if funscript_path is None:
+            return
+        _media_picker_local(funscript_path, output_dir)
+    else:
+        # Web mode: file upload widgets (kept for the web UI deployment).
+        st.sidebar.subheader("Funscript")
+        uploaded = st.sidebar.file_uploader(
+            "Upload a funscript",
+            type=["funscript"],
+            label_visibility="collapsed",
+            help="Upload a .funscript file to analyse it.",
+        )
+        if uploaded is not None:
+            uploads_dir = os.path.join(output_dir, "uploads")
+            os.makedirs(uploads_dir, exist_ok=True)
+            save_path = os.path.join(uploads_dir, uploaded.name)
+            with open(save_path, "wb") as _fh:
+                _fh.write(uploaded.read())
+            st.session_state["last_upload_name"] = uploaded.name
 
-    # Build candidate list: uploaded files first, then test_funscript/
-    _path_for: dict[str, str] = {}   # display label → full path
+        media_uploaded = st.sidebar.file_uploader(
+            "Upload audio/video for context playback",
+            type=["mp3", "m4a", "wav", "ogg", "mp4", "mkv", "mov"],
+            label_visibility="collapsed",
+            help="Upload audio or video matching this funscript to enable playback while editing.",
+        )
+        if media_uploaded is not None:
+            uploads_dir = os.path.join(output_dir, "uploads")
+            os.makedirs(uploads_dir, exist_ok=True)
+            media_save_path = os.path.join(uploads_dir, media_uploaded.name)
+            with open(media_save_path, "wb") as _mfh:
+                _mfh.write(media_uploaded.read())
+            st.session_state["media_path"] = media_save_path
 
-    uploads_dir = os.path.join(st.session_state.output_dir, "uploads")
-    if os.path.isdir(uploads_dir):
-        for _f in sorted(os.listdir(uploads_dir)):
-            if _f.endswith(".funscript"):
-                _path_for[f"[↑] {_f}"] = os.path.join(uploads_dir, _f)
+        # Build candidate list: uploaded files first, then test_funscript/.
+        _path_for: dict[str, str] = {}
+        uploads_dir = os.path.join(output_dir, "uploads")
+        if os.path.isdir(uploads_dir):
+            for _f in sorted(os.listdir(uploads_dir)):
+                if _f.endswith(".funscript"):
+                    _path_for[f"[↑] {_f}"] = os.path.join(uploads_dir, _f)
 
-    funscript_dir = os.path.join(_ROOT, "test_funscript")
-    if os.path.isdir(funscript_dir):
-        for _f in sorted(os.listdir(funscript_dir)):
-            if _f.endswith(".funscript"):
-                _path_for[_f] = os.path.join(funscript_dir, _f)
+        funscript_dir = os.path.join(_ROOT, "test_funscript")
+        if os.path.isdir(funscript_dir):
+            for _f in sorted(os.listdir(funscript_dir)):
+                if _f.endswith(".funscript"):
+                    _path_for[_f] = os.path.join(funscript_dir, _f)
 
-    if not _path_for:
-        st.sidebar.warning("No .funscript files found. Upload one above.")
-        return
+        if not _path_for:
+            st.sidebar.warning("No .funscript files found. Upload one above.")
+            return
 
-    candidate_labels = list(_path_for.keys())
+        candidate_labels = list(_path_for.keys())
+        _default_idx = 0
+        _last_upload  = st.session_state.get("last_upload_name")
+        if _last_upload:
+            _upload_label = f"[↑] {_last_upload}"
+            if _upload_label in candidate_labels:
+                _default_idx = candidate_labels.index(_upload_label)
 
-    # Auto-select the most recently uploaded file if one was just saved.
-    _default_idx = 0
-    _last_upload = st.session_state.get("last_upload_name")
-    if _last_upload:
-        _upload_label = f"[↑] {_last_upload}"
-        if _upload_label in candidate_labels:
-            _default_idx = candidate_labels.index(_upload_label)
+        selected_label = st.sidebar.selectbox(
+            "Select funscript",
+            options=candidate_labels,
+            index=_default_idx,
+        )
+        funscript_path = _path_for[selected_label]
 
-    selected_label = st.sidebar.selectbox(
-        "Select funscript",
-        options=candidate_labels,
-        index=_default_idx,
-    )
-    funscript_path = _path_for[selected_label]
+        # Auto-detect media by stem in uploads dir.
+        if st.session_state.get("media_auto_for") != funscript_path:
+            from ui.streamlit.panels.media_player import find_matching_media
+            _auto = find_matching_media(funscript_path, uploads_dir)
+            if _auto:
+                st.session_state["media_path"] = _auto
+            st.session_state["media_auto_for"] = funscript_path
+
+        _mp = st.session_state.get("media_path")
+        if _mp and os.path.exists(_mp):
+            _mc1, _mc2 = st.sidebar.columns([5, 1])
+            _mc1.caption(f"🎵 {os.path.basename(_mp)}")
+            if _mc2.button("✕", key="clear_media", help="Remove media"):
+                st.session_state.pop("media_path", None)
+                st.session_state.pop("media_auto_for", None)
+                st.rerun()
+
     selected_file = os.path.basename(funscript_path)
-
-    # Auto-detect media matching the current funscript (runs once per funscript switch).
-    if st.session_state.get("media_auto_for") != funscript_path:
-        from ui.streamlit.panels.media_player import find_matching_media
-        _uploads = os.path.join(st.session_state.output_dir, "uploads")
-        _auto = find_matching_media(funscript_path, _uploads)
-        if _auto:
-            st.session_state["media_path"] = _auto
-        st.session_state["media_auto_for"] = funscript_path
-
-    # Show which media file is loaded (if any).
-    _mp = st.session_state.get("media_path")
-    if _mp and os.path.exists(_mp):
-        _mc1, _mc2 = st.sidebar.columns([5, 1])
-        _mc1.caption(f"🎵 {os.path.basename(_mp)}")
-        if _mc2.button("✕", key="clear_media", help="Remove media"):
-            st.session_state.pop("media_path", None)
-            st.session_state.pop("media_auto_for", None)
-            st.rerun()
 
     # --- Phrase detection parameters ---
     with st.sidebar.expander("Phrase detection settings", expanded=True):
@@ -267,6 +381,8 @@ def _sidebar() -> None:
             st.session_state.last_loaded_cfg  = cfg_key
             st.session_state.last_loaded_file = selected_file
             st.session_state.view_state       = ViewState()
+            if _IS_LOCAL:
+                _save_recents(output_dir, funscript_path)
             st.session_state.export_rejected  = set()
             st.session_state.export_accepted  = set()
 

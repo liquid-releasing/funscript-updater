@@ -293,7 +293,12 @@
     // Reload audio only when the source file actually changes.
     if (args.audio_hash !== lastAudioHash) {
       lastAudioHash = args.audio_hash;
-      audio.src = `data:${args.audio_mime};base64,${args.audio_b64}`;
+      // Local mode: stream from media server URL; web mode: data URI.
+      if (args.audio_url) {
+        audio.src = args.audio_url;
+      } else {
+        audio.src = `data:${args.audio_mime};base64,${args.audio_b64}`;
+      }
       audio.currentTime = startMs / 1000;
       btnPlay.textContent = "▶ Play";
       pinLabel.textContent = "";

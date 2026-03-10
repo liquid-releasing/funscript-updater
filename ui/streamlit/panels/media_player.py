@@ -22,6 +22,17 @@ AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".ogg", ".aac"}
 VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi"}
 MEDIA_EXTS = AUDIO_EXTS | VIDEO_EXTS
 
+# Local desktop mode: launcher sets these so we can stream media via HTTP
+# instead of encoding the whole file as base64.
+_IS_LOCAL   = os.environ.get("FUNSCRIPT_FORGE_LOCAL") == "1"
+_MEDIA_PORT = os.environ.get("FUNSCRIPT_FORGE_MEDIA_PORT", "")
+
+
+def _local_media_url(file_path: str) -> str:
+    """Build the URL for serving *file_path* via the local media server."""
+    from urllib.parse import quote
+    return f"http://127.0.0.1:{_MEDIA_PORT}/media?path={quote(file_path)}"
+
 
 @st.cache_data(show_spinner=False)
 def _read_media_bytes(path: str, _mtime: float) -> bytes:
@@ -78,9 +89,24 @@ def render_player(
         }
         mime       = _mime_map.get(ext, "audio/mpeg")
         audio_hash = f"{media_path}:{os.path.getmtime(media_path)}"
-        raw        = _read_media_bytes(media_path, os.path.getmtime(media_path))
-        b64        = base64.b64encode(raw).decode()
 
+        if _IS_LOCAL and _MEDIA_PORT:
+            # Local mode: browser streams directly from the media server —
+            # no base64 encoding, no large file in Python memory.
+            return phrase_audio_player(
+                audio_url=_local_media_url(media_path),
+                audio_mime=mime,
+                audio_hash=audio_hash,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                actions=actions or [],
+                split_points=[],
+                key=f"player_{key_suffix}",
+            )
+
+        # Web mode: encode to base64 and embed in the component.
+        raw = _read_media_bytes(media_path, os.path.getmtime(media_path))
+        b64 = base64.b64encode(raw).decode()
         return phrase_audio_player(
             audio_b64=b64,
             audio_mime=mime,
