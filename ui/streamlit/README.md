@@ -67,7 +67,17 @@ Full-funscript chart with phrase bounding boxes. When phrase transforms have bee
 
 - **✓ Accept** — stores the transform in session state and returns to the phrase selector (transforms persist until Cancel or re-analysis).
 - **✕ Cancel** — discards all stored transforms and returns to the selector.
-- **✂ Split phrase** — enters split mode: a cycle-based slider selects where to divide the phrase; the split boundary appears as a white dashed line on the chart. Confirms into two new phrases (A/B), navigates to phrase A.
+- **✂ Split phrase** — divides the current phrase into two at a cycle boundary.
+
+  **How to split:**
+  1. Click **✂ Split phrase** in the transform controls column.
+  2. Split mode replaces the transform controls with a cycle slider labelled *Split on cycle (1–N)*.
+  3. Drag the slider to the cycle where you want the split. The caption shows *"Splits between cycle N and N+1 · M:SS"* and a white dashed line appears on the original chart at that timestamp.
+  4. Hover dots on the chart show the cycle number (`cycle N`) to help you orient.
+  5. Click **✂ Split** to confirm. Two new phrases are created (A covers the first half, B the second); the view navigates to phrase A automatically.
+  6. Click **Cancel split** at any time to exit split mode without making changes.
+
+  Phrases with fewer than 2 detected cycles cannot be split by cycle — a warning is shown instead.
 - Hovering a chart dot shows `t=… ms  pos=…  cycle N` for quick orientation.
 
 ### 3. Pattern Behaviors
