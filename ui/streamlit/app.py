@@ -121,6 +121,21 @@ def _sidebar() -> None:
             _fh.write(uploaded.read())
         st.session_state["last_upload_name"] = uploaded.name
 
+    # --- Media upload (#2.4) ---
+    media_uploaded = st.sidebar.file_uploader(
+        "Upload audio/video for context playback",
+        type=["mp3", "m4a", "wav", "ogg", "mp4", "mkv", "mov"],
+        label_visibility="collapsed",
+        help="Upload audio or video matching this funscript to enable playback while editing.",
+    )
+    if media_uploaded is not None:
+        uploads_dir = os.path.join(st.session_state.output_dir, "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        media_save_path = os.path.join(uploads_dir, media_uploaded.name)
+        with open(media_save_path, "wb") as _mfh:
+            _mfh.write(media_uploaded.read())
+        st.session_state["media_path"] = media_save_path
+
     # Build candidate list: uploaded files first, then test_funscript/
     _path_for: dict[str, str] = {}   # display label → full path
 
@@ -157,6 +172,25 @@ def _sidebar() -> None:
     )
     funscript_path = _path_for[selected_label]
     selected_file = os.path.basename(funscript_path)
+
+    # Auto-detect media matching the current funscript (runs once per funscript switch).
+    if st.session_state.get("media_auto_for") != funscript_path:
+        from ui.streamlit.panels.media_player import find_matching_media
+        _uploads = os.path.join(st.session_state.output_dir, "uploads")
+        _auto = find_matching_media(funscript_path, _uploads)
+        if _auto:
+            st.session_state["media_path"] = _auto
+        st.session_state["media_auto_for"] = funscript_path
+
+    # Show which media file is loaded (if any).
+    _mp = st.session_state.get("media_path")
+    if _mp and os.path.exists(_mp):
+        _mc1, _mc2 = st.sidebar.columns([5, 1])
+        _mc1.caption(f"🎵 {os.path.basename(_mp)}")
+        if _mc2.button("✕", key="clear_media", help="Remove media"):
+            st.session_state.pop("media_path", None)
+            st.session_state.pop("media_auto_for", None)
+            st.rerun()
 
     # --- Phrase detection parameters ---
     with st.sidebar.expander("Phrase detection settings", expanded=True):

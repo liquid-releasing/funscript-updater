@@ -452,6 +452,13 @@ def _detail_fragment(
             funscript_path=funscript_path,
         )
 
+    # Media player (#2.4) — cued to this instance's start time
+    from ui.streamlit.panels.media_player import render_player
+    render_player(
+        start_ms=start_ms,
+        key_suffix=f"pe_{selected_label}_{inst_idx}",
+    )
+
 
 # ------------------------------------------------------------------
 # Instance table

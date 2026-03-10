@@ -57,16 +57,16 @@ BPM transitions → Classifying behaviors). Parameter threaded through `Project.
 and `Project.from_funscript()`. In `app.py`, a sidebar `st.empty()` placeholder streams stage
 labels in real-time during the `st.spinner()`. 7 unit tests in `tests/test_priority2.py`.
 
-### 2.4 Audio/video file upload for context playback · `enhancement`
+### ~~2.4 Audio/video file upload for context playback~~ ✅
 
-Allow uploading an audio or video file alongside the funscript so the user can play the
-corresponding clip while editing phrases or patterns.
+`ui/streamlit/panels/media_player.py` created with `render_player(start_ms, key_suffix)`.
+Second `st.file_uploader` in sidebar for `.mp3/.m4a/.wav/.ogg/.mp4/.mkv/.mov`. File saved to
+`output/uploads/`. Auto-detects matching media by funscript stem on file switch. Shows loaded
+filename + ✕ clear button. Player rendered in Phrase Editor (detail mode) and Pattern Editor
+(below instance charts) as a collapsible expander cued to phrase start time via `start_time=`
+arg. Bytes cached with `@st.cache_data` keyed on `(path, mtime)`.
 
-- `st.file_uploader` in the sidebar accepting `.mp3`, `.m4a`, `.wav`, `.mp4`, `.mkv`
-- File saved to `output/uploads/` next to the funscript
-- In Phrase Editor and Pattern Editor: an inline `st.audio()` / `st.video()` player
-  cued to the phrase start time (HTML `#t=<seconds>` anchor on the src URL)
-- Phase 2 (later sprint): show a video thumbnail strip matching the phrase time window
+Deferred: video thumbnail strip (later sprint).
 
 ---
 
