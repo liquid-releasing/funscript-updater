@@ -107,6 +107,10 @@ if "bpm_threshold" not in st.session_state:
 if "last_loaded_cfg" not in st.session_state:
     st.session_state.last_loaded_cfg = None
 
+if "undo_stack" not in st.session_state:
+    from ui.common.undo_stack import UndoStack
+    st.session_state.undo_stack = UndoStack(max_size=50)
+
 # ------------------------------------------------------------------
 # Local-mode helpers: recent-files list and path pickers
 # ------------------------------------------------------------------
@@ -446,6 +450,34 @@ def _sidebar() -> None:
 
         st.sidebar.markdown("---")
 
+        # --- Undo / Redo ---
+        _undo_stack = st.session_state.undo_stack
+        _u_col, _r_col = st.sidebar.columns(2)
+        if _u_col.button(
+            "↩ Undo",
+            disabled=not _undo_stack.can_undo,
+            help=f"Undo: {_undo_stack.undo_label}" if _undo_stack.can_undo else "Nothing to undo",
+            use_container_width=True,
+        ):
+            from ui.streamlit.undo_helpers import apply_snapshot
+            _snap = _undo_stack.undo()
+            if _snap:
+                apply_snapshot(_snap)
+                st.rerun()
+        if _r_col.button(
+            "↪ Redo",
+            disabled=not _undo_stack.can_redo,
+            help=f"Redo: {_undo_stack.redo_label}" if _undo_stack.can_redo else "Nothing to redo",
+            use_container_width=True,
+        ):
+            from ui.streamlit.undo_helpers import apply_snapshot
+            _snap = _undo_stack.redo()
+            if _snap:
+                apply_snapshot(_snap)
+                st.rerun()
+
+        st.sidebar.markdown("---")
+
         # --- Manual item ---
         with st.sidebar.expander("Add manual item"):
             m_start = st.number_input("Start (ms)", min_value=0, value=0, step=1000, key="m_start")
@@ -650,6 +682,9 @@ def _commit_actions(project: Project, committed_actions: list) -> None:
     import json
     import tempfile
     import streamlit as st
+    from ui.streamlit.undo_helpers import push_undo
+
+    push_undo("Edit phrase actions")
 
     with tempfile.NamedTemporaryFile(
         suffix=".funscript", delete=False, mode="w"
