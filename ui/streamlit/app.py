@@ -583,7 +583,7 @@ def _render_sidebar_footer() -> None:
         # Render as an inline HTML block — Streamlit supports SVG via unsafe_allow_html.
         st.sidebar.markdown(
             f'<div style="text-align:center;opacity:0.65;padding:4px 0;">'
-            f'<div style="max-width:60px;margin:0 auto;">{_svg}</div>'
+            f'<div style="max-width:20px;margin:0 auto;">{_svg}</div>'
             f'<div style="font-size:10px;color:#888;margin-top:4px;line-height:1.4;">'
             f'© 2026 Liquid Releasing<br>MIT License</div>'
             f'</div>',
@@ -605,20 +605,19 @@ def _main() -> None:
         _render_welcome()
         return
 
-    # Icon row above tabs — small images aligned to the 4 tab positions.
+    # Single decorative icon on the right, just above the tab bar.
     _mdir = os.path.join(_ROOT, "media")
-    _tab_icons = [
+    _tab_icon_files = [
         os.path.join(_mdir, "anvil.png"),
         os.path.join(_mdir, "worktable.png"),
         os.path.join(_mdir, "oven.png"),
         os.path.join(_mdir, "spark.png"),
     ]
-    _ic = st.columns(4)
-    for _col, _icon in zip(_ic, _tab_icons):
-        if _icon and os.path.exists(_icon):
-            with _col:
-                _il, _im, _ir = st.columns([1, 2, 1])
-                _im.image(_icon, width="stretch")
+    _active_tab  = st.session_state.get("active_tab", 0)
+    _active_icon = _tab_icon_files[_active_tab] if 0 <= _active_tab < len(_tab_icon_files) else _tab_icon_files[0]
+    _, _icon_col = st.columns([4, 1])
+    if os.path.exists(_active_icon):
+        _icon_col.image(_active_icon, width=250)
 
     # Tab indices: 0=Phrase Selector, 1=Pattern Editor, 2=Transform Catalog, 3=Export
     tab_viewer, tab_pattern, tab_transforms, tab_export = st.tabs(
@@ -626,15 +625,19 @@ def _main() -> None:
     )
 
     with tab_viewer:
+        st.session_state["active_tab"] = 0
         _render_phrase_selector_tab(project)
 
     with tab_pattern:
+        st.session_state["active_tab"] = 1
         _render_pattern_editor_tab(project)
 
     with tab_transforms:
+        st.session_state["active_tab"] = 2
         transform_catalog_panel.render()
 
     with tab_export:
+        st.session_state["active_tab"] = 3
         export_panel.render(project)
 
     # Programmatic tab navigation: set st.session_state.goto_tab = <0-based index>
