@@ -84,35 +84,97 @@ Deferred: video thumbnail strip (later sprint).
 
 ---
 
-## Priority 3 — Usability Polish
+## Priority 3 — Usability Polish ✅ COMPLETE
 
-### 3.1 Clean up UI tabs · [#7](https://github.com/liquid-releasing/funscript-forge/issues/7)
+### ~~3.1 Clean up UI tabs~~ · [#7](https://github.com/liquid-releasing/funscript-forge/issues/7) ✅
 
-Current tab bar has 6 tabs. Remove or merge stale tabs. Target order:
+Reduced from 6 tabs to 4: Phrase Selector, Pattern Editor, Transform Catalog, Export.
+Assessment details moved into collapsible expander inside Phrase Selector.
+Pattern Behaviors catalog moved into collapsible expander inside Pattern Editor.
+All `goto_tab` navigation indices updated across 5 panel files.
+Brand art added (`forge-social-banner.png`, `anvil.png`, `worktable.png`, `oven.png`, `spark.png`,
+`funscriptforge-logo-wide.png`, `hammer-striking-anvil.png`).
+Tab icon row (anvil / worktable / oven / spark) added above the tab bar.
+Favicon wired to `anvil.png` via `st.set_page_config`.
 
-1. Phrase Selector (viewer)
-2. Pattern Editor
-3. Transform Catalog (reference only)
-4. Export
+### ~~3.2 Undo / redo for accepted phrase transforms~~ · [#15](https://github.com/liquid-releasing/funscript-forge/issues/15) ✅
 
-### 3.2 Undo / redo for accepted phrase transforms · [#15](https://github.com/liquid-releasing/funscript-forge/issues/15) `enhancement`
+50-level undo/redo stack in `ui/common/undo_stack.py` (framework-agnostic).
+`push_undo()` / `apply_snapshot()` helpers in `ui/streamlit/undo_helpers.py`.
+Sidebar ↩ Undo / ↪ Redo buttons with operation-label tooltips.
+Keyboard shortcuts: `Ctrl+Z` (undo), `Ctrl+Y` / `Ctrl+Shift+Z` (redo), `Ctrl+S` (save).
+Push points: `_commit_actions`, `_add_split_point`, `_remove_split_boundary`, Apply to all.
+37 tests: 20 in `tests/test_undo_stack.py` + 17 in `tests/test_undo_helpers.py`.
+Documented in `ui/streamlit/UNDO.md`.
 
-Let the user undo the last accepted transform (or redo after undo) from the Export panel.
+### ~~3.3 Onboarding flow and guided first-run experience~~ · [#16](https://github.com/liquid-releasing/funscript-forge/issues/16) ✅
 
-### 3.3 Onboarding flow and guided first-run experience · [#16](https://github.com/liquid-releasing/funscript-forge/issues/16) `enhancement`
-
-When no project is loaded, show a welcome screen with step-by-step instructions.
+`_render_welcome()` shown before any funscript is loaded: wide wordmark logo,
+cinematic banner, workflow icon row, "How to get started" steps,
+"What the assessment detects" table, and detection tip.
 
 ---
 
-## Priority 4 — Documentation & Support
+## Priority 4 — Accessibility (Pre-release Gate)
 
-### 4.1 MkDocs user documentation site · [#17](https://github.com/liquid-releasing/funscript-forge/issues/17) `enhancement documentation`
+Full assessment documented in [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md).
+Evaluated against WCAG 2.1 Level AA.  Three Critical issues, five Major, four Minor.
+
+### 4.1 Critical — Audio player accessible button names
+
+`aria-label` attributes missing from all five buttons in the custom audio player
+component (`ui/streamlit/components/audio_player/frontend/index.html`).
+Screen reader users cannot operate the phrase player.
+Add `aria-label` to each button and `aria-live="polite"` + `role="timer"` to the time display.
+
+### 4.2 Critical — Colour-only BPM communication
+
+BPM phrase timeline uses a blue→red gradient as the sole indicator of BPM level.
+Fails WCAG 1.4.1 for red-green colour-blind users (~8% of males).
+Short-term fix: add numeric BPM labels directly on phrase bars.
+Long-term: add colour-blind-friendly palette option (viridis / blue-orange).
+
+### 4.3 Critical — Rejected rows communicated by opacity only
+
+Export panel rejected rows use `opacity: 0.35` + CSS strikethrough with no semantic
+ARIA marker.  Screen readers cannot distinguish rejected from active rows.
+Fix: add `aria-label="rejected"` to row containers or visually-hidden text.
+
+### 4.4 Major — `label_visibility="collapsed"` audit
+
+Several widgets suppress their label entirely from the accessibility tree.
+Audit all `label_visibility="collapsed"` usages and replace with visible labels
+or CSS `sr-only` class so assistive technology can still read them.
+
+### 4.5 Major — Plotly chart descriptions
+
+All `st.plotly_chart()` calls render as SVG with no accessible description.
+Add `st.caption()` below each chart describing its key information in plain text.
+
+### 4.6 Major — Emoji status indicator text fallbacks
+
+`🔴`, `🟡`, `✅`, `🗑` used as sole status indicators in quality check and export tables.
+Add visually-hidden text alongside each emoji for screen reader users.
+
+### 4.7 Major — Inject `lang="en"` at page load
+
+Streamlit does not set `<html lang>`.  Inject via `components.html` JS at startup.
+
+### 4.8 Major — Keyboard focus in pattern editor fragment
+
+`@st.fragment` rerenders may lose focus or trap keyboard navigation.
+Manual keyboard-only test pass required; fix any focus management issues found.
+
+---
+
+## Priority 5 — Documentation & Support
+
+### 5.1 MkDocs user documentation site · [#17](https://github.com/liquid-releasing/funscript-forge/issues/17) `enhancement documentation`
 
 MkDocs + Material theme covering: Getting Started, Assessment, Behavioral Tags (all 8), Transforms
 reference, Pattern Editor, Export, CLI reference.
 
-### 4.2 In-app AI assistant · [#18](https://github.com/liquid-releasing/funscript-forge/issues/18) `enhancement ui`
+### 5.2 In-app AI assistant · [#18](https://github.com/liquid-releasing/funscript-forge/issues/18) `enhancement ui`
 
 Claude API-backed assistant in the sidebar. Context-aware (current phrase tags/BPM/span sent as
 system context). Explains tags, recommends transforms, answers parameter questions.
@@ -120,29 +182,29 @@ Gracefully disabled when no API key is configured.
 
 ---
 
-## Priority 5 — Quality & Reliability
+## Priority 6 — Quality & Reliability
 
-### 5.1 Smoke-test Streamlit app against all three test funscripts · [#1](https://github.com/liquid-releasing/funscript-forge/issues/1) `testing ui`
+### 6.1 Smoke-test Streamlit app against all three test funscripts · [#1](https://github.com/liquid-releasing/funscript-forge/issues/1) `testing ui`
 
 Formal smoke test: load each of the three test funscripts, verify assessment completes without
 error, verify export produces a valid JSON funscript.
 
-### 5.2 Fix uniform-tempo funscript segmentation · [#2](https://github.com/liquid-releasing/funscript-forge/issues/2) `assessment improvement`
+### 6.2 Fix uniform-tempo funscript segmentation · [#2](https://github.com/liquid-releasing/funscript-forge/issues/2) `assessment improvement`
 
 VictoriaOaks (1:33:12) produces a single phrase because the uniform BPM never triggers a
 transition. Add duration-based phrase splitting as a fallback.
 
-### 5.3 Fix Streamlit `use_container_width` deprecation warnings
+### 6.3 Fix Streamlit `use_container_width` deprecation warnings
 
 Minor: suppress deprecation warnings in the sidebar layout.
 
 ---
 
-## Priority 6 — Distribution (This Sprint)
+## Priority 7 — Distribution (This Sprint)
 
 Items required to ship the single-user packaged executable to an end user.
 
-### 6.1 PyInstaller Windows build pipeline · `packaging`
+### 7.1 PyInstaller Windows build pipeline · `packaging`
 
 `launcher.py`, `funscript_forge.spec`, and `build.bat` created.  Remaining work:
 
@@ -152,13 +214,13 @@ Items required to ship the single-user packaged executable to an end user.
 + Add `media/funscriptforge.ico` icon (convert existing PNG with Pillow or ImageMagick)
 + Measure cold-start time; optimize if > 15 s
 
-### 6.2 Output and user-data directory for frozen exe · `packaging`
+### 7.2 Output and user-data directory for frozen exe · `packaging`
 
 When running frozen, `output/` must be placed next to the exe (not inside `_MEIPASS`
 which is read-only on each launch).  Patch `cli.py`, `project.py`, and `pattern_catalog.py`
 to resolve writable directories relative to `sys.executable` (frozen) or `__file__` (dev).
 
-### 6.3 Windows installer (NSIS or Inno Setup) · `packaging`
+### 7.3 Windows installer (NSIS or Inno Setup) · `packaging`
 
 Wrap `dist/FunscriptForge/` in a one-click installer:
 
@@ -166,13 +228,13 @@ Wrap `dist/FunscriptForge/` in a one-click installer:
 + Create Start Menu shortcut and optional Desktop shortcut
 + Add uninstaller
 
-### 6.4 Auto-update mechanism · `packaging`
+### 7.4 Auto-update mechanism · `packaging`
 
 For a single known user, the simplest path is a `check_for_update()` call on startup
 that compares a `VERSION` file against a GitHub release tag and shows a banner if a
 newer build is available (no silent auto-install required for v1).
 
-### 6.5 GitHub Release and distribution artifact · `packaging`
+### 7.5 GitHub Release and distribution artifact · `packaging`
 
 + Add `VERSION` file (semver, currently `0.5.0`)
 + Create a GitHub Actions workflow (`release.yml`) that builds the exe on push to a

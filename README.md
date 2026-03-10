@@ -315,6 +315,7 @@ python cli.py test
 | [plugins/README.md](plugins/README.md) | Adding custom transforms via Python plugins |
 | [visualizations/README.md](visualizations/README.md) | Matplotlib motion chart components |
 | [tests/README.md](tests/README.md) | Test suite structure and coverage |
+| [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) | WCAG 2.1 AA accessibility assessment — issues, severity, recommended fixes |
 
 ---
 
