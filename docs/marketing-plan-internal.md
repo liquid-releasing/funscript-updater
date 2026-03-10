@@ -4,6 +4,124 @@
 
 ---
 
+## Pricing tiers — feature comparison and rationale
+
+### Recommended model: two tiers + usage limits
+
+Two-tier keeps the decision simple for users ("free or paid?") and reduces
+friction at the top of the funnel. Usage limits gate the most expensive operations
+(assessment, large file export) without blocking casual exploration.
+
+---
+
+### Tier comparison
+
+| Feature | **Free** | **Creator — $12/month** |
+| --- | --- | --- |
+| **Funscripts per month** | 5 | Unlimited |
+| **Max file duration** | 15 min | 3 hours |
+| **Structural analysis** (assess) | ✅ | ✅ |
+| **Behavioral classification** (8 tags) | ✅ | ✅ |
+| **Phrase Editor** (manual transform) | ✅ | ✅ |
+| **Transform Catalog** (view only) | ✅ | ✅ |
+| **Export — single transform** | ✅ | ✅ |
+| **Pattern Editor** (batch fix by tag) | ❌ | ✅ |
+| **Apply to all** (batch apply) | ❌ | ✅ |
+| **Export — recommended auto-transforms** | ❌ | ✅ |
+| **Blend seams + final smooth** post-processing | ❌ | ✅ |
+| **Phrase split** by cycle boundary | ❌ | ✅ |
+| **Cross-script pattern catalog** | View only | Full read/write |
+| **Custom transforms** (JSON recipes) | ❌ | ✅ |
+| **Python plugins** | ❌ | ✅ |
+| **CLI access** (all commands) | ❌ | ✅ |
+| **Project save/load** (.project.json) | ❌ | ✅ |
+| **API access** (when REST API ships) | ❌ | ✅ (100 req/day) |
+| **Priority processing queue** | ❌ | ✅ |
+| **Support** | Community forum | Email, 48 h SLA |
+
+---
+
+### Rationale for each gate
+
+**Free tier gives enough to evaluate quality:**
+The core Phrase Editor + assess pipeline lets a new user see real before/after
+results on their own script. This is the "aha moment" — they see their stingy
+section become a full-range script. Free is generous enough to convert sceptics.
+
+**Pattern Editor behind paywall — highest leverage feature:**
+"Apply to all" is the time-multiplier that distinguishes Forge from manual work.
+It's the clearest demonstration of paid value: fix 12 drone sections in one click
+instead of 12 separate edits.
+
+**Auto-recommended transforms behind paywall:**
+The suggest_transform() system requires the classifier + catalog. It's the
+"let the AI decide" feature that casual free users may not need but power users
+will pay for.
+
+**Seam blend + final smooth behind paywall:**
+These are the polish pass — the difference between "good" and "professional".
+They can be mentioned in free-tier output as a teaser: "Your export is ready.
+Upgrade to add seam blending."
+
+**CLI behind paywall:**
+Technical users who want scripted batch processing are more likely to be
+paying customers than casual UI users. Keeping CLI paid also creates an
+upgrade incentive for developers.
+
+---
+
+### Usage limits rationale
+
+| Limit | Free | Creator | Why |
+| --- | --- | --- | --- |
+| Scripts/month | 5 | Unlimited | Covers occasional use; forces upgrade for regular workflow |
+| Max duration | 15 min | 3 hours | Prevents abuse of free tier for feature-length content |
+| API req/day | — | 100 | Prevents API scraping; Studio tier (future) gets higher limits |
+
+**5 free scripts/month** is the sweet spot:
+
+- Enough to evaluate the tool thoroughly (try it on 5 real scripts)
+- Not enough to replace a paid workflow (a regular scripter does 5–30/month)
+- Not so low that it feels stingy on first impression
+
+**15 min cap** maps to typical scene length — free users can process a full scene,
+just not a full video.
+
+---
+
+### Pricing: why $12/month
+
+| Comparable SaaS | Price | Category |
+| --- | --- | --- |
+| ElevenLabs Starter | $5/month | AI audio |
+| Udio Standard | $10/month | AI music |
+| RunwayML Standard | $15/month | AI video |
+| Adobe Express | $10/month | Creative tools |
+| **Funscript Forge Creator** | **$12/month** | Haptic post-production |
+
+$12 positions Forge as a professional creative tool, not a toy.
+It's below the psychological "it's expensive" threshold (~$15–20)
+while being above "it's not worth supporting" (~$5).
+
+**Annual plan at $99/year** (save ~$45) — recommended as the default CTA.
+Annual subscribers churn at ~half the rate of monthly, and the upfront revenue
+improves cash flow.
+
+---
+
+### Upgrade triggers (when to show the paywall)
+
+1. User tries Pattern Editor → "Pattern Editor is a Creator feature — upgrade to fix all [tag] sections at once"
+2. User hits 5-script limit → "You've used your 5 free scripts this month. Upgrade to continue."
+3. User tries Export with recommended transforms enabled → "Recommended transforms require Creator"
+4. User tries to download with seam blend checked → "Seam blend is a Creator feature"
+5. User tries to run CLI → mention Creator in help text
+
+These are **contextual paywalls** — shown at the moment of value, not on a
+generic pricing page. Contextual paywalls convert at 3–5× the rate of generic ones.
+
+---
+
 ## Market sizing
 
 ### Who creates funscripts?
