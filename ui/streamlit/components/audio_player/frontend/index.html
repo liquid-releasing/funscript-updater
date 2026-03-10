@@ -38,13 +38,13 @@
 <div id="chart"></div>
 
 <div id="controls">
-  <button class="btn" id="btn-back"  title="Back 5 seconds">⏮ 5s</button>
-  <button class="btn play" id="btn-play">▶ Play</button>
-  <button class="btn" id="btn-stop">⏹ Stop</button>
-  <button class="btn" id="btn-fwd"   title="Forward 5 seconds">5s ⏭</button>
-  <span   id="time-display">0:00 / 0:00</span>
-  <button class="btn pin" id="btn-pin">📌 Set split here</button>
-  <span   id="pin-label"></span>
+  <button class="btn" id="btn-back" aria-label="Back 5 seconds">⏮ 5s</button>
+  <button class="btn play" id="btn-play" aria-label="Play">▶ Play</button>
+  <button class="btn" id="btn-stop" aria-label="Stop">⏹ Stop</button>
+  <button class="btn" id="btn-fwd"  aria-label="Forward 5 seconds">5s ⏭</button>
+  <span   id="time-display" role="timer" aria-live="off" aria-label="Playback position">0:00 / 0:00</span>
+  <button class="btn pin" id="btn-pin" aria-label="Set split here">📌 Set split here</button>
+  <span   id="pin-label" aria-live="polite"></span>
 </div>
 
 <audio id="audio" preload="auto"></audio>
@@ -145,6 +145,7 @@
       audio.pause();
       audio.currentTime = endMs / 1000;
       btnPlay.textContent = "▶ Play";
+      btnPlay.setAttribute("aria-label", "Play");
       cancelAnimationFrame(rafId);
       movePlayhead(endMs);
       updateTimeDisplay();
@@ -162,11 +163,13 @@
       }
       audio.play();
       btnPlay.textContent = "⏸ Pause";
+      btnPlay.setAttribute("aria-label", "Pause");
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(animatePlayhead);
     } else {
       audio.pause();
       btnPlay.textContent = "▶ Play";
+      btnPlay.setAttribute("aria-label", "Play");
       cancelAnimationFrame(rafId);
     }
   });
@@ -175,6 +178,7 @@
     audio.pause();
     audio.currentTime = startMs / 1000;
     btnPlay.textContent = "▶ Play";
+    btnPlay.setAttribute("aria-label", "Play");
     cancelAnimationFrame(rafId);
     movePlayhead(startMs);
     updateTimeDisplay();
@@ -301,6 +305,7 @@
       }
       audio.currentTime = startMs / 1000;
       btnPlay.textContent = "▶ Play";
+      btnPlay.setAttribute("aria-label", "Play");
       pinLabel.textContent = "";
       cancelAnimationFrame(rafId);
     }

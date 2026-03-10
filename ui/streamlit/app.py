@@ -72,6 +72,21 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------
+# Global accessibility CSS
+# ------------------------------------------------------------------
+# .sr-only: visually hidden but readable by screen readers (WCAG C2, M4).
+st.markdown(
+    """<style>
+    .sr-only {
+        position: absolute; width: 1px; height: 1px;
+        padding: 0; margin: -1px; overflow: hidden;
+        clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+    </style>""",
+    unsafe_allow_html=True,
+)
+
+# ------------------------------------------------------------------
 # Session state initialisation
 # ------------------------------------------------------------------
 
@@ -592,6 +607,9 @@ def _main() -> None:
             var p = window.parent;
             if (p.__forgeKeysRegistered) return;
             p.__forgeKeysRegistered = true;
+
+            // M5: ensure screen readers use English pronunciation rules.
+            p.document.documentElement.lang = 'en';
 
             function clickButton(startsWith) {
                 var btns = p.document.querySelectorAll('button');
