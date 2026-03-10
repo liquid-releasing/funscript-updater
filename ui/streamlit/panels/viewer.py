@@ -48,9 +48,25 @@ def _selector_fragment(
     phrases = assessment_dict.get("phrases", [])
     bands   = compute_annotation_bands(assessment_dict)
 
+    # Show edited version if any phrase transforms have been accepted
+    from ui.streamlit.panels.phrase_detail import build_edited_actions
+    has_edits = any(
+        k.startswith("phrase_transform_")
+        and st.session_state[k].get("transform_key", "passthrough") != "passthrough"
+        for k in st.session_state
+    )
+    if has_edits:
+        display_actions = build_edited_actions(phrases, original_actions)
+        st.info(
+            "These edits have not been saved — ready for export.",
+            icon="💾",
+        )
+    else:
+        display_actions = original_actions
+
     _render_controls(view_state, duration_ms, phrases)
 
-    n_actions   = len(original_actions)
+    n_actions   = len(display_actions)
     spinner_msg = (
         f"Building chart ({n_actions} actions — using fast rendering)…"
         if n_actions > large_funscript_threshold
@@ -58,7 +74,7 @@ def _selector_fragment(
     )
     _t0 = _time.time()
     with st.spinner(spinner_msg):
-        series  = compute_chart_data(original_actions)
+        series  = compute_chart_data(display_actions)
         chart   = FunscriptChart(
             series, bands, "", duration_ms,
             large_funscript_threshold=large_funscript_threshold,
@@ -257,41 +273,62 @@ def _handle_chart_event(event, view_state, phrases: list) -> None:
 
 
 # ------------------------------------------------------------------
-# Phrase quick-jump bar
+# Phrase table
 # ------------------------------------------------------------------
 
 def _render_phrase_bar(phrases: list, view_state) -> None:
-    """A numbered button for each phrase; clicking selects it."""
+    """Per-row table of all phrases with an Edit button on each row."""
     if not phrases:
         return
 
+    from assessment.classifier import TAGS
+
     st.caption(
         f"{len(phrases)} phrase{'s' if len(phrases) != 1 else ''} — "
-        "click a phrase on the chart or use the buttons below"
+        "click a phrase on the chart above or use the Edit buttons below"
     )
 
-    chunk_size = 10
-    chunks = [phrases[i:i + chunk_size] for i in range(0, len(phrases), chunk_size)]
-    for row_idx, chunk in enumerate(chunks):
-        cols = st.columns(len(chunk))
-        for col_idx, ph in enumerate(chunk):
-            idx   = row_idx * chunk_size + col_idx
-            start = ph["start_ms"]
-            end   = ph["end_ms"]
-            is_sel = (
-                view_state.has_selection()
-                and view_state.selection_start_ms == start
-                and view_state.selection_end_ms   == end
-            )
-            label = f"◆ P{idx + 1}" if is_sel else f"P{idx + 1}"
-            tip   = (
-                f"{ms_to_timestamp(start)} — {ms_to_timestamp(end)}\n"
-                f"{ph.get('bpm', 0):.0f} BPM  ·  {ph.get('pattern_label', '')}"
-            )
-            with cols[col_idx]:
-                if st.button(label, key=f"phrase_btn_{idx}", help=tip):
-                    _select_phrase(ph, view_state)
-                    st.rerun(scope="app")   # full rerun → switches to detail mode
+    _col_w = [0.5, 3.0, 1.2, 1.0, 3.0, 1.2, 1.5]
+    hcols = st.columns(_col_w)
+    for h, lbl in zip(hcols, ["#", "Time", "Dur", "BPM", "Behavior", "Cycles", ""]):
+        h.caption(lbl)
+
+    for i, ph in enumerate(phrases):
+        start   = ph["start_ms"]
+        end     = ph["end_ms"]
+        dur_ms  = end - start
+        bpm     = ph.get("bpm", 0.0)
+        cycles  = ph.get("cycle_count", "—")
+        raw_tags = ph.get("tags", []) or []
+
+        # Behavior: prefer human tag labels, fall back to pattern_label
+        if raw_tags:
+            behavior = ", ".join(TAGS[t].label if t in TAGS else t for t in raw_tags)
+        else:
+            behavior = (ph.get("pattern_label", "") or "—").replace("->", "→")
+
+        time_str = f"{ms_to_timestamp(start)} → {ms_to_timestamp(end)}"
+        dur_str  = ms_to_timestamp(max(0, dur_ms))
+
+        is_sel = (
+            view_state.has_selection()
+            and view_state.selection_start_ms == start
+            and view_state.selection_end_ms   == end
+        )
+
+        rc = st.columns(_col_w)
+        rc[0].markdown(
+            f'<span style="white-space:nowrap">{"◆ " if is_sel else ""}{i + 1}</span>',
+            unsafe_allow_html=True,
+        )
+        rc[1].write(time_str)
+        rc[2].write(dur_str)
+        rc[3].write(f"{bpm:.1f}")
+        rc[4].write(behavior)
+        rc[5].write(str(cycles))
+        if rc[6].button("✏", key=f"phrase_btn_{i}", type="primary" if is_sel else "secondary", help="Edit phrase"):
+            _select_phrase(ph, view_state)
+            st.rerun(scope="app")
 
 
 # ------------------------------------------------------------------
@@ -318,12 +355,18 @@ def _render_phrase_info(view_state, phrases: list) -> None:
         st.markdown(f"### P{phrase_idx + 1}")
     with col_a:
         import pandas as pd
+        from assessment.classifier import TAGS
+        raw_tags = phrase.get("tags") or []
+        if raw_tags:
+            behavior = ", ".join(TAGS[t].label if t in TAGS else t for t in raw_tags)
+        else:
+            behavior = (phrase.get("pattern_label") or "—").replace("->", "→")
         row = {
             "Start":    ms_to_timestamp(start),
             "End":      ms_to_timestamp(end),
             "Duration": f"{duration_ms / 1000:.1f} s",
             "BPM":      f"{phrase.get('bpm', 0):.1f}",
-            "Pattern":  phrase.get("pattern_label", "—"),
+            "Behavior": behavior,
             "Cycles":   phrase.get("cycle_count", "—"),
         }
         st.dataframe(pd.DataFrame([row]), hide_index=True, width="stretch")

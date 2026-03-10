@@ -242,5 +242,184 @@ class TestCliConfig(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+class TestCliExportPlan(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.assessment = os.path.join(self.tmp, "assessment.json")
+        run("assess", FIXTURE, "--output", self.assessment)
+
+    def test_exits_zero(self):
+        rc, _, _ = run("export-plan", FIXTURE, "--assessment", self.assessment)
+        self.assertEqual(rc, 0)
+
+    def test_prints_table_header(self):
+        _, stdout, _ = run("export-plan", FIXTURE, "--assessment", self.assessment)
+        self.assertIn("Transform", stdout)
+        self.assertIn("Source", stdout)
+        self.assertIn("BPM", stdout)
+
+    def test_no_recommended_shows_zero_transforms(self):
+        _, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment, "--no-recommended"
+        )
+        self.assertIn("0 transform", stdout)
+
+    def test_json_format_is_valid(self):
+        rc, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment, "--format", "json"
+        )
+        self.assertEqual(rc, 0)
+        data = json.loads(stdout)
+        self.assertIsInstance(data, list)
+        if data:
+            self.assertIn("phrase", data[0])
+            self.assertIn("transform", data[0])
+            self.assertIn("bpm", data[0])
+
+    def test_transforms_file_override(self):
+        overrides = os.path.join(self.tmp, "overrides.json")
+        with open(overrides, "w") as f:
+            json.dump({"1": {"transform": "normalize"}}, f)
+        _, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment,
+            "--no-recommended", "--transforms", overrides,
+        )
+        self.assertIn("Normalize", stdout)
+        self.assertIn("Manual", stdout)
+
+    def test_apply_writes_funscript(self):
+        out = os.path.join(self.tmp, "export.funscript")
+        rc, _, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment,
+            "--apply", "--output", out,
+        )
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(out))
+        with open(out) as f:
+            data = json.load(f)
+        self.assertIn("actions", data)
+        for a in data["actions"]:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    def test_dry_run_writes_no_file(self):
+        out = os.path.join(self.tmp, "should_not_exist.funscript")
+        rc, stdout, _ = run(
+            "export-plan", FIXTURE, "--assessment", self.assessment,
+            "--dry-run", "--output", out,
+        )
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.exists(out))
+        self.assertIn("dry-run", stdout)
+
+
+class TestCliFinalize(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        # Provide a transformed funscript to finalize
+        self.assessment = os.path.join(self.tmp, "a.json")
+        self.transformed = os.path.join(self.tmp, "t.funscript")
+        run("assess", FIXTURE, "--output", self.assessment)
+        run("transform", FIXTURE, "--assessment", self.assessment,
+            "--output", self.transformed)
+
+    def test_finalize_exits_zero(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, _, _ = run("finalize", self.transformed, "--output", out)
+        self.assertEqual(rc, 0)
+
+    def test_finalize_writes_valid_funscript(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        run("finalize", self.transformed, "--output", out)
+        self.assertTrue(os.path.exists(out))
+        with open(out) as f:
+            data = json.load(f)
+        self.assertIn("actions", data)
+        for a in data["actions"]:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    def test_finalize_default_output_path(self):
+        import shutil
+        src = os.path.join(self.tmp, "myscore.funscript")
+        shutil.copy(self.transformed, src)
+        rc, _, _ = run("finalize", src)
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(
+            os.path.join(self.tmp, "myscore_finalized.funscript")
+        ))
+
+    def test_finalize_skip_seams(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, stdout, _ = run("finalize", self.transformed, "--output", out, "--skip-seams")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("blend_seams", stdout)
+
+    def test_finalize_skip_smooth(self):
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, stdout, _ = run("finalize", self.transformed, "--output", out, "--skip-smooth")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("final_smooth", stdout)
+
+    def test_finalize_skip_both_still_writes(self):
+        """Skipping both passes still produces an output file (passthrough)."""
+        out = os.path.join(self.tmp, "fin.funscript")
+        rc, _, _ = run("finalize", self.transformed, "--output", out,
+                       "--skip-seams", "--skip-smooth")
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(out))
+
+
+class TestCliListTransforms(unittest.TestCase):
+    def test_exits_zero(self):
+        rc, _, _ = run("list-transforms")
+        self.assertEqual(rc, 0)
+
+    def test_builtin_keys_present(self):
+        _, stdout, _ = run("list-transforms")
+        for key in ("amplitude_scale", "normalize", "smooth", "halve_tempo", "blend_seams"):
+            self.assertIn(key, stdout)
+
+    def test_user_only_shows_user_transforms(self):
+        """example_clamp_center is loaded from plugins/example_plugin.py."""
+        _, stdout, _ = run("list-transforms", "--user-only")
+        self.assertIn("example_clamp_center", stdout)
+        self.assertNotIn("amplitude_scale", stdout)
+
+    def test_user_only_empty_when_no_user_transforms(self):
+        """--user-only in a temp dir with no user_transforms/ or plugins/ prints nothing."""
+        import tempfile, shutil
+        # Run with a cwd that has no user_transforms or plugins dirs
+        tmp = tempfile.mkdtemp()
+        rc, stdout, _ = run("list-transforms", "--user-only", cwd=tmp)
+        shutil.rmtree(tmp)
+        self.assertEqual(rc, 0)
+        # output may be "No transforms found." or empty
+        self.assertNotIn("amplitude_scale", stdout)
+
+    def test_verbose_shows_param_details(self):
+        _, stdout, _ = run("list-transforms", "--verbose")
+        self.assertIn("--param", stdout)
+
+    def test_format_json_valid(self):
+        _, stdout, _ = run("list-transforms", "--format", "json")
+        data = json.loads(stdout)
+        self.assertIn("amplitude_scale", data)
+        self.assertIn("name", data["amplitude_scale"])
+        self.assertIn("source", data["amplitude_scale"])
+
+    def test_format_json_user_source_tag(self):
+        _, stdout, _ = run("list-transforms", "--format", "json")
+        data = json.loads(stdout)
+        self.assertEqual(data["amplitude_scale"]["source"], "builtin")
+        self.assertEqual(data["example_clamp_center"]["source"], "user")
+
+    def test_format_json_verbose_includes_params(self):
+        _, stdout, _ = run("list-transforms", "--format", "json", "--verbose")
+        data = json.loads(stdout)
+        self.assertIn("params", data["amplitude_scale"])
+        self.assertIn("scale", data["amplitude_scale"]["params"])
+
+
 if __name__ == "__main__":
     unittest.main()

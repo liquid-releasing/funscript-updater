@@ -115,7 +115,7 @@ def _render_time_item_list(
                 f"  `{duration:,} ms`  {label}{extra}"
             )
         with col2:
-            if st.button("Focus", key=f"{list_key}_{i}"):
+            if st.button("👁", key=f"{list_key}_{i}", help="Focus in Phrase Editor"):
                 _padding = min(500, duration // 10)
                 view_state.set_zoom(
                     max(0, start - _padding),
@@ -152,7 +152,7 @@ def _render_pattern_list(patterns: list, view_state) -> None:
                         f"Cycle {j+1}: **{ms_to_timestamp(start)}** — {ms_to_timestamp(end)}"
                     )
                 with col2:
-                    if st.button("Focus", key=f"nav_patterns_{i}_{j}"):
+                    if st.button("👁", key=f"nav_patterns_{i}_{j}", help="Focus in Phrase Editor"):
                         _padding = min(500, (end - start) // 10)
                         view_state.set_zoom(
                             max(0, start - _padding),
@@ -186,7 +186,7 @@ def _render_transition_list(transitions: list, view_state) -> None:
                 f"(`{sign}{pct:.1f}%`)"
             )
         with col2:
-            if st.button("Focus", key=f"nav_trans_{i}"):
+            if st.button("👁", key=f"nav_trans_{i}", help="Focus in Phrase Editor"):
                 _window = 5_000
                 view_state.set_zoom(
                     max(0, at_ms - _window),

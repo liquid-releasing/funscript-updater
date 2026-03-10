@@ -1,4 +1,6 @@
-# funscript-updater
+# funscript-forge
+
+![Funscript Forge](media/funscriptforge.png)
 
 A structure-aware post-processor for funscripts. It analyzes the motion
 structure of an existing script, lets you review and tag sections through an
@@ -7,18 +9,40 @@ expressive performance sections, and gentle breaks.
 
 ---
 
-## Current state
+## Features
 
-| Capability | Status |
-| --- | --- |
-| Structural analysis (phases, cycles, patterns, phrases, BPM transitions) | ✅ Available |
-| Behavioral classification (8 tags: stingy, giggle, drone, …) | ✅ Available |
-| Cross-funscript pattern catalog (persistent JSON) | ✅ Available |
-| Interactive assessment viewer (Streamlit UI) | ✅ Available |
-| Pattern Editor (batch-fix behavioral issues with transforms) | ✅ Available |
-| Work-item tagger (performance / break / raw / neutral) | ✅ Available |
-| Transform + customize pipeline | ✅ Available via CLI |
-| Transform + customize inside the UI | 🔜 Coming soon |
+**Analysis**
+- Structural analysis: phases → cycles → patterns → phrases → BPM transitions
+- Behavioral classification into 8 tags (stingy, giggle, plateau, drift, half-stroke, drone, lazy, frantic)
+- Cross-funscript pattern catalog — accumulates stats across all analysed files (persistent JSON)
+
+**Phrase Editor (Streamlit UI)**
+- Full-funscript colour-coded chart with phrase bounding boxes; click any phrase to open its detail panel
+- Per-phrase transform selection with live parameter sliders and Before / After preview
+- Cycle-based phrase split — slider selects the split boundary; a dashed line marks it on the chart; hover any dot to see its cycle number
+- ✓ Accept stores the transform in session state; ✕ Cancel discards only the current phrase's pending change
+- Selector chart shows the accumulated edited funscript (with banner) once any transform has been accepted
+
+**Pattern Editor (Streamlit UI)**
+- Select phrases by behavioral tag; view all matching instances at once
+- Per-instance transform + per-segment split (split into non-overlapping sub-ranges, each with its own transform)
+- Apply to all — copies the current instance's transform (or split structure, scaled proportionally) to every other instance of the same tag
+- Selector chart also reflects accepted phrase-editor transforms
+
+**Export (Streamlit UI)**
+- Static preview chart at the top shows the full proposed export
+- Completed transforms (from Phrase Editor or Pattern Editor) listed with reject / restore per row
+- Recommended transforms (tag-aware auto-suggestions) listed separately; each must be explicitly accepted before it is included in the download
+- Optional post-processing: blend seams (bilateral LPF at high-velocity style boundaries) and final smooth (light global LPF)
+- Download builds the full result on demand
+
+**CLI**
+- `assess`, `transform`, `customize`, `pipeline` — full analysis and transform pipeline
+- `phrase-transform` — apply any catalog transform to individual phrases from the command line
+- `finalize` — blend seams + final smooth as standalone post-processing
+- `export-plan` — mirror of the UI Export tab; supports `--apply` to write output directly
+- `catalog` — query and manage the cross-funscript pattern catalog
+- `test` — run all 511 tests
 
 ---
 
@@ -47,23 +71,60 @@ Open the Streamlit app and load your funscript. The **Assessment** tab shows
 the full pipeline output — a colour-coded phrase timeline, BPM transitions
 table, and drill-down detail for patterns and phases.
 
-The **Work Items** tab lists every detected section. Each one can be tagged:
+The **Phrase Editor** tab shows the full funscript as a colour-coded chart
+with phrase bounding boxes.  Click any phrase to open its detail panel where
+you can select a transform, tune its parameters with live sliders, and see a
+Before / After preview.  Use **Apply to all** to copy the same transform to
+every instance of the same behavioral tag.
 
-| Tag | Meaning |
-| --- | --- |
-| 🔥 Performance | High-energy section — apply velocity limiting and compression |
-| 🌊 Break | Rest section — reduce amplitude and pull toward centre |
-| 🎯 Raw | Preserve original actions verbatim |
-| ⚪ Neutral | Let the BPM-threshold transformer decide |
+The **Pattern Editor** tab lets you fix behavioral issues phrase by phrase.
+Each phrase instance shows an original chart and a live preview as you adjust
+transforms.  For phrases that span a long section (e.g. a single pattern
+covering most of the file), you can **split** the phrase into non-overlapping
+sub-ranges and apply a different transform to each one.  Split boundaries
+are shown as dashed lines on both charts.  Use **Apply to all** to copy the
+split structure — scaled proportionally — to every other instance of the same
+behavioral tag.
 
-Selecting an item opens the **Edit** tab where you can adjust the time
-window and tune the type-specific settings with sliders.
+The **Transform Catalog** tab is a reference guide for all 17 transforms
+grouped by capability.  Each entry includes a description, best-fit
+behavioral tags, a parameter table, and live Before / After charts with
+interactive sliders.
 
 ### 3 — Export
 
-Click **Export** to write the tagged windows as JSON files ready for the
-customizer. The app also saves a project file so your tagging is preserved
-between sessions.
+The **Export** tab aggregates every transform you have applied in the editors,
+plus optionally the auto-recommended transforms for untouched phrases.  A
+change log shows each planned transform with start / end time, duration,
+transform name, source (Phrase Editor / Pattern Editor / Recommended), and
+before → after BPM and cycle count where applicable.  Click 🗑 on any row to
+reject that change before downloading.
+
+**Tag-aware auto-suggestions** (`suggest_transform`, checked in priority order):
+
+| Tag | Suggested transform | Notes |
+| --- | --- | --- |
+| `frantic` | `halve_tempo` | BPM > 200 |
+| `giggle`, `plateau`, `lazy` | `amplitude_scale` | Amplify; scale computed to target peak hi ≈ 65 |
+| `stingy` | `amplitude_scale` | Reduce; scale computed to target peak hi ≈ 65 |
+| `drift`, `half_stroke` | `recenter` | `target_center = 50` |
+| `drone` | `beat_accent` | Adds rhythmic variation |
+| *(no tag, transition)* | `smooth` | Pattern label contains "transition" |
+| *(no tag, low BPM)* | `passthrough` | BPM < threshold |
+| *(no tag, narrow span)* | `normalize` | `amplitude_span < 40` |
+| *(no tag, high BPM)* | `amplitude_scale` | Fallback |
+
+Two optional post-processing passes run over the full action list just before
+the file is built:
+
+- **Add blended seams** — detects high-velocity jumps between differently-styled
+  sections and applies a bilateral LPF at those seams, leaving normal strokes
+  untouched.
+- **Final smooth** — a light global LPF (strength 0.10) as a finishing polish.
+
+Click **Download edited funscript** to build and save the result.
+
+You can also query the same plan from the CLI — see `export-plan` below.
 
 ### 4 — Transform and customize (CLI, UI integration coming soon)
 
@@ -119,7 +180,7 @@ python cli.py assess path/to/file.funscript --output output/assessment.json
 ## Project structure
 
 ```text
-funscript-updater/
+funscript-forge/
 ├── assessment/               # Step 1: structural analysis + behavioral classification
 │   ├── analyzer.py           #   FunscriptAnalyzer
 │   ├── classifier.py         #   BehavioralTag, TAGS registry, annotate_phrases
@@ -156,14 +217,46 @@ funscript-updater/
 ## CLI reference
 
 ```bash
-python cli.py assess    <funscript> [--output <path>] [--config <json>]
-python cli.py transform <funscript> --assessment <path> [--output <path>] [--config <json>]
-python cli.py customize <funscript> --assessment <path> [--output <path>]
+# Assess
+python cli.py assess <funscript> [--output <path>] [--config <json>]
+                     [--min-phrase-duration SECONDS] [--amplitude-tolerance FRACTION]
+
+# Transform (BPM-threshold baseline)
+python cli.py transform <funscript> --assessment <path>
+                        [--output <path>] [--config <json>]
+
+# Customize (window-based fine-tuning)
+python cli.py customize <funscript> --assessment <path>
+                        [--output <path>] [--config <json>]
                         [--perf <json>] [--break <json>] [--raw <json>] [--beats <json>]
-python cli.py phrase-transform <funscript> --assessment <path> [--transform KEY]
-                        [--phrase N] [--all] [--suggest] [--dry-run]
-python cli.py finalize  <funscript> [--output <path>] [--skip-seams] [--skip-smooth]
-python cli.py catalog   [--catalog <path>] [--tag TAG] [--remove FUNSCRIPT] [--clear]
+
+# Full pipeline (assess → transform → customize in one step)
+python cli.py pipeline <funscript> --output-dir <dir>
+                       [--perf <json>] [--break <json>] [--raw <json>] [--beats <json>]
+                       [--transformer-config <json>] [--customizer-config <json>]
+
+# Phrase-level transform (applies a catalog transform to individual phrases)
+python cli.py phrase-transform <funscript> --assessment <path>
+                               --transform smooth --phrase 3 [--param strength=0.25]
+                               --transform normalize --all
+                               --suggest [--bpm-threshold 120]   # tag-aware auto-pick
+                               [--output <path>] [--dry-run]
+
+# Finalize (blend seams + final smooth as post-processing)
+python cli.py finalize <funscript> [--output <path>]
+                       [--param seam_max_velocity=0.3] [--param smooth_strength=0.05]
+                       [--skip-seams] [--skip-smooth]
+
+# Export plan (mirror of the UI Export tab)
+python cli.py export-plan <funscript> [--assessment <path>]
+                          [--transforms overrides.json] [--no-recommended]
+                          [--bpm-threshold BPM] [--format table|json]
+                          [--apply] [--output <path>] [--dry-run]
+
+# Catalog
+python cli.py catalog [--catalog <path>] [--tag TAG] [--remove FUNSCRIPT] [--clear]
+
+# Utilities
 python cli.py visualize <funscript> --assessment <path> [--output <path>]
 python cli.py config    [--customizer] [--analyzer] [--output <path>]
 python cli.py test
@@ -174,12 +267,29 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline (151+ tests)
+# Core pipeline + UI-panel split logic (422 tests)
 python -m unittest discover -s tests -v
 
-# UI layer (45 tests)
+# UI layer (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# All at once
+# All at once (482 tests)
 python cli.py test
 ```
+
+---
+
+## Documentation
+
+| README | Description |
+| --- | --- |
+| [assessment/readme.md](assessment/readme.md) | Structural analysis pipeline — phases, cycles, patterns, phrases, BPM transitions (Step 1) |
+| [pattern_catalog/README.md](pattern_catalog/README.md) | BPM-threshold baseline transformer (Step 2) |
+| [user_customization/README.md](user_customization/README.md) | Window-based fine-tuning customizer (Step 3) |
+| [ui/README.md](ui/README.md) | Streamlit UI overview — sidebar controls, all six tabs |
+| [ui/streamlit/README.md](ui/streamlit/README.md) | Detailed Streamlit panel reference — Phrase Editor, Pattern Editor, Export |
+| [ui/common/README.md](ui/common/README.md) | Framework-agnostic business logic: `Project`, `WorkItem`, `ViewState` |
+| [user_transforms/README.md](user_transforms/README.md) | Adding custom transforms via JSON recipe files |
+| [plugins/README.md](plugins/README.md) | Adding custom transforms via Python plugins |
+| [visualizations/README.md](visualizations/README.md) | Matplotlib motion chart components |
+| [tests/README.md](tests/README.md) | Test suite structure and coverage |

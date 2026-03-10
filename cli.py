@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Funscript Updater CLI
+"""Funscript Forge CLI
 
 Full-pipeline shortcut (Steps 1 + 3 + 4 in one command):
 
@@ -42,6 +42,22 @@ Individual steps:
         --suggest [--bpm-threshold 120]                          # auto-pick per phrase
         --dry-run                                                # print plan only
 
+    --suggest uses tag-aware rules (highest priority first):
+      frantic → halve_tempo
+      giggle / plateau / lazy → amplitude_scale  (amplify; scale targets peak hi ≈ 65)
+      stingy                  → amplitude_scale  (reduce;  scale targets peak hi ≈ 65)
+      drift / half_stroke     → recenter         (target_center=50)
+      drone                   → beat_accent
+      (no tag) transition     → smooth
+      (no tag) low BPM        → passthrough
+      (no tag) narrow span    → normalize
+      (no tag) high BPM       → amplitude_scale
+
+    For split-phrase workflows (different transforms in different time ranges within
+    a single phrase) use the Streamlit Pattern Editor UI — it supports adding split
+    boundaries, per-segment transform selection, and proportional copy to all
+    instances of the same behavioral tag.
+
 Additional commands:
 
   python cli.py finalize path/to/transformed.funscript          # blend seams + final smooth, then save
@@ -49,6 +65,15 @@ Additional commands:
       [--param seam_max_velocity=0.3]   # blend_seams param override
       [--param smooth_strength=0.05]    # final_smooth param override
       [--skip-seams] [--skip-smooth]    # disable either pass
+
+  python cli.py export-plan path/to/input.funscript            # show export-tab transform plan
+      [--assessment assessment.json]                           # use cached assessment
+      [--transforms overrides.json]                           # per-phrase manual overrides
+      [--no-recommended]                                       # skip auto-suggestions
+      [--bpm-threshold 120]                                    # threshold for recommendations
+      [--format table|json]                                    # output format (default: table)
+      [--apply] [--output out.funscript]                       # write the result
+      [--dry-run]                                              # print plan only
 
   python cli.py catalog [--catalog PATH]                       # show catalog summary
   python cli.py catalog --tag stingy                           # list all stingy phrases
@@ -270,6 +295,61 @@ def cmd_config(args):
     print("Edit the values then pass with --config when running the command.")
 
 
+def cmd_list_transforms(args):
+    """List all available transforms (built-in + user-loaded)."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, _BUILTIN_KEYS
+
+    catalog = dict(sorted(TRANSFORM_CATALOG.items()))
+    if args.user_only:
+        catalog = {k: v for k, v in catalog.items() if k not in _BUILTIN_KEYS}
+
+    if args.format == "json":
+        out = {}
+        for key, spec in catalog.items():
+            entry = {
+                "name": spec.name,
+                "description": spec.description,
+                "structural": spec.structural,
+                "source": "builtin" if key in _BUILTIN_KEYS else "user",
+            }
+            if args.verbose:
+                entry["params"] = {
+                    pkey: {
+                        "label": p.label,
+                        "type": p.type,
+                        "default": p.default,
+                        "min": p.min_val,
+                        "max": p.max_val,
+                        "step": p.step,
+                        "help": p.help,
+                    }
+                    for pkey, p in (spec.params or {}).items()
+                }
+            out[key] = entry
+        import json
+        print(json.dumps(out, indent=2))
+        return
+
+    # --- table output ---
+    if not catalog:
+        print("No transforms found.")
+        return
+
+    for key, spec in catalog.items():
+        source_tag = "" if key in _BUILTIN_KEYS else "  [user]"
+        struct_tag = "  (structural)" if spec.structural else ""
+        print(f"{key}{source_tag}{struct_tag}")
+        print(f"    {spec.name} — {spec.description}")
+        if args.verbose and spec.params:
+            for pkey, p in spec.params.items():
+                default_str = f", default {p.default}" if p.default is not None else ""
+                range_str = f" [{p.min_val}–{p.max_val}]" if p.min_val is not None else ""
+                print(f"      --param {pkey}=VALUE  {p.label}{range_str}{default_str}")
+                if p.help:
+                    print(f"        {p.help}")
+        print()
+
+
 def _coerce(v: str):
     """Parse a string value as int, float, or str."""
     try:
@@ -338,7 +418,7 @@ def cmd_phrase_transform(args):
     for idx in indices:
         phrase = phrase_dicts[idx]
         if args.suggest:
-            key = suggest_transform(phrase, bpm_threshold)
+            key, _ = suggest_transform(phrase, bpm_threshold)
         else:
             key = args.transform
             if key not in TRANSFORM_CATALOG:
@@ -500,6 +580,221 @@ def cmd_catalog(args):
         print("  No tagged phrases yet — assess a funscript to populate the catalog.")
 
 
+def cmd_export_plan(args):
+    """Show (and optionally apply) the export-tab transform plan for a funscript."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from models import AssessmentResult
+    from utils import ms_to_timestamp
+    import copy
+
+    # --- load assessment (run fresh if not provided) ---
+    if args.assessment:
+        assessment = AssessmentResult.load(args.assessment)
+    else:
+        from assessment.analyzer import FunscriptAnalyzer
+        analyzer = FunscriptAnalyzer(config=_build_analyzer_config(args))
+        analyzer.load(args.funscript)
+        assessment = analyzer.analyze()
+
+    phrase_dicts = []
+    for p in assessment.phrases:
+        d = p if isinstance(p, dict) else {
+            "start_ms":       p.start_ms,
+            "end_ms":         p.end_ms,
+            "bpm":            getattr(p, "bpm", 0),
+            "cycle_count":    getattr(p, "cycle_count", None),
+            "pattern_label":  getattr(p, "pattern_label", ""),
+            "amplitude_span": getattr(p, "amplitude_span", 100),
+            "tags":           list(getattr(p, "tags", []) or []),
+        }
+        phrase_dicts.append(d)
+
+    if not phrase_dicts:
+        print("No phrases found — run an assessment first.")
+        sys.exit(1)
+
+    # --- load per-phrase override file (optional) ---
+    # Format: {"1": {"transform": "normalize", "params": {...}}, "3": "passthrough", ...}
+    # Keys are 1-based phrase numbers (strings or ints).
+    overrides: dict = {}
+    if args.transforms:
+        with open(args.transforms) as f:
+            raw = json.load(f)
+        for k, v in raw.items():
+            idx = int(k) - 1   # convert 1-based → 0-based
+            if isinstance(v, str):
+                overrides[idx] = {"transform": v, "params": {}}
+            else:
+                overrides[idx] = {
+                    "transform": v.get("transform", "passthrough"),
+                    "params":    v.get("params", {}),
+                }
+
+    bpm_threshold = args.bpm_threshold or 120.0
+    include_recommended = not args.no_recommended
+
+    # --- build plan ---
+    plan = []   # list of dicts
+    for idx, phrase in enumerate(phrase_dicts):
+        tx_key:    str  = None
+        tx_params: dict = {}
+        source:    str  = None
+
+        # 1. Manual override from --transforms file
+        if idx in overrides:
+            entry_tx = overrides[idx]["transform"]
+            if entry_tx and entry_tx != "passthrough":
+                tx_key    = entry_tx
+                tx_params = overrides[idx]["params"]
+                source    = "Manual"
+
+        # 2. Recommended (untouched phrases)
+        if not tx_key and include_recommended:
+            rec, rec_params = suggest_transform(phrase, bpm_threshold)
+            if rec and rec != "passthrough":
+                tx_key    = rec
+                tx_params = rec_params
+                source    = "Recommended"
+
+        if not tx_key:
+            continue
+
+        if tx_key not in TRANSFORM_CATALOG:
+            print(f"Warning: unknown transform {tx_key!r} for phrase {idx + 1} — skipping.")
+            continue
+
+        old_bpm    = phrase.get("bpm", 0.0)
+        old_cycles = phrase.get("cycle_count") or 0
+        new_bpm    = (old_bpm / 2)    if tx_key == "halve_tempo" else None
+        new_cycles = (old_cycles // 2) if tx_key == "halve_tempo" else None
+
+        spec    = TRANSFORM_CATALOG[tx_key]
+        tx_name = spec.name
+
+        plan.append({
+            "phrase_idx":  idx,
+            "start_ms":    phrase["start_ms"],
+            "end_ms":      phrase["end_ms"],
+            "tx_key":      tx_key,
+            "tx_name":     tx_name,
+            "tx_params":   tx_params,
+            "source":      source,
+            "old_bpm":     old_bpm,
+            "new_bpm":     new_bpm,
+            "old_cycles":  old_cycles,
+            "new_cycles":  new_cycles,
+        })
+
+    # --- output ---
+    if args.format == "json":
+        out = []
+        for e in plan:
+            row = {
+                "phrase":     e["phrase_idx"] + 1,
+                "start":      ms_to_timestamp(e["start_ms"]),
+                "end":        ms_to_timestamp(e["end_ms"]),
+                "duration_s": round((e["end_ms"] - e["start_ms"]) / 1000, 1),
+                "transform":  e["tx_name"],
+                "source":     e["source"],
+                "bpm":        {
+                    "old": round(e["old_bpm"], 1),
+                    **({"new": round(e["new_bpm"], 1)} if e["new_bpm"] is not None else {}),
+                },
+                "cycles":     {
+                    "old": e["old_cycles"],
+                    **({"new": e["new_cycles"]} if e["new_cycles"] is not None else {}),
+                },
+            }
+            out.append(row)
+        print(json.dumps(out, indent=2))
+    else:
+        # Human-readable table
+        n = len(plan)
+        rec_n  = sum(1 for e in plan if e["source"] == "Recommended")
+        man_n  = n - rec_n
+        print(f"Export plan: {n} transform{'s' if n != 1 else ''}"
+              f"  ({man_n} manual, {rec_n} recommended)")
+        print(f"  BPM threshold for recommendations: {bpm_threshold}")
+        print()
+
+        _W = (3, 29, 7, 24, 13, 18, 8)
+        _HDR = ("#", "Time", "Dur(s)", "Transform", "Source", "BPM", "Cycles")
+        _sep = "  ".join(f"{h:<{w}}" for h, w in zip(_HDR, _W))
+        print(_sep)
+        print("-" * len(_sep))
+
+        for e in plan:
+            time_str = (f"{ms_to_timestamp(e['start_ms'])} -> "
+                        f"{ms_to_timestamp(e['end_ms'])}")
+            dur_s    = f"{(e['end_ms'] - e['start_ms']) / 1000:.1f}"
+
+            if e["new_bpm"] is not None:
+                bpm_str = f"{e['old_bpm']:.1f} -> {e['new_bpm']:.1f}"
+            else:
+                bpm_str = f"{e['old_bpm']:.1f}"
+
+            if e["new_cycles"] is not None:
+                cyc_str = f"{e['old_cycles']} -> {e['new_cycles']}"
+            else:
+                cyc_str = str(e["old_cycles"])
+
+            row = (
+                str(e["phrase_idx"] + 1),
+                time_str,
+                dur_s,
+                e["tx_name"],
+                e["source"],
+                bpm_str,
+                cyc_str,
+            )
+            print("  ".join(f"{v:<{w}}" for v, w in zip(row, _W)))
+
+        print()
+        if not plan:
+            print("No transforms to apply (all phrases are passthrough).")
+
+    if not plan:
+        return
+
+    if args.dry_run:
+        print("--dry-run: no file written.")
+        return
+
+    if not args.apply and not args.output:
+        return
+
+    # --- apply transforms ---
+    with open(args.funscript) as f:
+        fs_data = json.load(f)
+    result = copy.deepcopy(fs_data.get("actions", []))
+
+    for e in plan:
+        spec     = TRANSFORM_CATALOG[e["tx_key"]]
+        start_ms = e["start_ms"]
+        end_ms   = e["end_ms"]
+        params   = e["tx_params"] or {}
+
+        phrase_slice = [a for a in result if start_ms <= a["at"] <= end_ms]
+        transformed  = spec.apply(phrase_slice, params if params else None)
+        if not transformed:
+            continue
+
+        if spec.structural:
+            outside = [a for a in result if not (start_ms <= a["at"] <= end_ms)]
+            result  = sorted(outside + transformed, key=lambda a: a["at"])
+        else:
+            t_to_pos = {a["at"]: a["pos"] for a in transformed}
+            for a in result:
+                if a["at"] in t_to_pos:
+                    a["pos"] = t_to_pos[a["at"]]
+
+    fs_data["actions"] = result
+    output = args.output or _default_path(args.funscript, "_export.funscript")
+    with open(output, "w") as f:
+        json.dump(fs_data, f, indent=2)
+    print(f"Saved: {output}")
+
+
 def cmd_test(_args):
     import unittest
     root = os.path.dirname(__file__)
@@ -521,7 +816,7 @@ def cmd_test(_args):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cli.py",
-        description="Funscript Updater — analyze and transform funscripts",
+        description="Funscript Forge — analyze and transform funscripts",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -614,7 +909,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pt.add_argument("--output", help="Path for output .funscript (default: *_phrase_transformed.funscript)")
     p_pt.add_argument(
         "--transform", metavar="KEY",
-        help=f"Transform to apply. One of: {', '.join(['passthrough','amplitude_scale','normalize','smooth','clamp_upper','clamp_lower','invert','boost_contrast','shift','recenter','break','performance','three_one','beat_accent','blend_seams','final_smooth','halve_tempo'])}",
+        help="Transform to apply (see 'python cli.py list-transforms' for all keys).",
     )
     p_pt.add_argument(
         "--phrase", type=int, metavar="N", action="append",
@@ -687,6 +982,75 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remove all entries from the catalog",
     )
 
+    # --- export-plan ---
+    p_ep = sub.add_parser(
+        "export-plan",
+        help="Show the export-tab transform plan (recommended + manual) for a funscript",
+    )
+    p_ep.add_argument("funscript", help="Path to source .funscript file")
+    p_ep.add_argument(
+        "--assessment", metavar="PATH",
+        help="Path to an existing assessment JSON (omit to run a fresh assessment)",
+    )
+    p_ep.add_argument(
+        "--transforms", metavar="PATH",
+        help=(
+            "JSON file of per-phrase overrides.  Format: "
+            '{\"1\": {\"transform\": \"normalize\", \"params\": {}}, \"3\": \"halve_tempo\", ...}  '
+            "(keys are 1-based phrase numbers)"
+        ),
+    )
+    p_ep.add_argument(
+        "--no-recommended", action="store_true",
+        help="Show only manually-specified transforms; skip auto-suggestions",
+    )
+    p_ep.add_argument(
+        "--bpm-threshold", type=float, default=120.0, metavar="BPM",
+        help="BPM threshold for the suggested-transform logic (default: 120.0)",
+    )
+    p_ep.add_argument(
+        "--format", choices=["table", "json"], default="table",
+        help="Output format: human-readable table (default) or JSON",
+    )
+    p_ep.add_argument(
+        "--apply", action="store_true",
+        help="Apply the plan and write the output funscript (use --output to set path)",
+    )
+    p_ep.add_argument(
+        "--output", metavar="PATH",
+        help="Output .funscript path (implies --apply; default: *_export.funscript)",
+    )
+    p_ep.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the plan without writing any file",
+    )
+    p_ep.add_argument(
+        "--min-phrase-duration", type=float, metavar="SECONDS",
+        help="(fresh assessment only) Merge phrases shorter than this many seconds",
+    )
+    p_ep.add_argument(
+        "--amplitude-tolerance", type=float, metavar="FRACTION",
+        help="(fresh assessment only) Phrase break sensitivity",
+    )
+
+    # --- list-transforms ---
+    p_lt = sub.add_parser(
+        "list-transforms",
+        help="List all available transforms (built-in + user-loaded)",
+    )
+    p_lt.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Show parameter details for each transform.",
+    )
+    p_lt.add_argument(
+        "--user-only", action="store_true",
+        help="Show only user-defined transforms (from user_transforms/ and plugins/).",
+    )
+    p_lt.add_argument(
+        "--format", choices=["table", "json"], default="table",
+        help="Output format: human-readable table (default) or JSON.",
+    )
+
     # --- test ---
     sub.add_parser("test", help="Run unit tests")
 
@@ -709,7 +1073,9 @@ def main():
         "phrase-transform": cmd_phrase_transform,
         "customize":        cmd_customize,
         "finalize":         cmd_finalize,
+        "export-plan":      cmd_export_plan,
         "catalog":          cmd_catalog,
+        "list-transforms":  cmd_list_transforms,
         "visualize":        cmd_visualize,
         "config":           cmd_config,
         "test":             cmd_test,

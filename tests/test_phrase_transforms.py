@@ -2,6 +2,7 @@
 
 Covers:
 - TRANSFORM_CATALOG completeness and structure
+- TRANSFORM_ORDER coverage, uniqueness, and consistency with catalog
 - Each transform's apply() output
 - suggest_transform() rule logic
 - TransformParam dataclass fields
@@ -15,10 +16,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pattern_catalog.phrase_transforms import (
     TRANSFORM_CATALOG,
+    TRANSFORM_ORDER,
     PhraseTransform,
     TransformParam,
     suggest_transform,
     _find_extrema,
+    _BUILTIN_KEYS,
 )
 
 
@@ -69,7 +72,9 @@ _PHRASE_TRANS    = {"bpm": 130.0, "pattern_label": "transition break",  "amplitu
 class TestCatalogStructure(unittest.TestCase):
 
     def test_all_expected_keys_present(self):
-        self.assertEqual(set(TRANSFORM_CATALOG.keys()), _EXPECTED_KEYS)
+        """Built-in catalog keys must exactly match _EXPECTED_KEYS.
+        User-defined keys (recipes / plugins) are allowed to be present too."""
+        self.assertEqual(_BUILTIN_KEYS, _EXPECTED_KEYS)
 
     def test_each_entry_is_phrase_transform(self):
         for key, spec in TRANSFORM_CATALOG.items():
@@ -95,6 +100,21 @@ class TestCatalogStructure(unittest.TestCase):
                 with self.subTest(transform=key, param=pname):
                     self.assertIsInstance(param, TransformParam)
                     self.assertIn(param.type, ("float", "int", "bool"))
+
+    def test_transform_order_covers_all_catalog_keys(self):
+        """Every built-in key in TRANSFORM_CATALOG appears in TRANSFORM_ORDER.
+        User-defined keys (recipes / plugins) are excluded from this check."""
+        missing = _BUILTIN_KEYS - set(TRANSFORM_ORDER)
+        self.assertEqual(missing, set(), f"Built-in keys missing from TRANSFORM_ORDER: {missing}")
+
+    def test_transform_order_has_no_unknown_keys(self):
+        """TRANSFORM_ORDER contains only keys that exist in TRANSFORM_CATALOG."""
+        unknown = set(TRANSFORM_ORDER) - set(TRANSFORM_CATALOG.keys())
+        self.assertEqual(unknown, set(), f"Keys in TRANSFORM_ORDER but not in catalog: {unknown}")
+
+    def test_transform_order_has_no_duplicates(self):
+        self.assertEqual(len(TRANSFORM_ORDER), len(set(TRANSFORM_ORDER)),
+                         "TRANSFORM_ORDER contains duplicate keys")
 
 
 # ---------------------------------------------------------------------------
@@ -308,35 +328,127 @@ class TestApplyContract(unittest.TestCase):
 class TestSuggestTransform(unittest.TestCase):
 
     def test_transition_phrase_suggests_smooth(self):
-        self.assertEqual(suggest_transform(_PHRASE_TRANS, 120.0), "smooth")
+        key, params = suggest_transform(_PHRASE_TRANS, 120.0)
+        self.assertEqual(key, "smooth")
 
     def test_low_bpm_suggests_passthrough(self):
-        self.assertEqual(suggest_transform(_PHRASE_LOW_BPM, 120.0), "passthrough")
+        key, params = suggest_transform(_PHRASE_LOW_BPM, 120.0)
+        self.assertEqual(key, "passthrough")
 
     def test_high_bpm_wide_amp_suggests_amplitude_scale(self):
-        self.assertEqual(suggest_transform(_PHRASE_HIGH_BPM, 120.0), "amplitude_scale")
+        key, params = suggest_transform(_PHRASE_HIGH_BPM, 120.0)
+        self.assertEqual(key, "amplitude_scale")
 
     def test_high_bpm_narrow_amp_suggests_normalize(self):
-        self.assertEqual(suggest_transform(_PHRASE_NARROW, 120.0), "normalize")
+        key, params = suggest_transform(_PHRASE_NARROW, 120.0)
+        self.assertEqual(key, "normalize")
 
     def test_bpm_exactly_at_threshold_is_high(self):
         phrase = {"bpm": 120.0, "pattern_label": "", "amplitude_span": 80}
-        # bpm < threshold → passthrough; bpm >= threshold → amplitude_scale
-        self.assertEqual(suggest_transform(phrase, 120.0), "amplitude_scale")
+        key, _ = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "amplitude_scale")
 
     def test_bpm_just_below_threshold_is_low(self):
         phrase = {"bpm": 119.9, "pattern_label": "", "amplitude_span": 80}
-        self.assertEqual(suggest_transform(phrase, 120.0), "passthrough")
+        key, _ = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "passthrough")
 
     def test_missing_fields_do_not_raise(self):
         """suggest_transform should not crash if optional fields are absent."""
-        result = suggest_transform({}, 120.0)
-        self.assertIn(result, TRANSFORM_CATALOG)
+        key, params = suggest_transform({}, 120.0)
+        self.assertIn(key, TRANSFORM_CATALOG)
+        self.assertIsInstance(params, dict)
 
     def test_returns_valid_catalog_key(self):
         for phrase in [_PHRASE_HIGH_BPM, _PHRASE_LOW_BPM, _PHRASE_NARROW, _PHRASE_TRANS]:
-            result = suggest_transform(phrase, 120.0)
-            self.assertIn(result, TRANSFORM_CATALOG, f"suggest_transform returned unknown key: {result!r}")
+            key, params = suggest_transform(phrase, 120.0)
+            self.assertIn(key, TRANSFORM_CATALOG, f"suggest_transform returned unknown key: {key!r}")
+
+    def test_giggle_tag_suggests_amplitude_scale_amplify(self):
+        phrase = {"bpm": 130.0, "tags": ["giggle"],
+                  "metrics": {"span": 10, "mean_pos": 50}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "amplitude_scale")
+        self.assertGreater(params.get("scale", 1.0), 1.0)
+
+    def test_plateau_tag_suggests_amplitude_scale_amplify(self):
+        phrase = {"bpm": 130.0, "tags": ["plateau"],
+                  "metrics": {"span": 30, "mean_pos": 50}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "amplitude_scale")
+        self.assertGreaterEqual(params.get("scale", 1.0), 1.0)
+
+    def test_stingy_tag_suggests_amplitude_scale_reduce(self):
+        phrase = {"bpm": 130.0, "tags": ["stingy"],
+                  "metrics": {"span": 80, "mean_pos": 50}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "amplitude_scale")
+        self.assertLess(params.get("scale", 1.0), 1.0)
+
+    def test_giggle_scale_targets_hi_at_65(self):
+        """Scale for giggle should drive the high position to ~65."""
+        phrase = {"bpm": 130.0, "tags": ["giggle"],
+                  "metrics": {"span": 10, "mean_pos": 50}}
+        _, params = suggest_transform(phrase, 120.0)
+        # hi = mean_pos + span/2 = 55; after scale, new_hi = 50 + scale*(55-50)
+        hi_after = 50 + params["scale"] * (55 - 50)
+        self.assertAlmostEqual(hi_after, 65.0, places=0)
+
+    def test_stingy_scale_targets_hi_at_65(self):
+        """Scale for stingy should drive the high position to ~65."""
+        phrase = {"bpm": 130.0, "tags": ["stingy"],
+                  "metrics": {"span": 80, "mean_pos": 50}}
+        _, params = suggest_transform(phrase, 120.0)
+        hi_after = 50 + params["scale"] * (90 - 50)
+        self.assertAlmostEqual(hi_after, 65.0, places=0)
+
+    def test_frantic_tag_suggests_halve_tempo(self):
+        phrase = {"bpm": 210.0, "tags": ["frantic"],
+                  "metrics": {"span": 80, "mean_pos": 50}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "halve_tempo")
+
+    def test_lazy_tag_suggests_amplitude_scale_amplify(self):
+        phrase = {"bpm": 60.0, "tags": ["lazy"],
+                  "metrics": {"span": 20, "mean_pos": 50}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "amplitude_scale")
+        self.assertGreater(params.get("scale", 1.0), 1.0)
+
+    def test_drift_tag_suggests_recenter(self):
+        phrase = {"bpm": 130.0, "tags": ["drift"],
+                  "metrics": {"span": 60, "mean_pos": 75}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "recenter")
+        self.assertEqual(params.get("target_center"), 50)
+
+    def test_half_stroke_tag_suggests_recenter(self):
+        phrase = {"bpm": 130.0, "tags": ["half_stroke"],
+                  "metrics": {"span": 50, "mean_pos": 75}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "recenter")
+        self.assertEqual(params.get("target_center"), 50)
+
+    def test_drone_tag_suggests_beat_accent(self):
+        phrase = {"bpm": 130.0, "tags": ["drone"],
+                  "metrics": {"span": 70, "mean_pos": 50}}
+        key, params = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "beat_accent")
+
+    def test_tag_takes_priority_over_bpm_fallback(self):
+        """A tagged phrase should not fall through to the BPM rules."""
+        # lazy has low BPM — without tag-aware logic this would be passthrough
+        phrase = {"bpm": 50.0, "tags": ["lazy"],
+                  "metrics": {"span": 20, "mean_pos": 50}}
+        key, _ = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "amplitude_scale")
+
+    def test_frantic_takes_priority_over_bpm_fallback(self):
+        """frantic should suggest halve_tempo even though BPM > threshold."""
+        phrase = {"bpm": 220.0, "tags": ["frantic"], "amplitude_span": 80,
+                  "metrics": {"span": 80, "mean_pos": 50}}
+        key, _ = suggest_transform(phrase, 120.0)
+        self.assertEqual(key, "halve_tempo")
 
 
 # ---------------------------------------------------------------------------
@@ -445,19 +557,19 @@ class TestReadmeExamples(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_suggest_high_bpm_wide_amp(self):
         """README: --suggest --bpm-threshold 120  (high BPM, wide amp → amplitude_scale)"""
-        self.assertEqual(suggest_transform(_PHRASE_HIGH_BPM, 120.0), "amplitude_scale")
+        self.assertEqual(suggest_transform(_PHRASE_HIGH_BPM, 120.0)[0], "amplitude_scale")
 
     def test_suggest_low_bpm(self):
         """README: --suggest --bpm-threshold 120  (low BPM → passthrough)"""
-        self.assertEqual(suggest_transform(_PHRASE_LOW_BPM, 120.0), "passthrough")
+        self.assertEqual(suggest_transform(_PHRASE_LOW_BPM, 120.0)[0], "passthrough")
 
     def test_suggest_transition(self):
         """README: --suggest  (transition phrase → smooth)"""
-        self.assertEqual(suggest_transform(_PHRASE_TRANS, 120.0), "smooth")
+        self.assertEqual(suggest_transform(_PHRASE_TRANS, 120.0)[0], "smooth")
 
     def test_suggest_narrow_amp(self):
         """README: --suggest  (high BPM, narrow amp → normalize)"""
-        self.assertEqual(suggest_transform(_PHRASE_NARROW, 120.0), "normalize")
+        self.assertEqual(suggest_transform(_PHRASE_NARROW, 120.0)[0], "normalize")
 
     # ------------------------------------------------------------------
     # clamp_upper / clamp_lower (documented in catalog table)

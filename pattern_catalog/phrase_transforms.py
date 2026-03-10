@@ -11,13 +11,44 @@ Usage::
     spec = TRANSFORM_CATALOG["amplitude_scale"]
     new_actions = spec.apply(phrase_actions)
 
-    key = suggest_transform(phrase_dict, bpm_threshold=120.0)
+    key, params = suggest_transform(phrase_dict, bpm_threshold=120.0)
+
+User extensions
+---------------
+Two directories in the project root allow users to extend the catalog without
+editing this file:
+
+* ``user_transforms/`` — JSON recipe files.  Each file defines one or more
+  transforms as an ordered list of existing catalog steps::
+
+      {
+        "key": "my_fix",
+        "name": "My Fix",
+        "description": "Recenter then amplify",
+        "steps": [
+          {"transform": "recenter",        "params": {"target_center": 50}},
+          {"transform": "amplitude_scale", "params": {"scale": 2.5}}
+        ]
+      }
+
+* ``plugins/`` — Python plugin files.  Each file must expose a module-level
+  ``TRANSFORM`` (one ``PhraseTransform`` instance) or ``TRANSFORMS`` (list).
+  See ``plugins/example_plugin.py`` for a template.
+
+Both directories are scanned automatically at import time.  Keys must be
+unique; user-defined keys that clash with built-ins are skipped with a
+warning.
 """
 
 from __future__ import annotations
 
 import copy
+import glob
+import importlib.util
+import json
 import math
+import os
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -857,31 +888,237 @@ TRANSFORM_CATALOG: Dict[str, PhraseTransform] = {
 
 
 # ------------------------------------------------------------------
+# Canonical display order (matches Transform Catalog UI groups)
+# ------------------------------------------------------------------
+
+TRANSFORM_ORDER: List[str] = [
+    # Passthrough
+    "passthrough",
+    # Amplitude Shaping
+    "amplitude_scale", "normalize", "boost_contrast",
+    # Position Adjustment
+    "shift", "recenter", "clamp_upper", "clamp_lower", "invert",
+    # Smoothing & Filtering
+    "smooth", "blend_seams", "final_smooth",
+    # Break / Recovery
+    "break",
+    # Performance / Device Realism
+    "performance",
+    # Rhythmic Patterns
+    "beat_accent", "three_one",
+    # Structural — Tempo
+    "halve_tempo",
+]
+
+
+# ------------------------------------------------------------------
 # Suggestion logic
 # ------------------------------------------------------------------
 
-def suggest_transform(phrase: dict, bpm_threshold: float = 120.0) -> str:
-    """Return the catalog key of the most appropriate transform for *phrase*.
+def suggest_transform(phrase: dict, bpm_threshold: float = 120.0):
+    """Return ``(catalog_key, param_values)`` for the most appropriate transform.
 
-    Rules (in priority order):
-    1. pattern_label contains "transition" → smooth
-    2. bpm < bpm_threshold               → passthrough (already slow / gentle)
-    3. bpm >= bpm_threshold, amplitude
-       span < 40 (compressed waveform)   → normalize (open it up first)
-    4. bpm >= bpm_threshold              → amplitude_scale (standard boost)
+    Tag-based rules are checked first (priority order); BPM-based fallbacks
+    apply only when no recognised tag is present.
+
+    Tag rules:
+    1.  transition (pattern_label) → smooth
+    2.  frantic   → halve_tempo
+    3.  giggle    → amplitude_scale, amplify to peak hi ≈ 65
+    4.  plateau   → amplitude_scale, amplify to peak hi ≈ 65
+    5.  lazy      → amplitude_scale, amplify to peak hi ≈ 65
+    6.  stingy    → amplitude_scale, reduce to peak hi ≈ 65
+    7.  drift     → recenter, target_center = 50
+    8.  half_stroke → recenter, target_center = 50
+    9.  drone     → beat_accent
+
+    BPM fallbacks (no tag match):
+    10. bpm < bpm_threshold                 → passthrough
+    11. bpm >= bpm_threshold, span < 40     → normalize
+    12. bpm >= bpm_threshold                → amplitude_scale
+
+    The amplitude_scale factor for tag-based recommendations is computed from
+    the phrase's actual ``mean_pos`` and ``span`` so the output peak position
+    lands at ~65.  Users can adjust the value in the UI after the suggestion.
     """
-    bpm = phrase.get("bpm", 0.0)
+    bpm   = phrase.get("bpm", 0.0)
     label = (phrase.get("pattern_label") or "").lower()
+    tags  = phrase.get("tags") or []
 
     if "transition" in label:
-        return "smooth"
+        return ("smooth", {})
 
+    # Helper: compute amplitude_scale factor targeting peak hi = 65
+    metrics  = phrase.get("metrics", {})
+    span     = metrics.get("span", 0)
+    mean_pos = metrics.get("mean_pos", 50)
+    hi       = mean_pos + span / 2.0
+
+    def _scale_to_65(clamp_min: float, clamp_max: float) -> dict:
+        half_target  = 65.0 - 50.0          # 15 units from midpoint
+        half_current = max(hi - 50.0, 1.0)
+        scale = round(half_target / half_current, 2)
+        scale = max(clamp_min, min(clamp_max, scale))
+        return {"scale": scale}
+
+    if "frantic" in tags:
+        return ("halve_tempo", {})
+
+    if "giggle" in tags or "plateau" in tags:
+        return ("amplitude_scale", _scale_to_65(1.0, 10.0))   # amplify only
+
+    if "lazy" in tags:
+        return ("amplitude_scale", _scale_to_65(1.0, 10.0))   # amplify only
+
+    if "stingy" in tags:
+        return ("amplitude_scale", _scale_to_65(0.1, 1.0))    # reduce only
+
+    if "drift" in tags or "half_stroke" in tags:
+        return ("recenter", {"target_center": 50})
+
+    if "drone" in tags:
+        return ("beat_accent", {})
+
+    # BPM-based fallbacks when no tag matched
     if bpm < bpm_threshold:
-        return "passthrough"
+        return ("passthrough", {})
 
-    # Estimate amplitude span from the phrase dict if available
     amp_span = phrase.get("amplitude_span", 100)  # 0-100; default assumes full range
     if amp_span < 40:
-        return "normalize"
+        return ("normalize", {})
 
-    return "amplitude_scale"
+    return ("amplitude_scale", {})
+
+
+# ------------------------------------------------------------------
+# Recipe transform (user-defined multi-step pipelines)
+# ------------------------------------------------------------------
+
+@dataclass
+class _RecipeTransform(PhraseTransform):
+    """A transform defined as an ordered sequence of existing catalog steps.
+
+    Each step is ``{"transform": <key>, "params": {...}}``.  Steps are
+    applied left-to-right; the output of each step is the input of the next.
+    Unknown step keys are skipped with a stderr warning.
+
+    Set ``"structural": true`` in the JSON definition if any step produces a
+    different number of actions (e.g. ``halve_tempo``).
+    """
+    steps: List[dict] = field(default_factory=list)
+
+    def _transform(self, actions: list, p: dict) -> list:
+        result = actions
+        for step in self.steps:
+            key  = step.get("transform", "")
+            spec = TRANSFORM_CATALOG.get(key)
+            if spec is None:
+                print(
+                    f"[recipe:{self.key}] unknown step transform {key!r} — skipped",
+                    file=sys.stderr,
+                )
+                continue
+            result = spec.apply(result, step.get("params") or None)
+        return result
+
+
+# ------------------------------------------------------------------
+# User-transform loader (recipes + plugins)
+# ------------------------------------------------------------------
+
+def load_user_transforms(
+    recipes_dir: Optional[str] = None,
+    plugins_dir: Optional[str] = None,
+) -> Dict[str, PhraseTransform]:
+    """Scan *recipes_dir* and *plugins_dir* and return a dict of user transforms.
+
+    Defaults to ``<project_root>/user_transforms/`` and
+    ``<project_root>/plugins/`` relative to this file's package parent.
+
+    Keys that clash with built-in catalog keys are skipped with a warning.
+    """
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if recipes_dir is None:
+        recipes_dir = os.path.join(_root, "user_transforms")
+    if plugins_dir is None:
+        plugins_dir = os.path.join(_root, "plugins")
+
+    result: Dict[str, PhraseTransform] = {}
+
+    # ---- JSON recipes ----
+    if os.path.isdir(recipes_dir):
+        for path in sorted(glob.glob(os.path.join(recipes_dir, "*.json"))):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                entries = data if isinstance(data, list) else [data]
+                for entry in entries:
+                    key = entry.get("key", "")
+                    if not key:
+                        continue
+                    if key in _BUILTIN_KEYS:
+                        print(
+                            f"[user_transforms] {os.path.basename(path)}: "
+                            f"key {key!r} clashes with a built-in — skipped",
+                            file=sys.stderr,
+                        )
+                        continue
+                    t = _RecipeTransform(
+                        key=key,
+                        name=entry.get("name", key),
+                        description=entry.get("description", ""),
+                        structural=bool(entry.get("structural", False)),
+                        steps=entry.get("steps", []),
+                    )
+                    result[key] = t
+            except Exception as exc:
+                print(
+                    f"[user_transforms] skipping {os.path.basename(path)}: {exc}",
+                    file=sys.stderr,
+                )
+
+    # ---- Python plugins ----
+    if os.path.isdir(plugins_dir):
+        for path in sorted(glob.glob(os.path.join(plugins_dir, "*.py"))):
+            try:
+                spec = importlib.util.spec_from_file_location(
+                    f"_plugin_{os.path.splitext(os.path.basename(path))[0]}", path
+                )
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+
+                candidates: List[PhraseTransform] = []
+                if hasattr(mod, "TRANSFORMS"):
+                    candidates = list(mod.TRANSFORMS)
+                elif hasattr(mod, "TRANSFORM"):
+                    candidates = [mod.TRANSFORM]
+
+                for t in candidates:
+                    if not isinstance(t, PhraseTransform):
+                        continue
+                    if t.key in _BUILTIN_KEYS:
+                        print(
+                            f"[plugins] {os.path.basename(path)}: "
+                            f"key {t.key!r} clashes with a built-in — skipped",
+                            file=sys.stderr,
+                        )
+                        continue
+                    result[t.key] = t
+            except Exception as exc:
+                print(
+                    f"[plugins] skipping {os.path.basename(path)}: {exc}",
+                    file=sys.stderr,
+                )
+
+    return result
+
+
+# ------------------------------------------------------------------
+# Freeze built-in keys BEFORE merging user transforms so the
+# TRANSFORM_ORDER completeness test only checks built-ins.
+# ------------------------------------------------------------------
+
+_BUILTIN_KEYS: frozenset = frozenset(TRANSFORM_CATALOG)
+
+# Merge user-defined transforms (silent no-op when directories are absent)
+TRANSFORM_CATALOG.update(load_user_transforms())
