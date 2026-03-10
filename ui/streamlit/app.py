@@ -730,7 +730,10 @@ def _render_welcome() -> None:
         with col:
             if os.path.exists(_media(img)):
                 st.image(_media(img), width="stretch")
-            st.markdown(f"**{label}**  \n{desc}")
+            st.markdown(
+                f'<div style="text-align:center"><strong>{label}</strong><br>{desc}</div>',
+                unsafe_allow_html=True,
+            )
 
     st.divider()
 
