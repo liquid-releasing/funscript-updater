@@ -26,6 +26,7 @@ expressive performance sections, and gentle breaks.
 - Cycle-based phrase split — slider selects the split boundary; a dashed line marks it on the chart; hover any dot to see its cycle number
 - ✓ Accept stores the transform in session state; ✕ Cancel discards only the current phrase's pending change
 - Selector chart shows the accumulated edited funscript (with banner) once any transform has been accepted
+- **Large-file phrase highlight** — for long funscripts the selected phrase renders with full velocity colour lines over the grey background, so the active window is always visually distinct
 
 ### Pattern Editor (Streamlit UI)
 
@@ -46,9 +47,11 @@ expressive performance sections, and gentle breaks.
 ### Export (Streamlit UI)
 
 - Static preview chart at the top shows the full proposed export
+- **Before / After overlay** — toggle to show the original funscript as a semi-transparent grey line on the preview chart, so you can see exactly what the transforms changed
 - Completed transforms (from Phrase Editor or Pattern Editor) listed with reject / restore per row
 - Recommended transforms (tag-aware auto-suggestions) listed separately; each must be explicitly accepted before it is included in the download
 - Optional post-processing: blend seams (bilateral LPF at high-velocity style boundaries) and final smooth (light global LPF)
+- **Download confirmation** — a review checkbox must be ticked before the download button enables, preventing accidental clicks that would discard session state
 - **Output integrity** — all positions clamped to [0, 100] and timestamps sorted/deduplicated automatically; warning shown if any actions were clamped
 - **Export log** — every downloaded funscript contains a `_forge_log` key recording the transform name, parameters, source, and export timestamp for each change (reproducible sessions)
 - **Full pipeline export** — collapsible panel runs BPM Transformer + Window Customizer directly in the browser; result downloads as a separate `_pipeline.funscript` independent of phrase-editor transforms
@@ -220,6 +223,8 @@ click **Load / Analyse** to see the assessment results immediately.
 
 The desktop launcher enables local mode: file paths are entered directly, recent files are
 remembered across sessions, and audio/video streams from disk with no upload or size limit.
+The launcher also works correctly as a PyInstaller frozen executable — writable data
+(`output/`, pattern catalog) is stored beside the executable, not in the read-only bundle.
 
 ### Analyze from the command line
 
@@ -246,8 +251,7 @@ funscript-forge/
 ├── user_customization/       # Step 3: window-based fine-tuning
 │   ├── customizer.py         #   WindowCustomizer
 │   └── config.py             #   CustomizerConfig
-├── visualizations/           # matplotlib motion chart
-│   └── motion.py
+├── visualizations/           # Plotly + matplotlib motion chart components
 ├── ui/                       # All UI code
 │   ├── common/               #   Framework-agnostic models and logic
 │   │   ├── work_items.py     #   WorkItem + ItemType
@@ -258,9 +262,12 @@ funscript-forge/
 │   │   ├── app.py
 │   │   └── panels/
 │   └── web/                  #   FastAPI + frontend (planned)
+├── docs/                     # MkDocs user documentation site (in progress)
+├── internal/                 # Internal planning docs (gap analysis, backlogs, build notes)
+├── media/                    # App images, logos, icons
 ├── tests/                    # Core pipeline unit tests
 ├── models.py                 # Shared dataclasses (Phrase now carries tags + metrics)
-├── utils.py                  # Timestamp helpers, low-pass filter
+├── utils.py                  # Timestamp helpers, low-pass filter, writable_base_dir
 ├── cli.py                    # CLI entry point
 └── requirements.txt
 ```
