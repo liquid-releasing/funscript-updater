@@ -825,6 +825,43 @@ def cmd_test(_args):
 
 
 # ------------------------------------------------------------------
+# Project metadata commands
+# ------------------------------------------------------------------
+
+@_cli_command
+def cmd_project(args):
+    """get/set project name and description stored in a .project.json file."""
+    from ui.common.project import Project
+
+    project_path = args.project_file
+    if not os.path.exists(project_path):
+        print(f"Error: project file not found: {project_path}", file=sys.stderr)
+        sys.exit(1)
+
+    project = Project.load_project(project_path)
+    changed = False
+
+    if args.project_action == "get-name":
+        print(project.display_name)
+
+    elif args.project_action == "set-name":
+        project.custom_name = args.value
+        changed = True
+        print(f"Name set to: {project.display_name}")
+
+    elif args.project_action == "get-desc":
+        print(project.get_description())
+
+    elif args.project_action == "set-desc":
+        project.description = args.value
+        changed = True
+        print(f"Description set to: {project.description}")
+
+    if changed:
+        project.export_project(project_path)
+
+
+# ------------------------------------------------------------------
 # Argument parser
 # ------------------------------------------------------------------
 
@@ -1066,6 +1103,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format: human-readable table (default) or JSON.",
     )
 
+    # --- project ---
+    p_proj = sub.add_parser(
+        "project",
+        help="Get or set project metadata (name, description) in a .project.json file",
+    )
+    p_proj.add_argument("project_file", help="Path to .project.json file")
+    p_proj.add_argument(
+        "project_action",
+        choices=["get-name", "set-name", "get-desc", "set-desc"],
+        help="Action to perform",
+    )
+    p_proj.add_argument(
+        "value", nargs="?", default="",
+        help="New value (required for set-name and set-desc)",
+    )
+
     # --- test ---
     sub.add_parser("test", help="Run unit tests")
 
@@ -1091,6 +1144,7 @@ def main():
         "export-plan":      cmd_export_plan,
         "catalog":          cmd_catalog,
         "list-transforms":  cmd_list_transforms,
+        "project":          cmd_project,
         "visualize":        cmd_visualize,
         "config":           cmd_config,
         "test":             cmd_test,

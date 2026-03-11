@@ -443,6 +443,7 @@ class TestBuildAllTransforms(unittest.TestCase):
         """invert flips positions around 50: 0→100, 100→0."""
         cycles  = [_cycle(0, 59_000)]
         actions = self._make_actions()
+        _SS["pe_apply_stingy_0"] = True
         _set_seg_transform("stingy", 0, 0, {"transform_key": "invert", "param_values": {}})
         result  = _build_all_transforms(cycles, "stingy", actions)
         for orig, res in zip(actions, result):
@@ -463,6 +464,7 @@ class TestBuildAllTransforms(unittest.TestCase):
         actions = self._make_actions()
         # Split at 30_000 → seg 0: [0,30k], seg 1: [30k,59k]
         _SS["pe_splits_stingy_0"] = [30_000]
+        _SS["pe_apply_stingy_0"]  = True
         _set_seg_transform("stingy", 0, 0, {"transform_key": "invert",       "param_values": {}})
         _set_seg_transform("stingy", 0, 1, {"transform_key": "passthrough",  "param_values": {}})
         result  = _build_all_transforms(cycles, "stingy", actions)
@@ -479,6 +481,7 @@ class TestBuildAllTransforms(unittest.TestCase):
         cycles = [_cycle(0, 29_000), _cycle(30_000, 59_000)]
         actions = self._make_actions()
         for i in range(2):
+            _SS[f"pe_apply_stingy_{i}"] = True
             _set_seg_transform("stingy", i, 0, {"transform_key": "invert", "param_values": {}})
         result = _build_all_transforms(cycles, "stingy", actions)
         for orig, res in zip(actions, result):
@@ -492,6 +495,7 @@ class TestBuildAllTransforms(unittest.TestCase):
             {"at": 15_000, "pos": 25},
             {"at": 35_000, "pos": 25},
         ]
+        _SS["pe_apply_stingy_0"] = True
         _set_seg_transform("stingy", 0, 0, {"transform_key": "invert", "param_values": {}})
         result = _build_all_transforms([cy], "stingy", actions)
         at_map = {a["at"]: a["pos"] for a in result}
@@ -503,6 +507,7 @@ class TestBuildAllTransforms(unittest.TestCase):
         """Non-structural transforms must not change action count."""
         cycles  = [_cycle(0, 59_000)]
         actions = self._make_actions()
+        _SS["pe_apply_stingy_0"] = True
         _set_seg_transform("stingy", 0, 0, {"transform_key": "invert", "param_values": {}})
         result  = _build_all_transforms(cycles, "stingy", actions)
         self.assertEqual(len(result), len(actions))

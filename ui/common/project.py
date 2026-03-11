@@ -67,6 +67,8 @@ class Project:
     assessment: Optional[AssessmentResult] = None
     work_items: List[WorkItem] = field(default_factory=list)
     selected_item_id: Optional[str] = None
+    custom_name: str = ""        # User-defined project name (empty = use filename)
+    description: str = ""       # User-defined description (empty = use auto_description)
 
     # ------------------------------------------------------------------
     # Construction helpers
@@ -258,10 +260,12 @@ class Project:
         return written
 
     def export_project(self, path: str) -> None:
-        """Save the full project state (work items) to a JSON file."""
+        """Save the full project state to a JSON file."""
         data = {
             "funscript_path": self.funscript_path,
-            "work_items": [w.to_dict() for w in self.work_items],
+            "custom_name":    self.custom_name,
+            "description":    self.description,
+            "work_items":     [w.to_dict() for w in self.work_items],
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -272,7 +276,9 @@ class Project:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         project = cls(funscript_path=data.get("funscript_path", ""))
-        project.work_items = [
+        project.custom_name  = data.get("custom_name", "")
+        project.description  = data.get("description", "")
+        project.work_items   = [
             WorkItem.from_dict(d) for d in data.get("work_items", [])
         ]
         return project
@@ -285,6 +291,36 @@ class Project:
     def name(self) -> str:
         """Friendly display name derived from the funscript filename."""
         return os.path.splitext(os.path.basename(self.funscript_path))[0]
+
+    @property
+    def display_name(self) -> str:
+        """User-defined name if set, else the filename-derived name."""
+        return self.custom_name.strip() or self.name
+
+    def auto_description(self) -> str:
+        """Generate a one-sentence description from the assessment data."""
+        if not self.assessment:
+            return ""
+        s = self.summary()
+        duration = s.get("duration", "")
+        bpm      = s.get("bpm", 0.0)
+        phrases  = s.get("phrases", 0)
+        patterns = s.get("patterns", 0)
+        bpm_str  = f"{bpm:.0f} BPM" if bpm else ""
+        parts = []
+        if duration:
+            parts.append(duration)
+        if bpm_str:
+            parts.append(bpm_str)
+        if phrases:
+            parts.append(f"{phrases} phrase{'s' if phrases != 1 else ''}")
+        if patterns:
+            parts.append(f"{patterns} pattern{'s' if patterns != 1 else ''}")
+        return ", ".join(parts) + "." if parts else ""
+
+    def get_description(self) -> str:
+        """User description if set, else auto-generated from assessment."""
+        return self.description.strip() or self.auto_description()
 
     @property
     def is_loaded(self) -> bool:

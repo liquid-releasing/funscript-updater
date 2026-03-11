@@ -184,7 +184,7 @@ def _funscript_picker_local(output_dir: str) -> str | None:
 
     Returns the selected absolute path, or ``None`` if nothing valid is chosen.
     """
-    st.sidebar.subheader("Funscript")
+    st.sidebar.subheader("Funscript Project")
     recents = _load_recents(output_dir)
     options = recents + [_BROWSE_SENTINEL]
     sel = st.sidebar.selectbox(
@@ -283,7 +283,7 @@ def _sidebar() -> None:
         _media_picker_local(funscript_path, output_dir)
     else:
         # Web mode: file upload widgets (kept for the web UI deployment).
-        st.sidebar.subheader("Funscript")
+        st.sidebar.subheader("Funscript Project")
         uploaded = st.sidebar.file_uploader(
             "Upload a funscript",
             type=["funscript"],
@@ -475,55 +475,16 @@ def _sidebar() -> None:
     project: Project | None = st.session_state.project
     if project and project.is_loaded:
         s = project.summary()
-        st.sidebar.markdown(f"**{s['name']}**")
+        st.sidebar.markdown(f"**{project.display_name}**")
+        desc = project.get_description()
+        if desc:
+            st.sidebar.caption(desc)
         elapsed = st.session_state.last_assessment_elapsed
         timing_str = f"  |  assessed in {elapsed:.1f}s" if elapsed is not None else ""
         st.sidebar.caption(
             f"Duration: {s['duration']}  |  Avg BPM: {s['bpm']:.1f}{timing_str}\n\n"
             f"{s['phrases']} phrases  •  {s['bpm_transitions']} transitions"
         )
-
-        # Work item type summary.
-        type_counts = {}
-        for item in project.work_items:
-            type_counts[item.item_type] = type_counts.get(item.item_type, 0) + 1
-        if type_counts:
-            summary_lines = [f"**Work items ({len(project.work_items)})**"]
-            icons = {ItemType.PERFORMANCE: "🔥", ItemType.BREAK: "🌊",
-                     ItemType.RAW: "🎯", ItemType.NEUTRAL: "⚪"}
-            for itype, count in sorted(type_counts.items(), key=lambda x: x[0].value):
-                summary_lines.append(f"{icons[itype]} {itype.value.title()}: {count}")
-            st.sidebar.markdown("\n\n".join(summary_lines))
-
-        st.sidebar.markdown("---")
-
-        # --- Undo / Redo ---
-        _undo_stack = st.session_state.undo_stack
-        _u_col, _r_col = st.sidebar.columns(2)
-        if _u_col.button(
-            "↩ Undo",
-            disabled=not _undo_stack.can_undo,
-            help=f"Undo: {_undo_stack.undo_label}" if _undo_stack.can_undo else "Nothing to undo",
-            width="stretch",
-        ):
-            from ui.streamlit.undo_helpers import apply_snapshot
-            _snap = _undo_stack.undo()
-            if _snap:
-                apply_snapshot(_snap)
-                st.rerun()
-        if _r_col.button(
-            "↪ Redo",
-            disabled=not _undo_stack.can_redo,
-            help=f"Redo: {_undo_stack.redo_label}" if _undo_stack.can_redo else "Nothing to redo",
-            width="stretch",
-        ):
-            from ui.streamlit.undo_helpers import apply_snapshot
-            _snap = _undo_stack.redo()
-            if _snap:
-                apply_snapshot(_snap)
-                st.rerun()
-
-        st.sidebar.markdown("---")
 
         st.sidebar.markdown("---")
 
