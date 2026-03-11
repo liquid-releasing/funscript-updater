@@ -178,8 +178,8 @@ if _IS_MAC:
         info_plist={
             "NSPrincipalClass": "NSApplication",
             "NSAppleScriptEnabled": False,
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1.0.0",
+            "CFBundleShortVersionString": "0.0.10",
+            "CFBundleVersion": "0.0.10",
             "LSMinimumSystemVersion": "10.15",
             "NSHighResolutionCapable": True,
         },
