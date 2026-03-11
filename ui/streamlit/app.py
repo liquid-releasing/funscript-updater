@@ -499,9 +499,8 @@ def _sidebar() -> None:
             f"● {s['patterns']} patterns",
         ]
         if _bpms:
-            _spec_lines.append(
-                f"● BPM: {s['bpm']:.0f} avg  ·  {min(_bpms):.0f}–{max(_bpms):.0f} range"
-            )
+            _spec_lines.append(f"● BPM avg: {s['bpm']:.0f}")
+            _spec_lines.append(f"● Phrase BPM range: {min(_bpms):.0f}–{max(_bpms):.0f}")
         if _elapsed is not None:
             _spec_lines.append(f"● Assessed in {_elapsed:.1f}s")
         st.sidebar.caption("\n\n".join(_spec_lines))
