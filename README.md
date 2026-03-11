@@ -14,7 +14,7 @@ expressive performance sections, and gentle breaks.
 ### Analysis
 
 - Structural analysis: phases → cycles → patterns → phrases → BPM transitions
-- Behavioral classification into 8 tags (stingy, giggle, plateau, drift, half-stroke, drone, lazy, frantic)
+- Behavioral classification into 10 tags (stingy, giggle, plateau, drift, half-stroke, drone, lazy, frantic, ramp, ambient)
 - Duration-based phrase splitting for uniform-tempo funscripts (no more single-phrase output on long uniform files)
 - Real-time progress indicator shows each pipeline stage as it runs
 - Cross-funscript pattern catalog — accumulates stats across all analysed files (persistent JSON)
@@ -22,8 +22,9 @@ expressive performance sections, and gentle breaks.
 ### Phrase Selector (Streamlit UI)
 
 - Full-funscript colour-coded chart with phrase bounding boxes; click any phrase to open its detail panel
-- Per-phrase transform selection with live parameter sliders and Before / After preview
+- Per-phrase transform selection with live parameter sliders and Before / After preview; navigation buttons (P X of N + prev/next) above the transform panel
 - Cycle-based phrase split — slider selects the split boundary; a dashed line marks it on the chart; hover any dot to see its cycle number
+- **Concat with Next Phrase** — two-step preview flow: pending transform is auto-accepted, chart expands to show the combined bounding box of both phrases; Confirm/Cancel before committing the merge
 - ✓ Accept stores the transform in session state; ✕ Cancel discards only the current phrase's pending change
 - Selector chart shows the accumulated edited funscript (with banner) once any transform has been accepted
 - **Large-file phrase highlight** — for long funscripts the selected phrase renders with full velocity colour lines over the grey background, so the active window is always visually distinct
@@ -31,8 +32,9 @@ expressive performance sections, and gentle breaks.
 ### Pattern Editor (Streamlit UI)
 
 - Select phrases by behavioral tag; view all matching instances at once
+- Apply (✓) checkbox in the first column; clicking a row selects that instance in the transform editor
 - Per-instance transform + per-segment split (split into non-overlapping sub-ranges, each with its own transform)
-- Apply to all — copies the current instance's transform (or split structure, scaled proportionally) to every other instance of the same tag
+- "Suggested transform" shown per tag; Apply to all copies the current instance's transform to every other instance
 - Selector chart also reflects accepted phrase-editor transforms
 
 ### Audio / Video Player
@@ -78,7 +80,8 @@ expressive performance sections, and gentle breaks.
 - `finalize` — blend seams + final smooth as standalone post-processing
 - `export-plan` — mirror of the UI Export tab; supports `--apply` to write output directly
 - `catalog` — query and manage the cross-funscript pattern catalog
-- `test` — run all 698 tests
+- `validate-plugins` — validate JSON recipe files and report Python plugin gate status without starting the app
+- `test` — run all 741 tests
 
 ---
 
@@ -122,10 +125,10 @@ are shown as dashed lines on both charts.  Use **Apply to all** to copy the
 split structure — scaled proportionally — to every other instance of the same
 behavioral tag.
 
-The **Transform Catalog** tab is a reference guide for all 17 transforms
-grouped by capability.  Each entry includes a description, best-fit
-behavioral tags, a parameter table, and live Before / After charts with
-interactive sliders.
+The **Catalogs** tab has two sections:
+
+- **Transform Catalog** — reference guide for all transforms grouped by capability (Analysis, Structural, Replacement, Behavior); each entry includes a description, best-fit behavioral tags, a parameter table, and live Before / After charts with interactive sliders
+- **Tag Catalog** — reference for all 10 behavioral tags; each entry shows characteristics, the suggested transform, and before/after example charts
 
 ### 3 — Export
 
@@ -145,6 +148,8 @@ reject that change before downloading.
 | `stingy` | `amplitude_scale` | Reduce; scale computed to target peak hi ≈ 65 |
 | `drift`, `half_stroke` | `recenter` | `target_center = 50` |
 | `drone` | `beat_accent` | Adds rhythmic variation |
+| `ramp` | `funnel` | Progressive center shift + amplitude scaling for energy arc shaping |
+| `ambient` | `waiting` | Low BPM + shallow amplitude + long duration |
 | *(no tag, transition)* | `smooth` | Pattern label contains "transition" |
 | *(no tag, low BPM)* | `passthrough` | BPM < threshold |
 | *(no tag, narrow span)* | `normalize` | `amplitude_span < 40` |
@@ -246,7 +251,7 @@ funscript-forge/
 │   └── pattern_catalog.py    #   PatternCatalog (persistent JSON)
 ├── pattern_catalog/          # Step 2: BPM-threshold baseline transform
 │   ├── transformer.py        #   FunscriptTransformer
-│   ├── phrase_transforms.py  #   TRANSFORM_CATALOG (17 named transforms)
+│   ├── phrase_transforms.py  #   TRANSFORM_CATALOG (22 named transforms incl. funnel)
 │   └── config.py             #   TransformerConfig
 ├── user_customization/       # Step 3: window-based fine-tuning
 │   ├── customizer.py         #   WindowCustomizer
@@ -316,6 +321,9 @@ python cli.py export-plan <funscript> [--assessment <path>]
 # Catalog
 python cli.py catalog [--catalog <path>] [--tag TAG] [--remove FUNSCRIPT] [--clear]
 
+# Validate user-transform plugins (JSON schema check + Python plugin gate status)
+python cli.py validate-plugins [--verbose] [--recipes-dir <path>] [--plugins-dir <path>]
+
 # Utilities
 python cli.py visualize <funscript> --assessment <path> [--output <path>]
 python cli.py config    [--customizer] [--analyzer] [--output <path>]
@@ -327,13 +335,13 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline + integration + UI tests (638 tests)
+# Core pipeline + integration + UI tests
 python -m unittest discover -s tests -v
 
-# UI layer (60 tests)
+# UI layer
 python -m unittest discover -s ui/common/tests -v
 
-# All at once (698 tests)
+# All at once (741 tests)
 python cli.py test
 ```
 
@@ -345,6 +353,7 @@ python cli.py test
 | --- | --- |
 | [assessment/readme.md](assessment/readme.md) | Structural analysis pipeline — phases, cycles, patterns, phrases, BPM transitions (Step 1) |
 | [pattern_catalog/README.md](pattern_catalog/README.md) | BPM-threshold baseline transformer (Step 2) |
+| [pattern_catalog/EXTENDING_TRANSFORMS.md](pattern_catalog/EXTENDING_TRANSFORMS.md) | Adding custom transforms via JSON recipes or Python plugins; security model |
 | [user_customization/README.md](user_customization/README.md) | Window-based fine-tuning customizer (Step 3) |
 | [ui/README.md](ui/README.md) | Streamlit UI overview — launcher, local mode, sidebar controls, all four tabs |
 | [ui/streamlit/README.md](ui/streamlit/README.md) | Detailed Streamlit panel reference — Phrase Editor, Pattern Editor, Export |
@@ -356,6 +365,7 @@ python cli.py test
 | [tests/README.md](tests/README.md) | Test suite structure and coverage |
 | [internal/ACCESSIBILITY.md](internal/ACCESSIBILITY.md) | WCAG 2.1 AA accessibility assessment — issues, severity, recommended fixes |
 | [internal/BUILD.md](internal/BUILD.md) | Building a standalone installer on Windows and macOS |
+| [internal/SECURITY.md](internal/SECURITY.md) | Threat analysis (T1–T5), mitigations implemented, Python plugin roadmap decision |
 
 ---
 
