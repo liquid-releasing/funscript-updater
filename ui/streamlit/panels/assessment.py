@@ -131,7 +131,7 @@ def _render_phrases_section(phrases: List[Dict], project: "Project") -> None:
 
         rc = st.columns(col_widths)
         rc[0].markdown(
-            f'<span style="white-space:nowrap">{i + 1}</span>',
+            f'<span style="white-space:nowrap">P{i + 1}</span>',
             unsafe_allow_html=True,
         )
         rc[1].write(time_str)
@@ -140,8 +140,8 @@ def _render_phrases_section(phrases: List[Dict], project: "Project") -> None:
         rc[4].write(desc)
         rc[5].write(tag_labels)
         if rc[6].button("👁", key=f"ph_focus_{i}", help="Focus in Phrase Editor"):
+            # Setting selection switches the Phrases tab to the Editor view automatically.
             st.session_state.view_state.set_selection(ph["start_ms"], ph["end_ms"])
-            st.session_state.goto_tab = 0
             st.rerun()
 
 

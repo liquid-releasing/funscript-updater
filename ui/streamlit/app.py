@@ -573,45 +573,28 @@ def _main() -> None:
         _render_welcome()
         return
 
-    # Tab indices: 0=Phrase Selector, 1=Phrase Editor, 2=Pattern Editor, 3=Transform Catalog, 4=Export
-    tab_viewer, tab_editor, tab_pattern, tab_transforms, tab_export = st.tabs(
-        ["Phrase Selector", "Phrase Editor", "Pattern Editor", "Transform Catalog", "Export"]
+    # 4 tabs: Phrase (Selector ↔ Editor), Pattern Editor, Transform Catalog, Export.
+    # The Phrase tab shows the Selector or Editor depending on view_state.has_selection(),
+    # eliminating the need for JS-based programmatic tab navigation.
+    tab_phrase, tab_pattern, tab_transforms, tab_export = st.tabs(
+        ["Phrases", "Patterns", "Transform Catalog", "Export"]
     )
 
-    with tab_viewer:
+    with tab_phrase:
         st.session_state["active_tab"] = 0
-        _render_phrase_selector_tab(project)
-
-    with tab_editor:
-        st.session_state["active_tab"] = 1
-        _render_phrase_editor_tab(project)
+        _render_phrase_tab(project)
 
     with tab_pattern:
-        st.session_state["active_tab"] = 2
+        st.session_state["active_tab"] = 1
         _render_pattern_editor_tab(project)
 
     with tab_transforms:
-        st.session_state["active_tab"] = 3
+        st.session_state["active_tab"] = 2
         transform_catalog_panel.render()
 
     with tab_export:
-        st.session_state["active_tab"] = 4
+        st.session_state["active_tab"] = 3
         export_panel.render(project)
-
-    # Programmatic tab navigation: set st.session_state.goto_tab = <0-based index>
-    # before calling st.rerun(); the JS below clicks the tab after DOM is ready.
-    if "goto_tab" in st.session_state:
-        tab_idx = st.session_state.pop("goto_tab")
-        import streamlit.components.v1 as components
-        components.html(
-            f"""<script>
-                (function() {{
-                    var tabs = window.parent.document.querySelectorAll('[data-testid="stTab"]');
-                    if (tabs[{tab_idx}]) tabs[{tab_idx}].click();
-                }})();
-            </script>""",
-            height=0,
-        )
 
     # Keyboard shortcuts — registered once per page load via a sentinel flag on
     # window.parent so reruns don't stack duplicate listeners.
@@ -738,8 +721,43 @@ def _render_welcome() -> None:
     )
 
 
+def _render_phrase_tab(project: Project) -> None:
+    """Phrases tab — shows Selector when nothing is selected, Editor when a phrase is selected.
+
+    Switching between the two views is driven entirely by view_state.has_selection(),
+    so Done/Close simply clears the selection and reruns — no JS tab clicks needed.
+
+    The table selection is pre-processed HERE, before deciding which view to render,
+    to avoid a one-render lag where the Editor would open for the previously-selected
+    phrase rather than the one just clicked.
+    """
+    view_state = st.session_state.view_state
+    assessment_dict = project.assessment.to_dict()
+    phrases = assessment_dict.get("phrases", [])
+
+    # Read pending table-row click straight from widget session state.
+    # on_select="rerun" stores the selection in st.session_state[key] before
+    # the rerun fires, so we can process it here, at the very top, and set
+    # view_state.selection before choosing which view to render.
+    _tver = st.session_state.get("phrase_table_ver", 0)
+    _tstate = st.session_state.get(f"phrase_table_{_tver}")
+    if _tstate is not None and phrases:
+        _rows = getattr(getattr(_tstate, "selection", None), "rows", [])
+        if _rows and 0 <= _rows[0] < len(phrases):
+            ph = phrases[_rows[0]]
+            view_state.selection_start_ms = ph["start_ms"]
+            view_state.selection_end_ms   = ph["end_ms"]
+            # Bump version so the widget reinitialises with no selection next render.
+            st.session_state["phrase_table_ver"] = _tver + 1
+
+    if view_state.has_selection():
+        _render_phrase_editor_tab(project)
+    else:
+        _render_phrase_selector_tab(project)
+
+
 def _render_phrase_selector_tab(project: Project) -> None:
-    """Tab 0 — Phrase Selector with assessment details below."""
+    """Phrase Selector view — full chart + phrase table."""
     view_state = st.session_state.view_state
     viewer_panel.render(
         project, view_state,
@@ -750,10 +768,9 @@ def _render_phrase_selector_tab(project: Project) -> None:
 
 
 def _render_phrase_editor_tab(project: Project) -> None:
-    """Tab 1 — Phrase Editor: single-phrase editor with prev/next navigation and X to return."""
+    """Phrase Editor view — single-phrase editor with prev/next navigation."""
     from ui.streamlit.panels import phrase_detail
     from ui.streamlit.panels.media_player import render_player
-    from ui.streamlit.panels.phrase_detail import _select_and_zoom
     import json
 
     view_state = st.session_state.view_state
@@ -761,16 +778,11 @@ def _render_phrase_editor_tab(project: Project) -> None:
     phrases     = assessment_dict.get("phrases", [])
     duration_ms = project.assessment.duration_ms
 
-    # Auto-select P1 if no phrase is selected yet.
-    if not view_state.has_selection() and phrases:
-        _select_and_zoom(phrases[0], view_state, duration_ms)
-
-    # X button — clear selection and return to Phrase Selector tab.
+    # Close button — clearing selection switches the Phrase tab back to Selector view.
     if st.button("✕  Close and return to Phrase Selector", key="editor_close"):
         view_state.clear_selection()
         view_state.reset_zoom()
-        st.session_state.pop("phrase_table", None)
-        st.session_state.goto_tab = 0
+        st.session_state["phrase_table_ver"] = st.session_state.get("phrase_table_ver", 0) + 1
         st.rerun()
 
     sel_start = view_state.selection_start_ms or 0

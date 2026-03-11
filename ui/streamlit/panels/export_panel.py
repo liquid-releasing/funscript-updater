@@ -328,39 +328,17 @@ def _build_plans(
     recommended: List[dict] = []
 
     for idx, phrase in enumerate(phrases):
-        tx_key: Optional[str] = None
-        param_values: dict = {}
-        source: Optional[str] = None
+        old_bpm    = phrase.get("bpm", 0.0)
+        old_cycles = phrase.get("cycle_count") or 0
 
-        # 1. Phrase Editor
-        phrase_tx = st.session_state.get(f"phrase_transform_{idx}", {})
-        if phrase_tx.get("transform_key") and phrase_tx["transform_key"] != "passthrough":
-            tx_key       = phrase_tx["transform_key"]
-            param_values = phrase_tx.get("param_values", {})
-            source       = "Phrase Editor"
-
-        # 2. Pattern Editor
-        if not tx_key:
-            for tag in phrase.get("tags", []):
-                tag_idxs = tag_to_idxs.get(tag, [])
-                try:
-                    i = tag_idxs.index(idx)
-                except ValueError:
-                    continue
-                pe_tx = st.session_state.get(f"pe_transform_{tag}_{i}", {})
-                if pe_tx.get("transform_key") and pe_tx["transform_key"] != "passthrough":
-                    tx_key       = pe_tx["transform_key"]
-                    param_values = pe_tx.get("param_values", {})
-                    source       = "Pattern Editor"
-                    break
-
-        def _make_entry(key, params, src):
-            old_bpm    = phrase.get("bpm", 0.0)
-            old_cycles = phrase.get("cycle_count") or 0
-            new_bpm    = old_bpm / 2    if key == "halve_tempo" else None
-            new_cycles = old_cycles // 2 if key == "halve_tempo" else None
+        def _make_entry(key, params, src, chain=None):
+            has_halve  = (key == "halve_tempo") or any(
+                t.get("transform_key") == "halve_tempo" for t in (chain or [])
+            )
+            new_bpm    = old_bpm / 2    if has_halve else None
+            new_cycles = old_cycles // 2 if has_halve else None
             spec       = TRANSFORM_CATALOG.get(key)
-            return {
+            entry = {
                 "phrase_idx":   idx,
                 "start_ms":     phrase["start_ms"],
                 "end_ms":       phrase["end_ms"],
@@ -373,6 +351,40 @@ def _build_plans(
                 "old_cycles":   old_cycles,
                 "new_cycles":   new_cycles,
             }
+            if chain:
+                entry["chain"] = chain
+            return entry
+
+        # 1. Phrase Editor — accepted chain (new format)
+        _chain = st.session_state.get(f"phrase_transform_chain_{idx}", [])
+        _non_pt = [t for t in _chain if t.get("transform_key", "passthrough") != "passthrough"]
+        if _non_pt:
+            _last   = _non_pt[-1]
+            _specs  = [TRANSFORM_CATALOG.get(t["transform_key"]) for t in _non_pt]
+            _names  = [s.name if s else t["transform_key"] for s, t in zip(_specs, _non_pt)]
+            _tx_name = _names[0] if len(_names) == 1 else " → ".join(_names)
+            _entry  = _make_entry(_last["transform_key"], _last.get("param_values", {}),
+                                  "Phrase Editor", chain=_non_pt)
+            _entry["tx_name"] = _tx_name
+            completed.append(_entry)
+            continue
+
+        # 2. Pattern Editor
+        tx_key: Optional[str] = None
+        param_values: dict = {}
+        source: Optional[str] = None
+        for tag in phrase.get("tags", []):
+            tag_idxs = tag_to_idxs.get(tag, [])
+            try:
+                i = tag_idxs.index(idx)
+            except ValueError:
+                continue
+            pe_tx = st.session_state.get(f"pe_transform_{tag}_{i}", {})
+            if pe_tx.get("transform_key") and pe_tx["transform_key"] != "passthrough":
+                tx_key       = pe_tx["transform_key"]
+                param_values = pe_tx.get("param_values", {})
+                source       = "Pattern Editor"
+                break
 
         if tx_key:
             completed.append(_make_entry(tx_key, param_values, source))
@@ -693,24 +705,30 @@ def _apply_plan_transforms(
             continue
         if entry.get("source") == "Recommended" and idx not in accepted:
             continue
-        spec = TRANSFORM_CATALOG.get(entry["tx_key"])
-        if not spec:
-            continue
-        start_ms     = entry["start_ms"]
-        end_ms       = entry["end_ms"]
-        param_values = entry["param_values"] or {}
-        phrase_slice = [a for a in result if start_ms <= a["at"] <= end_ms]
-        transformed  = spec.apply(phrase_slice, param_values if param_values else None)
-        if not transformed:
-            continue
-        if spec.structural:
-            outside = [a for a in result if not (start_ms <= a["at"] <= end_ms)]
-            result  = sorted(outside + transformed, key=lambda a: a["at"])
-        else:
-            t_to_pos = {a["at"]: a["pos"] for a in transformed}
-            for a in result:
-                if a["at"] in t_to_pos:
-                    a["pos"] = t_to_pos[a["at"]]
+        start_ms = entry["start_ms"]
+        end_ms   = entry["end_ms"]
+
+        # Multi-transform chain (Phrase Editor) or single transform (Pattern Editor)
+        chain = entry.get("chain") or [
+            {"transform_key": entry["tx_key"], "param_values": entry.get("param_values") or {}}
+        ]
+        for t_entry in chain:
+            spec = TRANSFORM_CATALOG.get(t_entry["transform_key"])
+            if not spec:
+                continue
+            param_values = t_entry.get("param_values") or {}
+            phrase_slice = [a for a in result if start_ms <= a["at"] <= end_ms]
+            transformed  = spec.apply(phrase_slice, param_values if param_values else None)
+            if not transformed:
+                continue
+            if spec.structural:
+                outside = [a for a in result if not (start_ms <= a["at"] <= end_ms)]
+                result  = sorted(outside + transformed, key=lambda a: a["at"])
+            else:
+                t_to_pos = {a["at"]: a["pos"] for a in transformed}
+                for a in result:
+                    if a["at"] in t_to_pos:
+                        a["pos"] = t_to_pos[a["at"]]
 
     # #9 clamp to [0, 100]  +  #10 sort and deduplicate timestamps
     clamp_count = _clamp_sort_dedup(result)

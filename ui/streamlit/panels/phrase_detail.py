@@ -53,11 +53,18 @@ def render(
     duration_ms: int,
     bpm_threshold: float = 120.0,
 ) -> None:
-    if not view_state.has_selection():
+    if not phrases:
         return
 
-    sel_start  = view_state.selection_start_ms
-    sel_end    = view_state.selection_end_ms
+    if view_state.has_selection():
+        sel_start = view_state.selection_start_ms
+        sel_end   = view_state.selection_end_ms
+    else:
+        # Default to P1 locally — do NOT write to view_state so the Phrase
+        # Selector chart is not polluted with a phantom P1 highlight.
+        sel_start = phrases[0]["start_ms"]
+        sel_end   = phrases[0]["end_ms"]
+
     phrase_idx = next(
         (i for i, ph in enumerate(phrases)
          if ph["start_ms"] == sel_start and ph["end_ms"] == sel_end),
@@ -151,14 +158,8 @@ def _detail_fragment(
     # Resolve pending transform (only needed when not in split mode)
     # ------------------------------------------------------------------
     if not split_mode:
-        catalog_keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
-        catalog_labels = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
-
-        sel_label = st.session_state.get(f"transform_sel_{phrase_idx}")
-        if sel_label and sel_label in catalog_labels:
-            transform_key = catalog_keys[catalog_labels.index(sel_label)]
-        else:
-            transform_key = "passthrough"
+        from ui.streamlit.transform_picker import get_picker_key
+        transform_key = get_picker_key(f"txpick_{phrase_idx}")
 
         spec = TRANSFORM_CATALOG.get(transform_key, TRANSFORM_CATALOG["passthrough"])
 
@@ -498,71 +499,41 @@ def _apply_transform_to_window(
 # Transform controls
 # ------------------------------------------------------------------
 
+def _clear_picker_state(phrase_idx: int) -> None:
+    """Clear all session-state keys owned by the two-step transform picker."""
+    for k in list(st.session_state):
+        if k.startswith(f"txpick_{phrase_idx}_") or k.startswith(f"param_{phrase_idx}_"):
+            del st.session_state[k]
+
+
 def _render_transform_controls(phrase: dict, bpm_threshold: float, phrase_idx: int) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER, suggest_transform
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, suggest_transform
+    from ui.streamlit.transform_picker import render_transform_picker
 
     suggested_key, _ = suggest_transform(phrase, bpm_threshold)
-    keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
-    labels = [TRANSFORM_CATALOG[k].name for k in keys]
-
-    passthrough_idx = keys.index("passthrough") if "passthrough" in keys else 0
 
     st.markdown("**Transform**")
     st.caption(f"Suggested: **{TRANSFORM_CATALOG[suggested_key].name}**")
 
-    chosen_label = st.selectbox(
-        "Select transform",
-        options=labels,
-        index=passthrough_idx,
-        key=f"transform_sel_{phrase_idx}",
-    )
-    chosen_key = keys[labels.index(chosen_label)]
-    spec = TRANSFORM_CATALOG[chosen_key]
-
-    st.caption(spec.description)
-
     phrase_duration_ms = phrase["end_ms"] - phrase["start_ms"]
 
-    # UI-only overrides for params whose sensible range depends on phrase context.
-    _ui_int_overrides: dict = {}
-    if chosen_key == "beat_accent":
-        _ui_int_overrides["start_at_ms"] = dict(
-            max_value=phrase_duration_ms,
-            step=500,
-        )
-        _ui_int_overrides["max_accents"] = dict(max_value=60)
+    chosen_key = render_transform_picker(
+        prefix             = f"txpick_{phrase_idx}",
+        param_prefix       = f"param_{phrase_idx}",
+        current_key        = "passthrough",
+        transform_overrides = {
+            "beat_accent": {
+                "start_at_ms": {"max_value": phrase_duration_ms, "step": 500},
+                "max_accents": {"max_value": 60},
+            },
+        },
+    )
 
-    # Clamp any stale session-state values that now exceed the override max.
-    for _pk, _ov in _ui_int_overrides.items():
-        _sk = f"param_{phrase_idx}_{_pk}"
-        _cap = _ov.get("max_value")
-        if _cap is not None and st.session_state.get(_sk, 0) > _cap:
-            st.session_state[_sk] = _cap
-
-    param_values = {}
-    for param_key, param in spec.params.items():
-        if param.type == "float":
-            param_values[param_key] = st.slider(
-                param.label,
-                min_value=float(param.min_val or 0.0),
-                max_value=float(param.max_val or 1.0),
-                value=float(param.default),
-                step=float(param.step or 0.05),
-                help=param.help,
-                key=f"param_{phrase_idx}_{param_key}",
-            )
-        elif param.type == "int":
-            overrides = _ui_int_overrides.get(param_key, {})
-            param_values[param_key] = st.slider(
-                param.label,
-                min_value=int(param.min_val or 0),
-                max_value=int(overrides.get("max_value", param.max_val or 100)),
-                value=int(param.default),
-                step=int(overrides.get("step", param.step or 1)),
-                help=param.help,
-                key=f"param_{phrase_idx}_{param_key}",
-            )
-
+    spec = TRANSFORM_CATALOG[chosen_key]
+    param_values = {
+        pk: st.session_state.get(f"param_{phrase_idx}_{pk}", p.default)
+        for pk, p in spec.params.items()
+    }
     st.session_state[f"phrase_transform_{phrase_idx}"] = {
         "transform_key": chosen_key,
         "param_values":  param_values,
@@ -737,6 +708,23 @@ def _clear_all_split_state() -> None:
 # Phrase navigation buttons
 # ------------------------------------------------------------------
 
+def _accept_pending(phrase_idx: int) -> None:
+    """Auto-accept any non-passthrough pending transform before navigating."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    _pending_key = st.session_state.get(f"txpick_{phrase_idx}_key", "passthrough")
+    if _pending_key != "passthrough":
+        _pv = {
+            pk: st.session_state.get(f"param_{phrase_idx}_{pk}", p.default)
+            for pk, p in TRANSFORM_CATALOG[_pending_key].params.items()
+        }
+        _chain_key = f"phrase_transform_chain_{phrase_idx}"
+        _cur_chain = st.session_state.get(_chain_key, [])
+        st.session_state[_chain_key] = _cur_chain + [
+            {"transform_key": _pending_key, "param_values": _pv}
+        ]
+    _clear_picker_state(phrase_idx)
+
+
 def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms: int) -> None:
     n = len(phrases)
     st.caption(f"P{phrase_idx + 1} of {n}")
@@ -746,16 +734,20 @@ def _render_nav_buttons(phrases: list, phrase_idx: int, view_state, duration_ms:
         if st.button("⏮ Prev", key="pd_phrase_prev",
                      disabled=(phrase_idx == 0),
                      width="stretch"):
+            _accept_pending(phrase_idx)
             _clear_all_split_state()
             _select_and_zoom(phrases[phrase_idx - 1], view_state, duration_ms)
+            st.session_state["phrase_table_ver"] = st.session_state.get("phrase_table_ver", 0) + 1
             st.rerun()
 
     with col_n:
         if st.button("Next ⏭", key="pd_phrase_next",
                      disabled=(phrase_idx >= n - 1),
                      width="stretch"):
+            _accept_pending(phrase_idx)
             _clear_all_split_state()
             _select_and_zoom(phrases[phrase_idx + 1], view_state, duration_ms)
+            st.session_state["phrase_table_ver"] = st.session_state.get("phrase_table_ver", 0) + 1
             st.rerun()
 
 
@@ -768,14 +760,8 @@ def _render_save_cancel(phrase_idx: int, view_state) -> None:
     Done commits all transforms and returns to phrase selector with full-funscript view.
     Cancel discards this phrase's transform and returns to selector.
     """
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER
-    _pending_label = st.session_state.get(f"transform_sel_{phrase_idx}")
-    _keys = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
-    _labels = [TRANSFORM_CATALOG[k].name for k in _keys]
-    _pending_key = (
-        _keys[_labels.index(_pending_label)]
-        if _pending_label and _pending_label in _labels else "passthrough"
-    )
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    _pending_key = st.session_state.get(f"txpick_{phrase_idx}_key", "passthrough")
 
     if st.button(
         "✓ Accept",
@@ -795,10 +781,9 @@ def _render_save_cancel(phrase_idx: int, view_state) -> None:
             st.session_state[_chain_key] = _cur_chain + [
                 {"transform_key": _pending_key, "param_values": _pv}
             ]
-        # Reset pending selection to passthrough
-        st.session_state.pop(f"transform_sel_{phrase_idx}", None)
-        for k in [k for k in st.session_state if k.startswith(f"param_{phrase_idx}_")]:
-            st.session_state.pop(k, None)
+        # Reset picker to passthrough
+        _clear_picker_state(phrase_idx)
+        st.rerun()  # rebuild charts with the updated baseline
 
     _chain_count = len(st.session_state.get(f"phrase_transform_chain_{phrase_idx}", []))
     if _chain_count:
@@ -812,13 +797,13 @@ def _render_save_cancel(phrase_idx: int, view_state) -> None:
         width="stretch",
         help="Finish all edits — return to Phrase Selector showing the updated funscript",
     ):
+        _accept_pending(phrase_idx)
         view_state.clear_selection()
         view_state.reset_zoom()
-        st.session_state.pop("phrase_table", None)
+        st.session_state["phrase_table_ver"] = st.session_state.get("phrase_table_ver", 0) + 1
         st.session_state.phrase_sel_chart_instance = (
             st.session_state.get("phrase_sel_chart_instance", 0) + 1
         )
-        st.session_state.goto_tab = 0
         st.rerun()
 
     st.write("")
@@ -830,9 +815,7 @@ def _render_save_cancel(phrase_idx: int, view_state) -> None:
         help="Discard pending transform — revert preview to baseline and choose again",
     ):
         # Clear only the pending selection — the accepted chain is preserved
-        st.session_state.pop(f"transform_sel_{phrase_idx}", None)
-        for k in [k for k in st.session_state if k.startswith(f"param_{phrase_idx}_")]:
-            st.session_state.pop(k, None)
+        _clear_picker_state(phrase_idx)
         st.rerun()
 
 

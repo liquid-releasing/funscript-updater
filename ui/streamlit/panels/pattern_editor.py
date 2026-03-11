@@ -373,8 +373,10 @@ def _detail_fragment(
     # Show edited version in selector chart if phrase editor transforms exist
     from ui.streamlit.panels.phrase_detail import build_edited_actions
     has_edits = any(
-        k.startswith("phrase_transform_")
-        and st.session_state[k].get("transform_key", "passthrough") != "passthrough"
+        k.startswith("phrase_transform_chain_")
+        and isinstance(st.session_state[k], list)
+        and len(st.session_state[k]) > 0
+        and any(t.get("transform_key", "passthrough") != "passthrough" for t in st.session_state[k])
         for k in st.session_state
     )
     if has_edits:
@@ -524,7 +526,7 @@ def _render_instance_table(
             tx_key = stored.get("transform_key", "")
             tx_display = tx_key if (tx_key and tx_key != "passthrough") else suggested
 
-        apply = st.session_state.get(f"pe_apply_{selected_label}_{i}", True)
+        apply = st.session_state.get(f"pe_apply_{selected_label}_{i}", False)
         rows.append({
             "#":         i + 1,
             "Apply":     apply,
@@ -552,7 +554,7 @@ def _render_instance_table(
         disabled=_READ_ONLY,
         column_config={
             "#":         st.column_config.NumberColumn(width="small"),
-            "Apply":     st.column_config.CheckboxColumn("Apply", default=True, width="small"),
+            "Apply":     st.column_config.CheckboxColumn("Apply", default=False, width="small"),
             "Pattern":   st.column_config.TextColumn(width="medium"),
             "Start":     st.column_config.TextColumn(width="small"),
             "End":       st.column_config.TextColumn(width="small"),
@@ -585,12 +587,9 @@ def _render_controls(
     original_actions: List[dict],
     funscript_path: str,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    from ui.streamlit.transform_picker import render_transform_picker
     from utils import ms_to_timestamp
-
-    catalog_keys    = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
-    catalog_labels  = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
-    passthrough_idx = catalog_keys.index("passthrough") if "passthrough" in catalog_keys else 0
 
     # Always single segment (no splits)
     active_seg = 0
@@ -626,62 +625,29 @@ def _render_controls(
     # ------------------------------------------------------------------
     st.markdown("**Transform**")
 
-    stored      = _get_seg_transform(selected_label, inst_idx, active_seg)
-    stored_key  = stored.get("transform_key", "passthrough")
-    try:
-        default_idx = catalog_keys.index(stored_key)
-    except ValueError:
-        default_idx = passthrough_idx
+    stored     = _get_seg_transform(selected_label, inst_idx, active_seg)
+    stored_key = stored.get("transform_key", "passthrough")
 
-    chosen_label = st.selectbox(
-        "Select transform",
-        options=catalog_labels,
-        index=default_idx,
-        key=f"pe_tx_sel_{selected_label}_{inst_idx}_{active_seg}",
-    )
-    chosen_key = catalog_keys[catalog_labels.index(chosen_label)]
-    spec       = TRANSFORM_CATALOG[chosen_key]
-
-    st.caption(spec.description)
-
+    _pe_prefix      = f"pe_txpick_{selected_label}_{inst_idx}_{active_seg}"
+    _pe_param_pfx   = f"pe_tx_{selected_label}_{inst_idx}_{active_seg}"
     cycle_duration_ms = cycle["end_ms"] - cycle["start_ms"]
 
-    # UI overrides for beat_accent
-    _ui_int_overrides: dict = {}
-    if chosen_key == "beat_accent":
-        _ui_int_overrides["start_at_ms"] = dict(max_value=cycle_duration_ms, step=500)
-        _ui_int_overrides["max_accents"]  = dict(max_value=60)
-
-    # Clamp any stale session state values before rendering sliders
-    for _pk, _ov in _ui_int_overrides.items():
-        _sk  = f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{_pk}"
-        _cap = _ov.get("max_value")
-        if _cap is not None and st.session_state.get(_sk, 0) > _cap:
-            st.session_state[_sk] = _cap
-
-    param_values: Dict[str, Any] = {}
-    for pk, param in spec.params.items():
-        if param.type == "float":
-            param_values[pk] = st.slider(
-                param.label,
-                min_value=float(param.min_val or 0.0),
-                max_value=float(param.max_val or 1.0),
-                value=float(param.default),
-                step=float(param.step or 0.05),
-                help=param.help,
-                key=f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{pk}",
-            )
-        elif param.type == "int":
-            overrides = _ui_int_overrides.get(pk, {})
-            param_values[pk] = st.slider(
-                param.label,
-                min_value=int(param.min_val or 0),
-                max_value=int(overrides.get("max_value", param.max_val or 100)),
-                value=int(param.default),
-                step=int(overrides.get("step", param.step or 1)),
-                help=param.help,
-                key=f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{pk}",
-            )
+    chosen_key = render_transform_picker(
+        prefix             = _pe_prefix,
+        param_prefix       = _pe_param_pfx,
+        current_key        = stored_key,
+        transform_overrides = {
+            "beat_accent": {
+                "start_at_ms": {"max_value": cycle_duration_ms, "step": 500},
+                "max_accents": {"max_value": 60},
+            },
+        },
+    )
+    spec = TRANSFORM_CATALOG[chosen_key]
+    param_values: Dict[str, Any] = {
+        pk: st.session_state.get(f"{_pe_param_pfx}_{pk}", p.default)
+        for pk, p in spec.params.items()
+    }
 
     # Persist transform for this instance
     _set_seg_transform(selected_label, inst_idx, active_seg, {
@@ -1094,7 +1060,7 @@ def _build_all_transforms(
     result = copy.deepcopy(original_actions)
 
     for i, cycle in enumerate(cycles):
-        if not st.session_state.get(f"pe_apply_{selected_label}_{i}", True):
+        if not st.session_state.get(f"pe_apply_{selected_label}_{i}", False):
             continue
 
         segments = _get_segments(selected_label, i, cycle)

@@ -98,6 +98,7 @@ class PhraseTransform:
     description: str
     params: Dict[str, TransformParam] = field(default_factory=dict)
     structural: bool = False
+    category: str = ""          # Optional grouping label for the dropdown (user transforms)
 
     def apply(self, actions: list, param_values: Optional[Dict[str, Any]] = None) -> list:
         """Return a new action list with the transform applied.
@@ -235,6 +236,75 @@ class _Recenter(PhraseTransform):
         for a in actions:
             a["pos"] = max(0, min(100, int(round(a["pos"] + offset))))
         return actions
+
+
+def _lerp_pos(actions: list, at_ms: int) -> float:
+    """Linear-interpolate the original pos at an arbitrary timestamp."""
+    if not actions:
+        return 50.0
+    if at_ms <= actions[0]["at"]:
+        return float(actions[0]["pos"])
+    if at_ms >= actions[-1]["at"]:
+        return float(actions[-1]["pos"])
+    for i in range(len(actions) - 1):
+        a, b = actions[i], actions[i + 1]
+        if a["at"] <= at_ms <= b["at"]:
+            if b["at"] == a["at"]:
+                return float(a["pos"])
+            t = (at_ms - a["at"]) / (b["at"] - a["at"])
+            return a["pos"] + t * (b["pos"] - a["pos"])
+    return float(actions[-1]["pos"])
+
+
+class _Waiting(PhraseTransform):
+    """Replace a phrase with a slow oscillating stroke, optionally blended with the original.
+
+    BPM is the output cycle rate (one complete up+down = 1 cycle).
+    Waypoints are placed at each half-stroke boundary; the phrase always ends
+    at an interpolated position continuing the oscillation.
+    """
+
+    def _transform(self, actions, p):
+        if not actions:
+            return actions
+        start_ms  = actions[0]["at"]
+        end_ms    = actions[-1]["at"]
+        start_pos = int(p["start_pos"])
+        end_pos   = int(p["end_pos"])
+        bpm       = max(1e-6, float(p["bpm"]))
+        influence = float(p["influence"]) / 100.0
+
+        half_ms = 60_000 / (bpm * 2)
+
+        waypoints: List[tuple] = []
+        half = 0
+        while True:
+            at_ms = start_ms + int(half * half_ms)
+            if at_ms > end_ms:
+                break
+            lin_pos = float(start_pos if half % 2 == 0 else end_pos)
+            waypoints.append((at_ms, lin_pos))
+            half += 1
+
+        if not waypoints or waypoints[-1][0] < end_ms:
+            if waypoints:
+                last_at, last_pos = waypoints[-1]
+                last_half = len(waypoints) - 1
+                next_at   = start_ms + int((last_half + 1) * half_ms)
+                next_pos  = float(start_pos if (last_half + 1) % 2 == 0 else end_pos)
+                seg_dur   = next_at - last_at
+                frac      = (end_ms - last_at) / seg_dur if seg_dur > 0 else 1.0
+                end_lin   = last_pos + frac * (next_pos - last_pos)
+            else:
+                end_lin = float(start_pos)
+            waypoints.append((end_ms, end_lin))
+
+        result = []
+        for at, lin_pos in waypoints:
+            orig_pos = _lerp_pos(actions, at) if influence > 0 else lin_pos
+            pos = lin_pos * (1.0 - influence) + orig_pos * influence
+            result.append({"at": at, "pos": max(0, min(100, round(pos)))})
+        return result
 
 
 class _Break(PhraseTransform):
@@ -628,6 +698,152 @@ class _HalveTempo(PhraseTransform):
 
 
 # ------------------------------------------------------------------
+# Replacement transforms
+# ------------------------------------------------------------------
+
+
+@dataclass
+class _Stroke(PhraseTransform):
+    """Replace a phrase with a regular oscillating stroke at a set BPM.
+
+    Oscillates 0 ↔ 100, centered at 50.  No influence — pure replacement.
+    """
+    def _transform(self, actions: list, p: dict) -> list:
+        if not actions:
+            return actions
+        start_ms = actions[0]["at"]
+        end_ms   = actions[-1]["at"]
+        bpm      = min(100.0, max(10.0, float(p["bpm"])))
+        half_ms  = 60_000 / (bpm * 2)
+
+        waypoints: list = []
+        half = 0
+        while True:
+            at_ms = start_ms + int(half * half_ms)
+            if at_ms > end_ms:
+                break
+            waypoints.append((at_ms, 0 if half % 2 == 0 else 100))
+            half += 1
+
+        if not waypoints or waypoints[-1][0] < end_ms:
+            if waypoints:
+                last_at, last_pos = waypoints[-1]
+                last_half = len(waypoints) - 1
+                next_at  = start_ms + int((last_half + 1) * half_ms)
+                next_pos = 0 if (last_half + 1) % 2 == 0 else 100
+                seg_dur  = next_at - last_at
+                frac     = (end_ms - last_at) / seg_dur if seg_dur > 0 else 1.0
+                end_pos  = int(last_pos + frac * (next_pos - last_pos))
+            else:
+                end_pos = 0
+            waypoints.append((end_ms, end_pos))
+
+        return [{"at": at, "pos": max(0, min(100, pos))} for at, pos in waypoints]
+
+
+@dataclass
+class _Drift(PhraseTransform):
+    """High plateau with small fast oscillations and one slow dip.
+
+    Structure:
+      1. Regular small oscillations: center ± wobble at wobble_bpm (~80 BPM)
+      2. One dip event: slow descent to dip_to, then slow recovery back to center
+    """
+    def _transform(self, actions: list, p: dict) -> list:
+        if not actions:
+            return actions
+        start_ms       = actions[0]["at"]
+        end_ms         = actions[-1]["at"]
+        duration       = end_ms - start_ms
+
+        center         = int(p["center"])
+        wobble         = int(p["wobble"])
+        wobble_bpm     = max(1.0, float(p["wobble_bpm"]))
+        dip_to         = int(p["dip_to"])
+        dip_timing     = float(p["dip_timing"])
+        dip_duration   = float(p["dip_duration"]) * 1000  # s → ms
+
+        half_ms   = 60_000 / (wobble_bpm * 2)
+        dip_start = start_ms + int(dip_timing * duration)
+        dip_mid   = dip_start + int(dip_duration * 0.4)
+        dip_end   = dip_start + int(dip_duration)
+
+        def _dip_envelope(at_ms: int, base: float) -> float:
+            if at_ms < dip_start or at_ms > dip_end:
+                return base
+            if at_ms <= dip_mid:
+                seg = dip_mid - dip_start
+                t   = (at_ms - dip_start) / seg if seg > 0 else 1.0
+                return base + t * (dip_to - base)
+            else:
+                seg = dip_end - dip_mid
+                t   = (at_ms - dip_mid) / seg if seg > 0 else 1.0
+                return dip_to + t * (base - dip_to)
+
+        result = []
+        half = 0
+        while True:
+            at_ms = start_ms + int(half * half_ms)
+            if at_ms > end_ms:
+                break
+            base_pos = float(center if half % 2 == 0 else center - wobble)
+            pos = _dip_envelope(at_ms, base_pos)
+            result.append({"at": at_ms, "pos": max(0, min(100, round(pos)))})
+            half += 1
+
+        if not result or result[-1]["at"] < end_ms:
+            pos = _dip_envelope(end_ms, float(center))
+            result.append({"at": end_ms, "pos": max(0, min(100, round(pos)))})
+
+        return result
+
+
+@dataclass
+class _Tide(PhraseTransform):
+    """Fast oscillations riding a slow sine-wave center.
+
+    The fast stroke BPM alternates between center(t) and center(t)+span.
+    The center follows a cosine wave from center_high down to center_low
+    and back over wave_period seconds — like a tide.
+    """
+    def _transform(self, actions: list, p: dict) -> list:
+        if not actions:
+            return actions
+        start_ms    = actions[0]["at"]
+        end_ms      = actions[-1]["at"]
+
+        center_high = int(p["center_high"])
+        center_low  = int(p["center_low"])
+        span        = int(p["span"])
+        bpm         = min(300.0, max(10.0, float(p["bpm"])))
+        wave_period = max(1.0, float(p["wave_period"])) * 1000  # s → ms
+
+        half_ms = 60_000 / (bpm * 2)
+
+        def _center_at(at_ms: int) -> float:
+            t = (at_ms - start_ms) / wave_period
+            return center_low + (center_high - center_low) * (1 + math.cos(2 * math.pi * t)) / 2
+
+        result = []
+        half = 0
+        while True:
+            at_ms = start_ms + int(half * half_ms)
+            if at_ms > end_ms:
+                break
+            c   = _center_at(at_ms)
+            pos = c if half % 2 == 0 else c + span
+            result.append({"at": at_ms, "pos": max(0, min(100, round(pos)))})
+            half += 1
+
+        if not result or result[-1]["at"] < end_ms:
+            c   = _center_at(end_ms)
+            pos = c + (span if (len(result) % 2 == 1) else 0)
+            result.append({"at": end_ms, "pos": max(0, min(100, round(pos)))})
+
+        return result
+
+
+# ------------------------------------------------------------------
 # Catalog
 # ------------------------------------------------------------------
 
@@ -750,6 +966,34 @@ TRANSFORM_CATALOG: Dict[str, PhraseTransform] = {
                     label="LPF strength", type="float", default=0.30,
                     min_val=0.0, max_val=0.5, step=0.01,
                     help="Low-pass filter strength applied after amplitude reduction. 0 = off.",
+                ),
+            },
+        ),
+        _Waiting(
+            key="waiting",
+            name="Waiting",
+            description="Replace phrase with a slow oscillating stroke — default 1 cycle per minute.",
+            structural=True,
+            params={
+                "start_pos": TransformParam(
+                    label="Start position", type="int", default=100,
+                    min_val=0, max_val=100, step=5,
+                    help="Position at phrase start (100 = top).",
+                ),
+                "end_pos": TransformParam(
+                    label="End position", type="int", default=0,
+                    min_val=0, max_val=100, step=5,
+                    help="Position at each stroke end (0 = bottom).",
+                ),
+                "bpm": TransformParam(
+                    label="BPM", type="float", default=1.0,
+                    min_val=0.0, max_val=5.0, step=0.1,
+                    help="Complete up+down cycles per minute. 1.0 = one full stroke per minute.",
+                ),
+                "influence": TransformParam(
+                    label="Original influence %", type="int", default=0,
+                    min_val=0, max_val=100, step=5,
+                    help="Blend original phrase into the stroke (0 = pure stroke, 20 = subtle shaping).",
                 ),
             },
         ),
@@ -886,6 +1130,98 @@ TRANSFORM_CATALOG: Dict[str, PhraseTransform] = {
                 ),
             },
         ),
+        # Replacement
+        _Stroke(
+            key         = "stroke",
+            name        = "Stroke",
+            description = "Replace phrase with a regular oscillating stroke from 0 to 100, centered at 50.",
+            structural  = True,
+            category    = "Replacement",
+            params      = {
+                "bpm": TransformParam(
+                    label   = "BPM",
+                    type    = "float",
+                    default = 60.0,
+                    min_val = 10.0,
+                    max_val = 100.0,
+                    step    = 1.0,
+                    help    = "Strokes per minute (complete up+down cycles). 100 BPM = practical device limit.",
+                ),
+            },
+        ),
+        _Drift(
+            key         = "drift",
+            name        = "Drift",
+            description = "High plateau with small oscillations and one slow dip — mimics drift behavioral pattern.",
+            structural  = True,
+            category    = "Replacement",
+            params      = {
+                "center": TransformParam(
+                    label="Plateau position", type="int", default=85,
+                    min_val=50, max_val=100, step=5,
+                    help="The resting high position (top of small oscillations).",
+                ),
+                "wobble": TransformParam(
+                    label="Wobble depth", type="int", default=10,
+                    min_val=0, max_val=30, step=5,
+                    help="Amplitude of small oscillations below plateau (plateau - wobble = low point).",
+                ),
+                "wobble_bpm": TransformParam(
+                    label="Wobble BPM", type="float", default=80.0,
+                    min_val=20.0, max_val=150.0, step=5.0,
+                    help="Rate of small oscillations in cycles per minute.",
+                ),
+                "dip_to": TransformParam(
+                    label="Dip bottom", type="int", default=30,
+                    min_val=0, max_val=70, step=5,
+                    help="Lowest position reached during the dip.",
+                ),
+                "dip_timing": TransformParam(
+                    label="Dip timing", type="float", default=0.2,
+                    min_val=0.0, max_val=0.9, step=0.05,
+                    help="When in the phrase the dip starts (0=start, 0.5=middle, 0.9=near end).",
+                ),
+                "dip_duration": TransformParam(
+                    label="Dip duration (s)", type="float", default=4.0,
+                    min_val=0.5, max_val=15.0, step=0.5,
+                    help="Total time for the dip descent + recovery, in seconds.",
+                ),
+            },
+        ),
+        _Tide(
+            key         = "tide",
+            name        = "Tide",
+            description = "Fast oscillations on a slow sine-wave center — center ebbs down and back over wave_period seconds.",
+            structural  = True,
+            category    = "Replacement",
+            params      = {
+                "center_high": TransformParam(
+                    label="Center high", type="int", default=70,
+                    min_val=20, max_val=90, step=5,
+                    help="The center position at the top of the slow wave.",
+                ),
+                "center_low": TransformParam(
+                    label="Center low", type="int", default=41,
+                    min_val=0, max_val=80, step=5,
+                    help="The center position at the bottom of the slow wave.",
+                ),
+                "span": TransformParam(
+                    label="Stroke span", type="int", default=30,
+                    min_val=5, max_val=60, step=5,
+                    help="How far each fast stroke reaches above the current center.",
+                ),
+                "bpm": TransformParam(
+                    label="BPM", type="float", default=252.0,
+                    min_val=10.0, max_val=300.0, step=10.0,
+                    help="Fast oscillation rate in cycles per minute.",
+                ),
+                "wave_period": TransformParam(
+                    label="Wave period (s)", type="float", default=135.0,
+                    min_val=10.0, max_val=600.0, step=5.0,
+                    help="Seconds for one complete slow center cycle (down and back up).",
+                ),
+            },
+        ),
     ]
 }
 
@@ -904,13 +1240,15 @@ TRANSFORM_ORDER: List[str] = [
     # Smoothing & Filtering
     "smooth", "blend_seams", "final_smooth",
     # Break / Recovery
-    "break",
+    "break", "waiting",
     # Performance / Device Realism
     "performance",
     # Rhythmic Patterns
     "beat_accent", "three_one",
     # Structural — Tempo
     "halve_tempo",
+    # Replacement
+    "stroke", "drift", "tide",
 ]
 
 
@@ -1125,3 +1463,80 @@ _BUILTIN_KEYS: frozenset = frozenset(TRANSFORM_CATALOG)
 
 # Merge user-defined transforms (silent no-op when directories are absent)
 TRANSFORM_CATALOG.update(load_user_transforms())
+
+
+def get_transform_options() -> tuple[list[str], list[str]]:
+    """Return (keys, labels) for the transform dropdown.
+
+    Built-ins appear first (in TRANSFORM_ORDER).  User-defined transforms
+    follow, grouped by their ``category`` field.  Each non-empty category gets
+    a "── Category ──" separator row (key ``"__sep_<category>__"``), which
+    resolves to passthrough if accidentally selected.  Uncategorised user
+    transforms are collected under "── My Transforms ──".
+    """
+    builtin_keys   = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
+    builtin_labels = [TRANSFORM_CATALOG[k].name for k in builtin_keys]
+
+    user_keys = [k for k in TRANSFORM_CATALOG if k not in _BUILTIN_KEYS and not k.startswith("__sep_")]
+    if not user_keys:
+        return builtin_keys, builtin_labels
+
+    # Group user transforms by category (preserving insertion order)
+    groups: dict[str, list[str]] = {}
+    for k in user_keys:
+        cat = getattr(TRANSFORM_CATALOG[k], "category", "") or "My Transforms"
+        groups.setdefault(cat, []).append(k)
+
+    all_keys   = list(builtin_keys)
+    all_labels = list(builtin_labels)
+    pt = TRANSFORM_CATALOG["passthrough"]
+    for cat, keys in groups.items():
+        sep_key = f"__sep_{cat.lower().replace(' ', '_')}__"
+        if sep_key not in TRANSFORM_CATALOG:
+            TRANSFORM_CATALOG[sep_key] = pt
+        all_keys.append(sep_key)
+        all_labels.append(f"── {cat} ──")
+        for k in keys:
+            all_keys.append(k)
+            all_labels.append(TRANSFORM_CATALOG[k].name)
+
+    return all_keys, all_labels
+
+
+def get_transforms_by_category() -> dict[str, list[tuple[str, str]]]:
+    """Return {category_name: [(key, label), ...]} for the two-step picker.
+
+    Categories
+    ----------
+    'Behavior'   — built-in non-structural transforms (amplitude, smoothing, …)
+    'Structural' — built-in structural transforms (tempo, replacement)
+    'Plugins'    — user-defined transforms (omitted when none are loaded)
+    """
+    behavior:   list[tuple[str, str]] = []
+    structural: list[tuple[str, str]] = []
+    plugins:    list[tuple[str, str]] = []
+
+    for k in TRANSFORM_ORDER:
+        if k not in TRANSFORM_CATALOG:
+            continue
+        spec = TRANSFORM_CATALOG[k]
+        pair = (k, spec.name)
+        if spec.structural:
+            structural.append(pair)
+        else:
+            behavior.append(pair)
+
+    user_keys = [
+        k for k in TRANSFORM_CATALOG
+        if k not in _BUILTIN_KEYS and not k.startswith("__sep_")
+    ]
+    for k in user_keys:
+        plugins.append((k, TRANSFORM_CATALOG[k].name))
+
+    result: dict[str, list[tuple[str, str]]] = {
+        "Behavior":   behavior,
+        "Structural": structural,
+    }
+    if plugins:
+        result["Plugins"] = plugins
+    return result

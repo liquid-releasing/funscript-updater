@@ -66,8 +66,6 @@ def _selector_fragment(
     else:
         display_actions = original_actions
 
-    _render_controls(view_state, duration_ms, phrases)
-
     n_actions   = len(display_actions)
     spinner_msg = (
         f"Building chart ({n_actions} actions — using fast rendering)…"
@@ -279,22 +277,21 @@ def _render_phrase_table(phrases: list, view_state) -> None:
         })
 
     df = pd.DataFrame(rows, index=range(1, len(rows) + 1))
+    # Use a versioned key so that after a row is processed we can bump the
+    # version and get a completely fresh widget (no stale selection in the
+    # browser or Streamlit's reconciliation cache).
+    _tver = st.session_state.get("phrase_table_ver", 0)
     ev = st.dataframe(
         df,
         on_select="rerun",
         selection_mode="single-row",
         width="stretch",
-        key="phrase_table",
+        key=f"phrase_table_{_tver}",
     )
 
-    selected = getattr(getattr(ev, "selection", None), "rows", [])
-    if selected:
-        phrase_idx = selected[0]
-        ph = phrases[phrase_idx]
-        # on_select="rerun" already fired a full-app rerun to get here.
-        # Navigate to the Phrase Editor tab (index 1).
-        _select_phrase(ph, view_state)
-        st.session_state.goto_tab = 1
+    # Navigation is handled at the top of _render_phrase_tab (app.py) by reading
+    # the widget's session-state key before choosing Selector vs Editor view.
+    # Nothing to do here — on_select="rerun" is enough to trigger the rerun.
 
 
 # ------------------------------------------------------------------
@@ -354,7 +351,8 @@ def _find_phrase_at(time_ms: int, phrases: list):
 
 
 def _select_phrase(phrase: dict, view_state) -> None:
-    view_state.set_selection(phrase["start_ms"], phrase["end_ms"])
+    view_state.selection_start_ms = phrase["start_ms"]
+    view_state.selection_end_ms = phrase["end_ms"]
 
 
 def _zoom_to_phrase(phrase: dict, view_state, duration_ms: int) -> None:
