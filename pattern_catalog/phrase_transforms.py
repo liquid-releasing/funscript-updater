@@ -51,6 +51,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -1476,6 +1477,72 @@ class _RecipeTransform(PhraseTransform):
 # User-transform loader (recipes + plugins)
 # ------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# JSON recipe schema validation
+# ---------------------------------------------------------------------------
+
+_KEY_RE = re.compile(r'^[a-z][a-z0-9_]{0,63}$')
+_SCALAR_TYPES = (int, float, str, bool)
+
+
+def _validate_recipe_entry(entry: object) -> Optional[str]:
+    """Return an error string if *entry* fails schema checks, else None.
+
+    A valid recipe entry is a JSON object with:
+    - ``key``   : non-empty string matching ``^[a-z][a-z0-9_]{0,63}$``
+    - ``name``  : string
+    - ``steps`` : non-empty list of step objects, each with:
+        - ``transform`` : string key present in ``_BUILTIN_KEYS``
+        - ``params``    : optional dict; all values must be scalars
+
+    Restricting step transforms to ``_BUILTIN_KEYS`` prevents a recipe from
+    chaining into user-supplied or unknown transforms, closing an indirect
+    code-execution path.
+    """
+    if not isinstance(entry, dict):
+        return "entry must be a JSON object"
+
+    key = entry.get("key", "")
+    if not isinstance(key, str) or not _KEY_RE.match(key):
+        return (
+            f"key {key!r} must be a non-empty lowercase string matching "
+            r"^[a-z][a-z0-9_]{0,63}$"
+        )
+
+    name = entry.get("name", "")
+    if not isinstance(name, str):
+        return "name must be a string"
+
+    steps = entry.get("steps")
+    if not isinstance(steps, list) or len(steps) == 0:
+        return "steps must be a non-empty array"
+
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            return f"steps[{i}] must be a JSON object"
+        transform = step.get("transform", "")
+        if not isinstance(transform, str):
+            return f"steps[{i}].transform must be a string"
+        if transform not in _BUILTIN_KEYS:
+            return (
+                f"steps[{i}].transform {transform!r} is not a known built-in key; "
+                "only built-in step keys are allowed in recipes"
+            )
+        params = step.get("params", {})
+        if not isinstance(params, dict):
+            return f"steps[{i}].params must be a JSON object"
+        for pk, pv in params.items():
+            if not isinstance(pk, str):
+                return f"steps[{i}].params: key {pk!r} must be a string"
+            if not isinstance(pv, _SCALAR_TYPES):
+                return (
+                    f"steps[{i}].params[{pk!r}] must be a scalar "
+                    "(number, string, or boolean); nested objects are not allowed"
+                )
+
+    return None
+
+
 def load_user_transforms(
     recipes_dir: Optional[str] = None,
     plugins_dir: Optional[str] = None,
@@ -1503,9 +1570,15 @@ def load_user_transforms(
                     data = json.load(f)
                 entries = data if isinstance(data, list) else [data]
                 for entry in entries:
-                    key = entry.get("key", "")
-                    if not key:
+                    err = _validate_recipe_entry(entry)
+                    if err:
+                        print(
+                            f"[user_transforms] {os.path.basename(path)}: "
+                            f"invalid entry — {err} (skipped)",
+                            file=sys.stderr,
+                        )
                         continue
+                    key = entry["key"]
                     if key in _BUILTIN_KEYS:
                         print(
                             f"[user_transforms] {os.path.basename(path)}: "
@@ -1527,9 +1600,32 @@ def load_user_transforms(
                     file=sys.stderr,
                 )
 
-    # ---- Python plugins ----
+    # ---- Python plugins (disabled by default) ----
+    # Python files run with unrestricted OS access.  They must be explicitly
+    # opted-in via the environment variable below.  When .py files are present
+    # but the flag is not set, a warning is printed so the user knows why their
+    # plugin was not loaded.
+    _PLUGINS_ENABLED = os.environ.get("FUNSCRIPT_PLUGINS_ENABLED", "").lower() in (
+        "1", "true", "yes",
+    )
     if os.path.isdir(plugins_dir):
-        for path in sorted(glob.glob(os.path.join(plugins_dir, "*.py"))):
+        py_files = sorted(glob.glob(os.path.join(plugins_dir, "*.py")))
+        # Skip example/template files (committed to the repo for reference)
+        py_files = [p for p in py_files if not os.path.basename(p).startswith("example_")]
+        if py_files and not _PLUGINS_ENABLED:
+            print(
+                f"[plugins] {len(py_files)} Python plugin file(s) found but NOT loaded. "
+                "Python plugins run with full system access (file system, network, "
+                "subprocesses). Set FUNSCRIPT_PLUGINS_ENABLED=1 to enable them only "
+                "if you trust the source. JSON recipes in user_transforms/ are safe "
+                "and do not require this flag.",
+                file=sys.stderr,
+            )
+        if _PLUGINS_ENABLED:
+            py_files_all = sorted(glob.glob(os.path.join(plugins_dir, "*.py")))
+        else:
+            py_files_all = []
+        for path in py_files_all:
             try:
                 spec = importlib.util.spec_from_file_location(
                     f"_plugin_{os.path.splitext(os.path.basename(path))[0]}", path

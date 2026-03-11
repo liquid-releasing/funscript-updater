@@ -2,13 +2,80 @@
 
 There are two ways to add custom transforms without editing project code:
 
-| Method | File type | Best for |
-| --- | --- | --- |
-| **JSON recipe** | `.json` in `user_transforms/` | Chaining existing built-in steps |
-| **Python plugin** | `.py` in `plugins/` | Custom math or logic not covered by built-ins |
+| Method | File type | Best for | Security risk |
+| --- | --- | --- | --- |
+| **JSON recipe** | `.json` in `user_transforms/` | Chaining existing built-in steps | **None** — data only |
+| **Python plugin** | `.py` in `plugins/` | Custom math or logic not covered by built-ins | **High** — see below |
 
 Both are loaded automatically at startup.  Use `python cli.py list-transforms` at any time to
 verify your transform is registered.
+
+> **Security note — JSON recipes are recommended.**
+> JSON recipes can only chain *existing built-in transforms* and may only pass
+> scalar parameter values (numbers, strings, booleans).  They are validated
+> before use and cannot execute arbitrary code.
+>
+> Python plugins run with **full system access** — they can read/write files,
+> make network calls, and execute shell commands.  They are **disabled by
+> default**.  See [Security Model](#security-model) below before enabling them.
+
+---
+
+## Security Model
+
+### JSON recipes (safe by default)
+
+Every entry in a JSON recipe file is validated against a strict schema before
+being registered:
+
+| Check | Detail |
+| --- | --- |
+| **Key format** | Must match `^[a-z][a-z0-9_]{0,63}$` — lowercase, no spaces, no special chars |
+| **Steps are non-empty** | At least one step required |
+| **Step transforms are built-ins** | `"transform"` value must be a key in the built-in catalog; user-defined keys are not allowed as steps |
+| **Params are scalars** | Each param value must be a number, string, or boolean — nested objects and arrays are rejected |
+
+Entries that fail validation are skipped with a message to stderr; other entries
+in the same file are still loaded.  You can validate a file without loading the
+app using:
+
+```bash
+python cli.py validate-plugins
+```
+
+### Python plugins (disabled by default)
+
+Python plugin files in `plugins/` are **not loaded** unless the environment
+variable `FUNSCRIPT_PLUGINS_ENABLED` is set to `1`, `true`, or `yes`:
+
+```bash
+# Enable (only if you trust the plugin source)
+FUNSCRIPT_PLUGINS_ENABLED=1 streamlit run ui/streamlit/app.py
+
+# Or set in your shell profile for persistent use
+export FUNSCRIPT_PLUGINS_ENABLED=1
+```
+
+**When files are present but the flag is not set**, a warning is printed to
+stderr explaining the situation.  No code from the file is executed.
+
+**Why this matters:** A Python file placed in `plugins/` by a malicious actor
+(social engineering, a downloaded "transform pack", a shared machine) would
+execute with the same permissions as the running process.  The flag makes the
+risk explicit and opt-in.
+
+**Files whose name starts with `example_`** are always skipped regardless of
+the flag — they are reference templates committed to the repository, not
+user-supplied plugins.
+
+#### Recommended approach
+
+Prefer JSON recipes for all custom transforms.  They cover the vast majority of
+use cases (recenter, scale, chain transforms) without any security exposure.
+Use Python plugins only when you need custom math that cannot be expressed as a
+recipe, and only load your own code.
+
+---
 
 ---
 
@@ -116,7 +183,7 @@ Individual step parameters can be overridden when calling
 A plugin is a plain Python file that registers one or more `PhraseTransform` instances.
 Use this when you need custom math, conditionals, or parameters that callers can tune.
 
-### Step 1 — Create the file
+### Plugin Step 1 — Create the file
 
 Drop a `.py` file in `plugins/`.
 
@@ -128,7 +195,7 @@ plugins/
 
 > **Note:** your own files are gitignored; only `example_*.py` templates are tracked.
 
-### Step 2 — Write the plugin
+### Plugin Step 2 — Write the plugin
 
 ```python
 # plugins/my_plugin.py
@@ -169,6 +236,7 @@ TRANSFORM = _MyTransform(
 ```
 
 **Rules:**
+
 - The module must expose `TRANSFORM` (single instance) or `TRANSFORMS` (list of instances).
 - `key` must be unique and must not clash with any built-in.
 - Set `structural = True` if `_transform` returns a different number of actions or changes
@@ -177,13 +245,13 @@ TRANSFORM = _MyTransform(
 - `p` contains resolved parameter values: defaults merged with any caller-supplied overrides.
 - A plugin that raises an exception during loading is skipped silently (error goes to stderr).
 
-### Step 3 — Verify the plugin is loaded
+### Plugin Step 3 — Verify the plugin is loaded
 
 ```bash
 python cli.py list-transforms --user-only
 ```
 
-### Step 4 — Apply it
+### Plugin Step 4 — Apply it
 
 ```bash
 # Apply with default params
@@ -207,7 +275,7 @@ python cli.py phrase-transform my.funscript \
     --dry-run
 ```
 
-### Step 5 — Register multiple transforms (optional)
+### Plugin Step 5 — Register multiple transforms (optional)
 
 A single plugin file can expose a list:
 
@@ -276,11 +344,22 @@ configurable `[lo, hi]` band (the `example_clamp_center` transform).
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Transform not listed after adding file | File not in correct directory, or startup not re-run | Run `python cli.py list-transforms --user-only`; restart the app if needed |
+| Transform not listed after adding file | File not in correct directory, or startup not re-run | Run `python cli.py validate-plugins`; restart the app if needed |
 | `key clashes with a built-in — skipped` on stderr | Your key matches a built-in name | Choose a different key |
 | Unknown step key warning during apply | A step `"transform"` value doesn't match any catalog key | Run `python cli.py list-transforms` to see valid keys |
 | Plugin silently skipped at startup | Syntax or import error in the plugin file | Run `python plugins/my_plugin.py` directly to see the traceback |
 | `structural` mismatch | Recipe has `structural: false` but uses `halve_tempo` | Set `"structural": true` in the recipe |
+
+### Security-related symptoms
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `invalid entry — key … must be …` on stderr | Recipe key contains uppercase, spaces, or special characters | Use only lowercase letters, digits, and underscores; must start with a letter |
+| `steps[N].transform '…' is not a known built-in key` | A recipe step references a user-defined key or an unknown key | Steps may only use built-in transforms; run `python cli.py list-transforms` to see valid keys |
+| `steps[N].params['…'] must be a scalar` | A param value is a nested object or array | Use only numbers, strings, or booleans as param values |
+| Python plugin not loaded, no error message | `FUNSCRIPT_PLUGINS_ENABLED` not set | Check stderr for the "found but NOT loaded" warning; set the env var only if you trust the plugin source |
+| Plugin ignored even with `FUNSCRIPT_PLUGINS_ENABLED=1` | File name starts with `example_` | Rename the file to something that does not start with `example_` |
+| `validate-plugins` reports errors on a file you trust | Schema violation in the JSON | Run `python cli.py validate-plugins --verbose` for the full error message per entry |
 
 ---
 

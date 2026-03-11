@@ -108,7 +108,9 @@ from assessment.classifier import TAGS
 from catalog.pattern_catalog import PatternCatalog
 from models import AssessmentResult
 from pattern_catalog.config import TransformerConfig
-from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, _BUILTIN_KEYS, suggest_transform
+from pattern_catalog.phrase_transforms import (
+    TRANSFORM_CATALOG, _BUILTIN_KEYS, _validate_recipe_entry, suggest_transform,
+)
 from pattern_catalog.transformer import FunscriptTransformer
 from user_customization.config import CustomizerConfig
 from user_customization.customizer import WindowCustomizer
@@ -376,6 +378,83 @@ def cmd_list_transforms(args):
                 if p.help:
                     print(f"        {p.help}")
         print()
+
+
+def cmd_validate_plugins(args):
+    """Validate JSON recipe files and report Python plugin gate status."""
+    import glob as _glob
+
+    root = os.path.dirname(os.path.abspath(__file__))
+    recipes_dir = args.recipes_dir or os.path.join(root, "user_transforms")
+    plugins_dir = args.plugins_dir or os.path.join(root, "plugins")
+
+    total_files = 0
+    total_entries = 0
+    total_errors = 0
+
+    # ---- JSON recipes ----
+    if os.path.isdir(recipes_dir):
+        json_files = sorted(_glob.glob(os.path.join(recipes_dir, "*.json")))
+        for path in json_files:
+            fname = os.path.relpath(path, root)
+            total_files += 1
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as exc:
+                print(f"  ERROR  {fname}: {exc}")
+                total_errors += 1
+                continue
+            entries = data if isinstance(data, list) else [data]
+            file_ok = True
+            for i, entry in enumerate(entries):
+                total_entries += 1
+                err = _validate_recipe_entry(entry)
+                if err:
+                    key = entry.get("key", f"entry[{i}]") if isinstance(entry, dict) else f"entry[{i}]"
+                    print(f"  ERROR  {fname} [{key}]: {err}")
+                    total_errors += 1
+                    file_ok = False
+                elif args.verbose:
+                    key = entry.get("key", f"entry[{i}]")
+                    print(f"  ok     {fname} [{key}]")
+            if file_ok and not args.verbose:
+                n = len(entries)
+                print(f"  ok     {fname}  ({n} {'entry' if n == 1 else 'entries'})")
+    else:
+        print(f"  (no recipes directory at {recipes_dir})")
+
+    # ---- Python plugins ----
+    print()
+    plugins_enabled = os.environ.get("FUNSCRIPT_PLUGINS_ENABLED", "").lower() in (
+        "1", "true", "yes",
+    )
+    if os.path.isdir(plugins_dir):
+        py_files = sorted(_glob.glob(os.path.join(plugins_dir, "*.py")))
+        non_example = [p for p in py_files if not os.path.basename(p).startswith("example_")]
+        example_files = [p for p in py_files if os.path.basename(p).startswith("example_")]
+        if not py_files:
+            print("Python plugins: none found in plugins/")
+        else:
+            status = "ENABLED (FUNSCRIPT_PLUGINS_ENABLED is set)" if plugins_enabled else "DISABLED (FUNSCRIPT_PLUGINS_ENABLED not set)"
+            print(f"Python plugins: {status}")
+            for p in non_example:
+                tag = "would load" if plugins_enabled else "skipped — set FUNSCRIPT_PLUGINS_ENABLED=1 to enable"
+                print(f"  {os.path.relpath(p, root)}: {tag}")
+            for p in example_files:
+                print(f"  {os.path.relpath(p, root)}: skipped (example/template file)")
+    else:
+        print("Python plugins: no plugins/ directory found")
+
+    # ---- Summary ----
+    print()
+    if total_files == 0:
+        print("No JSON recipe files found.")
+    elif total_errors == 0:
+        print(f"All {total_entries} recipe {'entry' if total_entries == 1 else 'entries'} in {total_files} {'file' if total_files == 1 else 'files'} are valid.")
+    else:
+        print(f"{total_errors} error(s) found across {total_files} file(s). Fix errors before loading.")
+        sys.exit(1)
 
 
 def _coerce(v: str):
@@ -1103,6 +1182,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format: human-readable table (default) or JSON.",
     )
 
+    # --- validate-plugins ---
+    p_vp = sub.add_parser(
+        "validate-plugins",
+        help="Validate JSON recipe files and report Python plugin gate status",
+    )
+    p_vp.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Print a result line for every individual recipe entry.",
+    )
+    p_vp.add_argument(
+        "--recipes-dir", default=None,
+        help="Override the user_transforms/ directory to scan.",
+    )
+    p_vp.add_argument(
+        "--plugins-dir", default=None,
+        help="Override the plugins/ directory to scan.",
+    )
+
     # --- project ---
     p_proj = sub.add_parser(
         "project",
@@ -1143,7 +1240,8 @@ def main():
         "finalize":         cmd_finalize,
         "export-plan":      cmd_export_plan,
         "catalog":          cmd_catalog,
-        "list-transforms":  cmd_list_transforms,
+        "list-transforms":   cmd_list_transforms,
+        "validate-plugins":  cmd_validate_plugins,
         "project":          cmd_project,
         "visualize":        cmd_visualize,
         "config":           cmd_config,
