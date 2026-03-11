@@ -1,6 +1,6 @@
-# funscript-forge
+# FunscriptForge
 
-![Funscript Forge](media/funscriptforge-logo-wide.png)
+![FunscriptForge](media/funscriptforge-logo-wide.png)
 
 A structure-aware post-processor for funscripts. It analyzes the motion
 structure of an existing script, lets you review and tag sections through an
@@ -44,7 +44,10 @@ expressive performance sections, and gentle breaks.
 - **📌 Set split here** — click during playback to send the current timestamp to the Pattern Editor as a split point
 - Local mode: media streams directly from disk at full quality (no file size limit, no upload wait)
 - Web mode: media uploaded via browser and encoded inline; no server required
-- Magic-byte validation on all 10 supported types (MP3, MP4, M4A, MOV, WAV, OGG, WebM, MKV, AAC, AVI)
+- Magic-byte validation on all 9 supported types (MP3, MP4, M4A, MOV, WAV, OGG, WebM, MKV, AAC)
+- **AVI not supported** — browsers cannot decode AVI natively. Convert first:
+  `ffmpeg -i input.avi -c:v libx264 -c:a aac output.mp4`
+  *(Automatic AVI transcoding is planned for the paid SaaS tier.)*
 
 ### Export (Streamlit UI)
 
@@ -204,7 +207,66 @@ python cli.py pipeline input.funscript --output-dir output/
 
 ---
 
-## Getting started
+## System requirements
+
+> **Privacy first.** FunscriptForge runs entirely on your machine.
+> Your funscripts, media files, and edits never leave your computer — no account,
+> no cloud sync, no telemetry.  The app opens in your local browser but only
+> talks to itself.
+
+These requirements apply whether you install the **packaged app** (Windows `.exe` / macOS `.dmg`) or run from source.
+
+### Minimum
+
+| | Windows | macOS |
+| --- | --- | --- |
+| **OS** | Windows 10 64-bit (build 1903+) | macOS 11 Big Sur |
+| **CPU** | Any 64-bit dual-core x86 | Intel Core i5 or Apple Silicon (M1+) |
+| **RAM** | 4 GB | 4 GB |
+| **Free disk** | 500 MB (app only) | 500 MB (app only) |
+| **Browser** | Chrome 90+, Edge 90+, Firefox 88+ | Chrome 90+, Firefox 88+, Safari 15+ |
+| **Display** | 1920 × 1080 (1080p) minimum | Functional but requires scrolling in the Phrase Editor — QHD strongly recommended |
+
+> **Safari note:** Safari cannot play MKV files. Use Chrome or Firefox if your media is `.mkv`.
+
+### Recommended (production funscripts)
+
+| Resource | Recommendation | Why |
+| --- | --- | --- |
+| **RAM** | 8 GB+ | Long funscripts (1+ hour) load the full action list into memory |
+| **CPU** | 4-core, 3 GHz+ | Assessment runs single-threaded; faster clock speed = faster analysis |
+| **Free disk** | 10 GB+ | Media files stay on disk during editing and are never modified — allow room for originals plus exports |
+| **Display** | 2560 × 1440 (QHD) or larger | The Phrase Editor and Pattern Editor use a 3-column layout with an embedded media player. QHD (1440p) provides enough vertical space to show the player, waveform chart, action chart, and transform panel without scrolling. 1080p screens will require scrolling and are not recommended. |
+
+### Internet connection
+
+An internet connection is **only required once, during installation**.
+After that the app runs **completely offline** — no calls home, no updates in the background.
+
+#### Packaged installer (Windows `.exe` / macOS `.dmg`)
+
+Download one file from the release page. Everything is bundled — no Python, no pip, no further setup.
+The installer itself is the only download required.
+
+#### Running from source
+
+| What is downloaded | From | Approx. size |
+| --- | --- | --- |
+| Python packages via `pip` | [pypi.org](https://pypi.org) | ~150 MB total |
+| ↳ `streamlit` (UI framework) | pypi.org/project/streamlit | ~50 MB with dependencies |
+| ↳ `pandas`, `plotly`, `matplotlib` (data + charts) | pypi.org | ~75 MB combined |
+| Plotly JS bundle (media player waveform chart) | [cdn.plot.ly](https://cdn.plot.ly) | ~3.5 MB |
+
+**Troubleshooting source install failures:**
+
+- `pip install` fails → check that `pypi.org` is reachable; if you are behind a proxy try `pip install --index-url https://pypi.org/simple/ -r requirements.txt`
+- Python version error → requires Python 3.10–3.13 **64-bit**; run `python --version` to confirm
+- pip itself is outdated → run `python -m pip install --upgrade pip` first
+- Plotly JS download fails → check that `cdn.plot.ly` is reachable; or download `plotly-2.27.0.min.js` manually from `https://cdn.plot.ly/plotly-2.27.0.min.js` and copy it to `ui/streamlit/components/audio_player/frontend/`
+
+---
+
+## Getting started (running from source)
 
 ### Install
 
@@ -212,6 +274,21 @@ python cli.py pipeline input.funscript --output-dir output/
 pip install -r requirements.txt
 pip install -r ui/streamlit/requirements.txt
 ```
+
+Download the bundled Plotly JS library (one-time, ~3.5 MB):
+
+```bash
+python -c "
+import urllib.request
+urllib.request.urlretrieve(
+    'https://cdn.plot.ly/plotly-2.27.0.min.js',
+    'ui/streamlit/components/audio_player/frontend/plotly-2.27.0.min.js'
+)
+print('Plotly downloaded.')
+"
+```
+
+After this step the app runs fully offline — no internet connection required.
 
 ### Launch the UI
 
@@ -236,6 +313,21 @@ The launcher also works correctly as a PyInstaller frozen executable — writabl
 ```bash
 python cli.py assess path/to/file.funscript --output output/assessment.json
 ```
+
+---
+
+## Demo resources
+
+**Big Buck Bunny** (Blender Foundation, 2008) is a recommended safe-for-work test video for
+trying the audio/video player feature.  Community funscript sites carry demo scripts that pair
+with it, making it easy to exercise the Phrase Editor, Pattern Editor, and media player without
+needing private content.
+
+The Blender Foundation released the video under the
+[Creative Commons Attribution 2.5](https://creativecommons.org/licenses/by/2.5/) license,
+so you can use, modify, and share it freely as long as you credit the creators.
+
+> *© 2008 Blender Foundation | [www.bigbuckbunny.org](https://www.bigbuckbunny.org)*
 
 ---
 
@@ -372,3 +464,6 @@ python cli.py test
 ![Liquid Releasing](media/liquid-releasing-Color-Logo.svg)
 
 *© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](LICENSE).  Written by human and Claude AI (Claude Sonnet).*
+
+**FunscriptForge™** is a trademark of Liquid Releasing.
+The `.funscript` file format is a community standard not owned by Liquid Releasing.

@@ -178,15 +178,19 @@ def _detail_fragment(
         preview_actions = _apply_transform_to_window(baseline_actions, phrase, spec, param_values)
 
     # ------------------------------------------------------------------
-    # Grid layout:
-    #   Row 1: [stats table (3/4)] [empty (1/4)]
-    #   Row 2: [charts + titles (3/4)] [transform panel (1/4)]
+    # Layout:
+    #   Row 1: [stats table] [show/hide player toggle]
+    #   Row 2: [charts (2 or 3/4)] [player (1/4, optional)] [transform (1/4)]
     # ------------------------------------------------------------------
     import pandas as pd
     from utils import ms_to_timestamp as _mts
 
-    # Row 1 — stats table only (based on current baseline)
-    col_stats, _ = st.columns([3, 1])
+    has_media  = bool(st.session_state.get("media_path"))
+    _show_key  = "show_player_col"
+    show_player = has_media and st.session_state.get(_show_key, False)
+
+    # Row 1 — stats + player toggle
+    col_stats, col_toggle = st.columns([4, 1])
     with col_stats:
         _acts = [a for a in baseline_actions
                  if phrase["start_ms"] <= a["at"] <= phrase["end_ms"]]
@@ -207,8 +211,23 @@ def _detail_fragment(
             "Actions":  len(_acts),
         }
         st.dataframe(pd.DataFrame([_stat_row]), hide_index=True, width="stretch")
+    with col_toggle:
+        if has_media:
+            _btn_label = "📹 Hide player" if show_player else "📹 Show player"
+            if st.button(_btn_label, key="toggle_player_col", use_container_width=True):
+                st.session_state[_show_key] = not show_player
+                st.rerun()
 
-    # Row 2 — charts (left) | transform panel (right)
+    # Row 2 (optional) — full-width player.
+    # Always render the st.empty() placeholder so Streamlit's widget tree has a
+    # stable node here regardless of show/hide state — prevents the component
+    # from being reconciled into the wrong column on toggle.
+    _player_slot = st.empty()
+    if show_player:
+        with _player_slot.container():
+            _render_phrase_player(phrase, phrase_idx, baseline_actions)
+
+    # Row 3 — charts | transform panel (always 2-col)
     col_content, col_transform = st.columns([3, 1])
 
     with col_content:
@@ -269,6 +288,45 @@ def _detail_fragment(
             st.write("")
             _render_save_cancel(phrase_idx, view_state)
             _render_edit_phrase(phrases, phrase_idx, view_state, duration_ms)
+
+
+# ------------------------------------------------------------------
+# Phrase media player (own column, phrase-restricted)
+# ------------------------------------------------------------------
+
+def _render_phrase_player(phrase: dict, phrase_idx: int, actions: list) -> None:
+    """Render the phrase-restricted media player in its dedicated column.
+
+    Shows a video (or audio) player scoped to [start_ms, end_ms], with a
+    waveform chart, ±1 s / frame-step controls, volume, speed, and a
+    real-time position readout (⏸ MM:SS.mmm  pos NN).
+
+    Does nothing if no media file is loaded in session state.
+    """
+    from ui.streamlit.panels.media_player import render_player
+
+    media_path = st.session_state.get("media_path")
+    if not media_path:
+        st.caption("No media loaded.\nAdd a media file in the sidebar.")
+        return
+
+    import os
+    st.caption(
+        f"📹 {media_path}\n\n"
+        f"{ms_to_timestamp(phrase['start_ms'])} → {ms_to_timestamp(phrase['end_ms'])}"
+    )
+
+    phrase_actions = [
+        a for a in actions
+        if phrase["start_ms"] <= a["at"] <= phrase["end_ms"]
+    ]
+
+    render_player(
+        start_ms=phrase["start_ms"],
+        end_ms=phrase["end_ms"],
+        actions=phrase_actions,
+        key_suffix=f"detail_{phrase_idx}",
+    )
 
 
 # ------------------------------------------------------------------

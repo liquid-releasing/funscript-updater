@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Media player helper for the Funscript Forge UI.
+"""Media player helper for the FunscriptForge UI.
 
 Renders an inline audio or video player cued to a specific phrase start time.
 Called from the Phrase Editor and Pattern Editor when a media file is loaded.
@@ -19,8 +19,17 @@ import os
 import streamlit as st
 
 AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".ogg", ".aac"}
-VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi"}
+VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm"}
 MEDIA_EXTS = AUDIO_EXTS | VIDEO_EXTS
+
+_AUDIO_MIME: dict[str, str] = {
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
+    ".wav": "audio/wav",  ".ogg": "audio/ogg", ".aac": "audio/aac",
+}
+_VIDEO_MIME: dict[str, str] = {
+    ".mp4": "video/mp4",      ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime", ".webm": "video/webm",
+}
 
 # Local desktop mode: launcher sets these so we can stream media via HTTP
 # instead of encoding the whole file as base64.
@@ -46,28 +55,30 @@ def render_player(
     end_ms: int | None = None,
     actions: list | None = None,
     key_suffix: str = "",
+    split_points: list | None = None,
 ) -> dict | None:
-    """Render an audio player cued to the phrase [start_ms, end_ms].
+    """Render a phrase-restricted media player for audio or video.
 
-    For audio files, renders the interactive phrase-restricted player with
-    playhead chart, play/stop/back/forward controls, and a 📌 split-pin button.
-    For video files, falls back to ``st.video()`` cued to start_ms.
+    Uses the interactive phrase-restricted component (waveform chart,
+    animated playhead, ±1 s / frame-step controls, volume, speed) for
+    both audio and video when *end_ms* is supplied.  Falls back to
+    ``st.audio()`` / ``st.video()`` when *end_ms* is not given.
 
-    Returns the component return value (``{"split_ms": int}`` when pinned) or
-    ``None``.  The return value is only meaningful for audio.
+    Returns ``{"split_ms": int}`` when the 📌 pin is clicked, ``None``
+    otherwise.
 
     Parameters
     ----------
     start_ms:
         Phrase start in milliseconds.
     end_ms:
-        Phrase end in milliseconds.  Required for the interactive player;
-        if omitted, the audio plays from start_ms with no enforced end.
+        Phrase end in milliseconds.  Required for the interactive player.
     actions:
-        List of ``{"at": int, "pos": int}`` for the phrase chart.  If
-        omitted, the chart renders empty.
+        List of ``{"at": int, "pos": int}`` for the waveform chart.
     key_suffix:
         Unique suffix for Streamlit widget keys.
+    split_points:
+        Existing split ms values shown as dashed lines (Pattern Editor).
     """
     import base64
 
@@ -79,54 +90,67 @@ def render_player(
     if ext not in MEDIA_EXTS:
         return None
 
-    corrupt_msg = validate_media_file(media_path)
+    corrupt_msg = validate_media_file_deep(media_path)
     if corrupt_msg:
-        st.warning(f"Media file may be corrupt — {corrupt_msg}  ({os.path.basename(media_path)})")
+        st.warning(
+            f"Media file may be corrupt — {corrupt_msg}  ({os.path.basename(media_path)})"
+        )
         return None
 
-    if ext in AUDIO_EXTS and end_ms is not None:
-        # Interactive phrase-restricted player
+    if end_ms is not None:
+        # Interactive phrase-restricted component (audio + video)
         from ui.streamlit.components.audio_player import phrase_audio_player
 
-        _mime_map = {
-            ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
-            ".wav": "audio/wav",  ".ogg": "audio/ogg", ".aac": "audio/aac",
-        }
-        mime       = _mime_map.get(ext, "audio/mpeg")
-        audio_hash = f"{media_path}:{os.path.getmtime(media_path)}"
+        is_video   = ext in VIDEO_EXTS
+        media_type = "video" if is_video else "audio"
+        mime       = (_VIDEO_MIME if is_video else _AUDIO_MIME).get(
+            ext, "video/mp4" if is_video else "audio/mpeg"
+        )
+        media_hash = f"{media_path}:{os.path.getmtime(media_path)}"
 
         if _IS_LOCAL and _MEDIA_PORT:
-            # Local mode: browser streams directly from the media server —
-            # no base64 encoding, no large file in Python memory.
             return phrase_audio_player(
-                audio_url=_local_media_url(media_path),
-                audio_mime=mime,
-                audio_hash=audio_hash,
+                media_type=media_type,
+                media_url=_local_media_url(media_path),
+                media_mime=mime,
+                media_hash=media_hash,
                 start_ms=start_ms,
                 end_ms=end_ms,
                 actions=actions or [],
-                split_points=[],
+                split_points=split_points or [],
                 key=f"player_{key_suffix}",
             )
 
-        # Web mode: encode to base64 and embed in the component.
+        # Web mode: base64-encode the file.
+        # Refuse files over the size cap to prevent OOM on the server.
+        file_bytes = os.path.getsize(media_path)
+        if file_bytes > _WEB_MODE_MAX_BYTES:
+            size_mb = file_bytes / 1_000_000
+            st.warning(
+                f"Media file is {size_mb:.0f} MB — too large to load in web mode "
+                f"(limit {_WEB_MODE_MAX_BYTES // 1_000_000} MB).  "
+                "Use the desktop launcher to stream large files without size limits."
+            )
+            return None
+
         raw = _read_media_bytes(media_path, os.path.getmtime(media_path))
         b64 = base64.b64encode(raw).decode()
         return phrase_audio_player(
-            audio_b64=b64,
-            audio_mime=mime,
-            audio_hash=audio_hash,
+            media_type=media_type,
+            media_b64=b64,
+            media_mime=mime,
+            media_hash=media_hash,
             start_ms=start_ms,
             end_ms=end_ms,
             actions=actions or [],
-            split_points=[],
+            split_points=split_points or [],
             key=f"player_{key_suffix}",
         )
 
-    # Fallback: simple st.audio / st.video cued to start
-    start_s = int(start_ms / 1000)
+    # Fallback: simple st.audio / st.video without phrase restriction
+    start_s      = int(start_ms / 1000)
     file_size_mb = os.path.getsize(media_path) / 1_000_000
-    label = f"▶ Media — {os.path.basename(media_path)} (cued to {_fmt_s(start_s)})"
+    label        = f"▶ {os.path.basename(media_path)} (cued to {_fmt_s(start_s)})"
 
     with st.expander(label, expanded=False):
         if file_size_mb > 200:
@@ -143,6 +167,84 @@ def render_player(
     return None
 
 
+# Per-process validation cache: (realpath, mtime) → error_string | None.
+# Avoids re-running ffprobe on every Streamlit re-render for the same file.
+_VALIDATION_CACHE: dict[tuple, str | None] = {}
+_VALIDATION_CACHE_MAX = 64   # trim when it grows too large
+
+# Hard cap for base64 web-mode uploads (bytes).  Files larger than this are
+# refused in web mode to prevent OOM; local mode streams from disk instead.
+_WEB_MODE_MAX_BYTES = 500 * 1024 * 1024  # 500 MB
+
+# ffprobe subprocess time-out (seconds).  Short enough that a corrupt or
+# unresponsive file doesn't freeze the render thread for long.
+_FFPROBE_TIMEOUT = 5
+
+
+def _ffprobe_available() -> bool:
+    """Return True if ffprobe is on PATH (cached at import time)."""
+    import shutil
+    return shutil.which("ffprobe") is not None
+
+
+def validate_media_file_deep(path: str) -> str | None:
+    """Validate a media file using ffprobe (if available) then magic bytes.
+
+    Results are cached per ``(realpath, mtime)`` pair so ffprobe is only
+    invoked once per file change — subsequent Streamlit re-renders are instant.
+
+    Returns ``None`` if the file appears valid, or a short error string.
+    """
+    import subprocess
+
+    # Resolve symlinks — prevents a symlink with an allowed extension (e.g.
+    # ``evil.mp4``) from pointing at an arbitrary file.
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        return "Cannot resolve file path."
+
+    if not os.path.isfile(real):
+        return "File not found."
+
+    # Re-validate when mtime changes; serve from cache otherwise.
+    try:
+        mtime = os.path.getmtime(real)
+    except OSError:
+        return "Cannot read file."
+
+    cache_key = (real, mtime)
+    if cache_key in _VALIDATION_CACHE:
+        return _VALIDATION_CACHE[cache_key]
+
+    # 1. Magic-byte check (fast, no subprocess).
+    result: str | None = validate_media_file(real)
+
+    # 2. ffprobe deep check (only if magic bytes passed).
+    if result is None and _ffprobe_available():
+        try:
+            proc = subprocess.run(
+                ["ffprobe", "-v", "error", "-i", real],
+                capture_output=True, text=True, timeout=_FFPROBE_TIMEOUT,
+            )
+            stderr = proc.stderr.strip()
+            if proc.returncode != 0 or stderr:
+                msg = stderr[:200] if stderr else f"exit code {proc.returncode}"
+                result = f"ffprobe: {msg}"
+        except FileNotFoundError:
+            pass  # ffprobe vanished between the which() check and now
+        except subprocess.TimeoutExpired:
+            result = f"ffprobe timed out after {_FFPROBE_TIMEOUT} s — file may be corrupt"
+        except Exception as exc:
+            result = f"ffprobe check failed: {exc}"
+
+    # Trim cache before inserting to keep memory bounded.
+    if len(_VALIDATION_CACHE) >= _VALIDATION_CACHE_MAX:
+        _VALIDATION_CACHE.clear()
+    _VALIDATION_CACHE[cache_key] = result
+    return result
+
+
 def validate_media_file(path: str) -> str | None:
     """Check a media file for obvious corruption using magic-byte signatures.
 
@@ -153,7 +255,9 @@ def validate_media_file(path: str) -> str | None:
     extension.  Uses an allowlist — any extension not explicitly recognised
     is rejected rather than passed through.
 
-    Supported containers: MP3, MP4/M4A/MOV, WAV, OGG, WebM/MKV, AAC, AVI.
+    Supported containers: MP3, MP4/M4A/MOV, WAV, OGG, WebM/MKV, AAC.
+    AVI is not supported (browsers cannot decode it natively); a helpful
+    ffmpeg conversion hint is returned instead.
     """
     if not os.path.isfile(path):
         return "File not found."
@@ -212,14 +316,17 @@ def validate_media_file(path: str) -> str | None:
             return None
         return "Not a valid AAC file (missing ADTS sync bytes)."
 
-    # AVI: RIFF….AVI
-    if ext == ".avi":
-        if header[:4] == b"RIFF" and header[8:12] == b"AVI ":
-            return None
-        return "Not a valid AVI file (missing RIFF/AVI header)."
-
     # Reject everything else — unknown extensions are not allowed.
-    return f"Unsupported file type '{ext}'. Allowed: mp3, m4a, mp4, mov, wav, ogg, webm, mkv, aac, avi."
+    # Note: .avi is not supported in local mode because most browsers cannot
+    # decode it natively.  Convert to MP4 first:
+    #   ffmpeg -i input.avi -c:v libx264 -c:a aac output.mp4
+    # AVI transcoding is planned for the paid SaaS tier.
+    if ext == ".avi":
+        return (
+            ".avi files are not supported — browsers cannot play AVI natively.\n"
+            "Convert to MP4 with: ffmpeg -i input.avi -c:v libx264 -c:a aac output.mp4"
+        )
+    return f"Unsupported file type '{ext}'. Allowed: mp3, m4a, mp4, mov, wav, ogg, webm, mkv, aac."
 
 
 def find_matching_media(funscript_path: str, uploads_dir: str) -> str | None:

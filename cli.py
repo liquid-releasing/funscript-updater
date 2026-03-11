@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Funscript Forge CLI
+"""FunscriptForge CLI
 
 Full-pipeline shortcut (Steps 1 + 3 + 4 in one command):
 
@@ -947,7 +947,7 @@ def cmd_project(args):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cli.py",
-        description="Funscript Forge — analyze and transform funscripts",
+        description="FunscriptForge — analyze and transform funscripts",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

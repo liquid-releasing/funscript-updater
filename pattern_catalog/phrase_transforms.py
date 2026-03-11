@@ -1326,7 +1326,7 @@ TRANSFORM_ORDER: List[str] = [
     # Amplitude Shaping
     "amplitude_scale", "normalize", "boost_contrast",
     # Position Adjustment
-    "shift", "recenter", "clamp_upper", "clamp_lower", "invert",
+    "shift", "recenter", "clamp_upper", "clamp_lower", "invert", "funnel",
     # Smoothing & Filtering
     "smooth", "blend_seams", "final_smooth",
     # Break / Recovery
@@ -1339,8 +1339,6 @@ TRANSFORM_ORDER: List[str] = [
     "halve_tempo",
     # Replacement
     "stroke", "drift", "tide",
-    # Funnel
-    "funnel",
 ]
 
 

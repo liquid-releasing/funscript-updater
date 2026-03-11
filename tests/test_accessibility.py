@@ -79,12 +79,12 @@ class TestAudioPlayerAccessibility(unittest.TestCase):
     def test_back_button_aria_label(self):
         back = next((b for b in self.buttons if b.get("id") == "btn-back"), None)
         self.assertIsNotNone(back, "btn-back not found")
-        self.assertIn("5", back["aria-label"].lower())
+        self.assertIn("1", back["aria-label"].lower())
 
     def test_forward_button_aria_label(self):
         fwd = next((b for b in self.buttons if b.get("id") == "btn-fwd"), None)
         self.assertIsNotNone(fwd, "btn-fwd not found")
-        self.assertIn("5", fwd["aria-label"].lower())
+        self.assertIn("1", fwd["aria-label"].lower())
 
     def test_stop_button_aria_label(self):
         stop = next((b for b in self.buttons if b.get("id") == "btn-stop"), None)

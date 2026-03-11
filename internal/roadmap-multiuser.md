@@ -1,6 +1,24 @@
-# Funscript Forge — Roadmap to Multi-User SaaS with Paid Tier
+# FunscriptForge — Roadmap to Multi-User SaaS with Paid Tier
 
 Items marked 🔒 are for internal tracking only (not public backlog).
+
+---
+
+## 🔒 Phase 0 — Legal foundations (prerequisite for public launch)
+
+Goal: protect IP before paying users arrive.
+
+| Item | Priority | Notes |
+| --- | --- | --- |
+| 🔒 Trademark: file FunscriptForge™ with USPTO | High | Software / interactive entertainment class; use ™ until registration confirmed, then ® |
+| 🔒 Patent: consult attorney on structure-aware analysis pipeline | High | phases → cycles → patterns → phrases → BPM transitions driving transform selection; discuss patent vs. trade secret |
+| 🔒 Patent: consult on agentic authoring method (#13) | Medium | AI-driven funscript editing via natural language — potentially novel; file provisional if advised |
+| 🔒 Trademark: "funscript" format usage review | Medium | Community format — confirm no third-party trademark claim before SaaS launch |
+| 🔒 EUIPO filing if EU market targeted | Low | After USPTO application is filed |
+| Terms of Service + Privacy Policy | High | Required before any user account creation or payment |
+| DMCA / content policy | Medium | SaaS handles user-uploaded media |
+
+**Gate:** do not open paid subscriptions or process user data until trademark is filed and ToS/Privacy Policy are in place.
 
 ---
 
@@ -70,9 +88,10 @@ Goal: sustainable revenue.
 | Tier | Price | Limits | Features |
 | --- | --- | --- | --- |
 | **Free** | $0 | 5 scripts/month, 10 min max | Core pipeline, download |
-| **Creator** | $9/month | 50 scripts/month, 60 min max | + catalog, custom transforms |
-| **Studio** | $29/month | Unlimited, 3h max | + batch API, priority queue |
-| **Enterprise** | Custom | Unlimited | + SSO, SLA, private deploy |
+| **Creator** | $9/month | 50 scripts/month, 60 min max | + catalog, custom transforms, media player |
+| **Studio** | $29/month | Unlimited, 3h max | + batch API, priority queue, interactive waveform editor |
+| **Pro** | $59/month | Unlimited | + agentic authoring (AI-driven transforms via natural language) |
+| **Enterprise** | Custom | Unlimited | + SSO, SLA, private deploy, data lake / S3 bring-your-own-bucket |
 
 ### Items
 
@@ -92,7 +111,7 @@ Goal: sustainable revenue.
 
 | Item | Priority |
 | --- | --- |
-| Audio/video sync playback in UI (GitHub #6) | High |
+| ~~Audio/video sync playback in UI (GitHub #6)~~ | ✅ Shipped |
 | Batch processing (upload multiple scripts) | Medium |
 | Script versioning + diff view | Medium |
 | Collaborative editing (real-time cursors) | Low |
@@ -105,11 +124,15 @@ Goal: sustainable revenue.
 ## Key dependencies
 
 ```
+Phase 0 (Legal)
+     │
+     ▼
 Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4
                  │                       │
                  └──► Phase 5 (ongoing) ─┘
 ```
 
+Phase 0 runs in parallel with Phase 1 but must complete before Phase 4 (paid tiers).
 Phases 1 and 2 are prerequisite for Phase 3. Paid tiers require Phase 3.
 Phase 5 features can be shipped incrementally in any phase.
 
@@ -120,8 +143,9 @@ Phase 5 features can be shipped incrementally in any phase.
 - Payment processor: Stripe (Checkout + Customer Portal)
 - Target launch: Creator tier public beta after Phase 3 MVP
 - Pricing validated against: Udio ($10/mo), ElevenLabs ($5–22/mo), similar creative tools
-- Revenue target: 500 Creator + 50 Studio = $5,950 MRR at steady state
+- Revenue target: 500 Creator + 50 Studio + 10 Pro = $6,540 MRR at steady state
 - Infrastructure cost at that scale: ~$400–500/month → healthy margin
+- S3 / data lake: per-user prefix isolation; Enterprise tier supports BYOB (bring your own bucket)
 
 ---
 

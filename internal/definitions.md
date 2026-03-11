@@ -1,4 +1,4 @@
-# Funscript Forge — Glossary of Key Terms
+# FunscriptForge — Glossary of Key Terms
 
 This document defines the vocabulary used throughout the codebase, UI, and documentation.
 

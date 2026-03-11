@@ -94,19 +94,35 @@ saved — ready for export.` banner appears.
 **Phrase Detail panel** (appears when a phrase is selected):
 
 ```text
-┌──────────────────────────────┬─────────────────────┐
+┌─────────────────────────────────────────────────────┐
+│  📹 Show player  [stats table: Start End BPM ...]   │
+├─────────────────────────────────────────────────────┤  (optional, full-width)
+│  ▶ ⏹ -1s +1s ◀fr fr▶  0:00/0:00  Vol── Speed 📌   │
+│  [waveform chart with animated red playhead]        │
+│   scroll=zoom · drag=pan · dbl-click=reset          │
+├──────────────────────────────┬──────────────────────┤
 │  Original chart              │  ⏮ Prev    Next ⏭   │
 │  (hover dot = cycle number)  │  Transform controls  │
 ├──────────────────────────────│  ✂ Split phrase      │
 │  Preview — {Transform Name}  │  ──────────────────  │
 │  Preview chart               │  ✓ Accept  ✕ Cancel  │
 │  Position stats table        │                      │
-└──────────────────────────────┴─────────────────────┘
+└──────────────────────────────┴──────────────────────┘
 ```
 
 - **✓ Accept** — stores the transform in session state and returns to the selector.
 - **✕ Cancel** — discards only the current phrase's proposed transform.
 - **✂ Split phrase** — divides the phrase at a cycle boundary.
+- **📹 Show / Hide player** — toggles the phrase-restricted media player (audio or video).
+  The player row is full-width above the charts.  Requires a media file to be loaded
+  (audio or video); the button is hidden if no media is configured.
+  - Playback is scoped to `[start_ms, end_ms]` — Stop resets to `start_ms`
+  - Controls: ▶/⏸, ⏹ Stop, -1s/+1s seek, ◀fr/fr▶ frame step (1/30 s), Vol, Speed (0.25–2×), 📌 pin split
+  - **Waveform chart** — Plotly action chart with animated red playhead; scroll to zoom,
+    drag to pan, double-click to reset zoom
+  - **Position readout** (green, below controls) — shows `⏸ MM:SS.mmm  pos NN`
+    where *pos* is the interpolated funscript position (0–100).  Updates on pause,
+    seek, and frame step; blank during playback to avoid distraction.
 
 **Assessment details expander** (below the chart):
 

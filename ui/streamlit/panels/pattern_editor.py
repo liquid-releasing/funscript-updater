@@ -465,34 +465,48 @@ def _detail_fragment(
         from ui.streamlit.panels.media_player import AUDIO_EXTS
         _ext = os.path.splitext(_media_path)[1].lower()
         if _ext in AUDIO_EXTS:
-            import base64
-            from ui.streamlit.components.audio_player import phrase_audio_player
-            from ui.streamlit.panels.media_player import _read_media_bytes
+            from utils import ms_to_timestamp
 
-            _mime_map = {
-                ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
-                ".wav": "audio/wav",  ".ogg": "audio/ogg", ".aac": "audio/aac",
-            }
-            _mime       = _mime_map.get(_ext, "audio/mpeg")
-            _audio_hash = f"{_media_path}:{os.path.getmtime(_media_path)}"
-            _raw        = _read_media_bytes(_media_path, os.path.getmtime(_media_path))
-            _b64        = base64.b64encode(_raw).decode()
-            _split_pts  = _get_splits(selected_label, inst_idx)
-
-            _player_result = phrase_audio_player(
-                audio_b64=_b64,
-                audio_mime=_mime,
-                audio_hash=_audio_hash,
-                start_ms=start_ms,
-                end_ms=end_ms,
-                actions=[{"at": a["at"], "pos": a["pos"]} for a in original_window],
-                split_points=_split_pts,
-                key=f"ap_{selected_label}_{inst_idx}",
+            _show_key = f"pe_show_player_{selected_label}_{inst_idx}"
+            _show_player = st.checkbox(
+                "Show audio player",
+                value=st.session_state.get(_show_key, False),
+                key=_show_key,
             )
-            if _player_result and "split_ms" in _player_result:
-                _split_ms = int(_player_result["split_ms"])
-                if _add_split_point(selected_label, inst_idx, cycle, _split_ms):
-                    st.rerun(scope="app")
+            if _show_player:
+                import base64
+                from ui.streamlit.components.audio_player import phrase_audio_player
+                from ui.streamlit.panels.media_player import _read_media_bytes
+
+                st.caption(
+                    f"**{_media_path}**\n\n"
+                    f"{ms_to_timestamp(start_ms)} → {ms_to_timestamp(end_ms)}"
+                )
+
+                _mime_map = {
+                    ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
+                    ".wav": "audio/wav",  ".ogg": "audio/ogg", ".aac": "audio/aac",
+                }
+                _mime       = _mime_map.get(_ext, "audio/mpeg")
+                _audio_hash = f"{_media_path}:{os.path.getmtime(_media_path)}"
+                _raw        = _read_media_bytes(_media_path, os.path.getmtime(_media_path))
+                _b64        = base64.b64encode(_raw).decode()
+                _split_pts  = _get_splits(selected_label, inst_idx)
+
+                _player_result = phrase_audio_player(
+                    audio_b64=_b64,
+                    audio_mime=_mime,
+                    audio_hash=_audio_hash,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    actions=[{"at": a["at"], "pos": a["pos"]} for a in original_window],
+                    split_points=_split_pts,
+                    key=f"ap_{selected_label}_{inst_idx}",
+                )
+                if _player_result and "split_ms" in _player_result:
+                    _split_ms = int(_player_result["split_ms"])
+                    if _add_split_point(selected_label, inst_idx, cycle, _split_ms):
+                        st.rerun(scope="app")
 
 
 # ------------------------------------------------------------------

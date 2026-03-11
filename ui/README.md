@@ -1,6 +1,6 @@
 # ui — Streamlit UI
 
-Interactive local app for the Funscript Forge pipeline.
+Interactive local app for the FunscriptForge pipeline.
 
 ## Quick start
 

@@ -1,4 +1,4 @@
-# Security Model — Funscript Forge
+# Security Model — FunscriptForge
 
 *Internal document — not shipped to end users.*
 
@@ -6,7 +6,7 @@
 
 ## Scope
 
-Funscript Forge is a local single-user desktop tool.  It reads and writes
+FunscriptForge is a local single-user desktop tool.  It reads and writes
 files on the local file system; it does not have a server component, does not
 expose network ports, and does not authenticate users.  The threat model
 focuses on **malicious content delivered to the local machine** rather than

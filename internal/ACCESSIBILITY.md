@@ -1,4 +1,4 @@
-# Funscript Forge — Accessibility Assessment
+# FunscriptForge — Accessibility Assessment
 
 **Standard:** WCAG 2.1 Level AA
 **Scope:** Streamlit UI (local desktop + web modes)
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Funscript Forge is currently accessible for sighted, mouse/keyboard users on a standard desktop.
+FunscriptForge is currently accessible for sighted, mouse/keyboard users on a standard desktop.
 It has significant gaps for users relying on screen readers, users who are colour-blind, and
 users with motor impairments who depend entirely on keyboard navigation.  The issues below are
 grouped by severity.  Critical and Major items should be resolved before a public release.

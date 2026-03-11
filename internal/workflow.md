@@ -1,6 +1,6 @@
-# Funscript Forge — Workflow Overview
+# FunscriptForge — Workflow Overview
 
-This document describes the intended end-to-end workflow for improving a funscript using Funscript Forge.
+This document describes the intended end-to-end workflow for improving a funscript using FunscriptForge.
 
 ---
 

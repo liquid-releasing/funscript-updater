@@ -2,7 +2,7 @@
 
 Unit tests for the core pipeline modules, UI-panel split logic, accessibility, and smoke tests.
 
-638 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **698 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+699 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **759 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -118,6 +118,26 @@ python -m unittest discover -s ui/common/tests -v
 | --- | --- |
 | `TestClampSortDedup` | Positions clamped to [0, 100], out-of-range flagged, timestamps sorted, duplicates deduplicated (last-write wins), no-op on clean input, empty list, single action |
 
+### `test_media_player.py` — `ui/streamlit/panels/media_player.py` (pure-Python helpers)
+
+| Class | What it covers |
+| --- | --- |
+| `TestValidateMediaFileHappyPath` | Each of the 9 supported containers (MP3 ID3/ADTS, MP4/M4A/MOV, WAV, OGG, WebM, MKV, AAC MPEG-4/MPEG-2) with correct magic bytes → `None` |
+| `TestValidateMediaFileCorrupt` | Garbage bytes for each container → error string |
+| `TestValidateMediaFileEdgeCases` | Missing file, empty file, truncated file; `.avi` → helpful ffmpeg hint (not generic error); unknown extension → allowlist message (no `avi` listed) |
+| `TestMediaExtsAllowlist` | `.avi` absent from `VIDEO_EXTS`, `AUDIO_EXTS`, and `MEDIA_EXTS`; all 9 supported extensions present |
+| `TestFindMatchingMedia` | Finds MP4/MP3 by stem match; no match → `None`; missing uploads dir → `None`; MP4 preferred over MP3 |
+
+### `test_launcher.py` — `_MediaHandler` local media HTTP server
+
+| Class | What it covers |
+| --- | --- |
+| `TestMediaHandlerBadRequests` | Empty path → 400; relative path → 400; absolute path to missing file → 404 |
+| `TestMediaHandlerAllowlist` | `.avi`, `.txt`, `.exe` → 403; MP4/MP3/WebM/MKV/WAV/OGG/AAC/M4A/MOV → 200 |
+| `TestMediaHandlerContentType` | MP4 `video/mp4`, MP3 `audio/mpeg`, WebM `video/webm` |
+| `TestMediaHandlerRangeRequests` | Range → 206 with correct body length and `Content-Range`; full request → 200 with `Content-Length` and `Accept-Ranges` |
+| `TestMediaHandlerSymlinkSecurity` | Symlink named `.mp4` resolving to `.txt` → 403; symlink resolving to real `.mp4` → 200 *(skipped if OS requires elevation for symlinks)* |
+
 ### `test_priority2.py` — P2 features
 
 | Class | What it covers |
@@ -125,7 +145,7 @@ python -m unittest discover -s ui/common/tests -v
 | `TestFileUpload` | Upload saved to `output/uploads/`, prefix in selectbox, auto-selects most recent |
 | `TestQualityCheck` | Velocity > 200 warn, velocity > 300 error, interval < 50 ms warn, pass on clean input, 50-row cap |
 | `TestProgressCallback` | Callback invoked for each pipeline stage, stage labels non-empty, thread-safe |
-| `TestValidateMediaFile` | Magic-byte pass for all 10 types, unknown extension rejected, truncated file handled, 403 on disallowed extension from media server |
+| `TestValidateMediaFile` | Basic magic-byte smoke tests; see `test_media_player.py` for full coverage |
 | `TestRecentsHelpers` | Save/load recent files, max-recents cap, missing file handled gracefully |
 
 ### `test_undo_stack.py` — undo/redo core
@@ -196,9 +216,11 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_accessibility.py` | 32 |
 | `test_smoke.py` | 53 |
 | `test_input_validation.py` | 23 |
+| `test_media_player.py` | 34 |
+| `test_launcher.py` | 27 |
 | other modules | *(see `tests/` directory)* |
 | `ui/common/tests/` | 60 |
-| **Total** | **698** |
+| **Total** | **759** |
 
 ---
 

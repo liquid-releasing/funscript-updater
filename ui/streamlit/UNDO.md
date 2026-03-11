@@ -1,6 +1,6 @@
 # Undo / Redo
 
-Funscript Forge supports 50-level undo and redo for all editing operations.
+FunscriptForge supports 50-level undo and redo for all editing operations.
 The **↩ Undo** and **↪ Redo** buttons appear in the sidebar whenever a
 funscript is loaded.
 

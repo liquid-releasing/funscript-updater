@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Work item models for the Funscript Forge UI.
+"""Work item models for the FunscriptForge UI.
 
 A WorkItem represents a tagged time window in a funscript that the user has
 reviewed and assigned a type (performance, break, raw, or neutral).  Each

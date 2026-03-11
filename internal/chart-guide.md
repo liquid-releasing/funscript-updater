@@ -1,4 +1,4 @@
-# Funscript Forge — How to Read the Chart
+# FunscriptForge — How to Read the Chart
 
 The funscript chart is the primary visual interface in every tab. This guide explains what you are looking at and how to interpret what the colors tell you about the script's quality.
 

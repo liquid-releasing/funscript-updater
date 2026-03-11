@@ -1,4 +1,4 @@
-# Funscript Forge
+# FunscriptForge
 
 ## The professional post-processor for haptic script creators
 
@@ -6,12 +6,12 @@
 
 ### What it does
 
-Funscript Forge takes a raw `.funscript` file — the motion script that drives a
+FunscriptForge takes a raw `.funscript` file — the motion script that drives a
 haptic device in sync with video — and turns it into something that actually
 feels good to use.
 
 Raw scripts are often too fast, too shallow, monotonous in the wrong places, or
-jarring at scene cuts. Funscript Forge fixes all of that, automatically and
+jarring at scene cuts. FunscriptForge fixes all of that, automatically and
 transparently.
 
 ---
@@ -59,7 +59,7 @@ Your .funscript
 ### Key features
 
 **Structure-aware analysis**
-Not just waveform smoothing — Funscript Forge understands the *grammar* of
+Not just waveform smoothing — FunscriptForge understands the *grammar* of
 motion: what's a stroke, what's a phrase, where the tempo changes and why.
 
 **17 precision transforms**
@@ -80,7 +80,7 @@ Fix every "drone" section in your script in one step. Select the tag, apply
 the fix, click "Apply to all" — done.
 
 **Smart auto-suggestions**
-Not sure what to do with a phrase? Funscript Forge recommends the right
+Not sure what to do with a phrase? FunscriptForge recommends the right
 transform based on the behavioral tag and BPM — you review and accept.
 
 **Cross-script catalog**
@@ -136,7 +136,7 @@ Opens at `http://localhost:8501`. Drop in a `.funscript` and click Analyse.
 
 ---
 
-*Funscript Forge — because good haptics don't happen by accident.*
+*FunscriptForge — because good haptics don't happen by accident.*
 
 ---
 
@@ -144,7 +144,7 @@ Opens at `http://localhost:8501`. Drop in a `.funscript` and click Analyse.
 
 Creating a great haptic experience used to require hours of manual scripting.
 Here is the complete journey — from raw video to a finished multi-sensory script
-— and where Funscript Forge fits in.
+— and where FunscriptForge fits in.
 
 ```text
 Step 1 — Generate a raw script
@@ -153,12 +153,12 @@ Step 1 — Generate a raw script
   Output: raw .funscript (timestamp + position pairs)
   Issue:  raw scripts are often noisy, shallow, or behaviourally flat
 
-Step 2 — Analyse the motion structure (Funscript Forge)
+Step 2 — Analyse the motion structure (FunscriptForge)
   Detects: phases → cycles → patterns → phrases → BPM transitions
   Labels:  each phrase with a behavioral tag (stingy, drone, frantic…)
   Output:  assessment JSON — the "grammar" of your script
 
-Step 3 — Edit and transform (Funscript Forge)
+Step 3 — Edit and transform (FunscriptForge)
   Phrase Editor:  fix individual phrases with live before/after preview
   Pattern Editor: fix every "drone" section in one click
   Transform Catalog: 17 precision transforms — amplitude, tempo, rhythm…
@@ -176,7 +176,7 @@ Step 5 — Route to device(s) (MultiFunPlayer, Restim)
   Output:  synchronized, multi-sensory playback experience
 ```
 
-### Where Funscript Forge is uniquely valuable
+### Where FunscriptForge is uniquely valuable
 
 | Stage | Without Forge | With Forge |
 | --- | --- | --- |
@@ -186,7 +186,7 @@ Step 5 — Route to device(s) (MultiFunPlayer, Restim)
 | Device safety | No velocity validation | Automated quality gate — velocity + short-interval checks |
 | Audio sync prep | Manual phrase marking | BPM transitions ready for beat alignment |
 
-Funscript Forge does not play back media or drive devices directly — it is the
+FunscriptForge does not play back media or drive devices directly — it is the
 quality and structure layer that makes every downstream tool work better.
 
 ---

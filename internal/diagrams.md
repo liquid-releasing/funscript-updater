@@ -1,4 +1,4 @@
-# Funscript Forge — Mermaid Diagrams
+# FunscriptForge — Mermaid Diagrams
 
 All diagrams render natively on GitHub and in any Mermaid-compatible viewer.
 
@@ -103,7 +103,7 @@ flowchart TD
 sequenceDiagram
     participant U as User
     participant UI as Phrase Editor
-    participant FS as Funscript Forge
+    participant FS as FunscriptForge
 
     U->>UI: Load funscript
     UI->>FS: Run assessment pipeline
@@ -282,7 +282,7 @@ flowchart TD
         PythonDancer["PythonDancer\nOptical flow → funscript"]
     end
 
-    subgraph ForgeAgent["Funscript Forge Agent"]
+    subgraph ForgeAgent["FunscriptForge Agent"]
         Assess["assess\n(classify phrases)"]
         Transform["export-plan --apply\n(auto-transform)"]
         QualityGate["Quality gate\n(score ≥ threshold?)"]

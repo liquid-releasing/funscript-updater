@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Undo/redo stack for Funscript Forge session state.
+"""Undo/redo stack for FunscriptForge session state.
 
 Framework-agnostic: holds snapshots of project + pattern-editor state.
 The Streamlit layer is responsible for reading/writing session state.

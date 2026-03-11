@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Project session state for the Funscript Forge UI.
+"""Project session state for the FunscriptForge UI.
 
 A Project holds everything needed to drive one editing session:
   - which funscript is loaded

@@ -1,4 +1,4 @@
-# Building Funscript Forge
+# Building FunscriptForge
 
 This document covers how to build a standalone packaged application on Windows
 and macOS. The result is a self-contained executable that end users can run

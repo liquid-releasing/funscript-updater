@@ -53,7 +53,7 @@ _META: List[Tuple[str, str, List[Tuple[str, List[str]]]]] = [
         [
             ("Passthrough",                  ["passthrough"]),
             ("Amplitude Shaping",            ["amplitude_scale", "normalize", "boost_contrast"]),
-            ("Position Adjustment",          ["shift", "recenter", "clamp_upper", "clamp_lower", "invert"]),
+            ("Position Adjustment",          ["shift", "recenter", "clamp_upper", "clamp_lower", "invert", "funnel"]),
             ("Smoothing & Filtering",        ["smooth", "blend_seams", "final_smooth"]),
             ("Break / Recovery",             ["break", "waiting"]),
             ("Performance / Device Realism", ["performance"]),
@@ -78,16 +78,6 @@ _META: List[Tuple[str, str, List[Tuple[str, List[str]]]]] = [
         "Parameters control the generated shape, not the original signal.",
         [
             ("Generated Shapes", ["stroke", "drift", "tide"]),
-        ],
-    ),
-    (
-        "Funnel",
-        "Funnel transforms create a progressive energy arc across a phrase — ramping "
-        "from small, compressed strokes to large, expansive strokes (funnel open) or "
-        "the reverse (funnel close). Both the center position and the stroke amplitude "
-        "scale linearly, creating a visually ordered ramp-up or ramp-down shape.",
-        [
-            ("Energy Funnel", ["funnel"]),
         ],
     ),
 ]
@@ -492,10 +482,6 @@ def render() -> None:
                 for spec in specs:
                     _render_transform_card(spec)
 
-        # Tag Catalog appears directly under the Behavior section
-        if meta_label == "Behavior":
-            _render_tag_catalog()
-
     # Auto-display any plugin transforms not already in a meta-section
     extra: Dict[str, list] = {}
     for key, spec in TRANSFORM_CATALOG.items():
@@ -519,3 +505,6 @@ def render() -> None:
             ):
                 for spec in specs:
                     _render_transform_card(spec)
+
+    # Tag Catalog — appears last, after Plugins
+    _render_tag_catalog()

@@ -1,6 +1,6 @@
-# Funscript Forge — Single-User Production Backlog
+# FunscriptForge — Single-User Production Backlog
 
-Priority-ordered work items to make Funscript Forge production-ready for a single local user.
+Priority-ordered work items to make FunscriptForge production-ready for a single local user.
 Items are drawn from the main backlog, open GitHub issues, and fresh assessment.
 
 ---
@@ -245,6 +245,11 @@ These items are explicitly deferred until the SaaS / multi-user phase:
 + **REST API** ([#8](https://github.com/liquid-releasing/funscript-forge/issues/8)) — needed for SaaS, not local use
 + **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscript-forge/issues/3)) — SaaS only
 + **Upload and sync media/audio** ([#6](https://github.com/liquid-releasing/funscript-forge/issues/6)) — nice-to-have, not blocking
++ **Large-file web media streaming** — files above 500 MB cannot be base64-encoded into a
+  browser session without OOM risk.  Local desktop mode already handles files of any size
+  (16 GB 4K video streams via the local HTTP media server with no memory overhead).
+  Web/SaaS tier will need chunked upload, server-side storage, or signed CDN URLs.
+  **Planned as a paid SaaS tier feature** — large production files are a professional workflow.
 + **Python plugins as a supported feature** — the code infrastructure exists and is tested,
   but Python plugins cannot be safely sandboxed on a local machine without OS-level container
   isolation.  **Planned for the SaaS paid tier only**, where each plugin runs in a

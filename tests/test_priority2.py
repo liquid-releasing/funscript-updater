@@ -286,10 +286,13 @@ class TestValidateMediaFile(unittest.TestCase):
             p = self._write(d, "a.aac", bytes([0xFF, 0xF1]) + b"\x00" * 20)
             self.assertIsNone(validate_media_file(p))
 
-    def test_avi_valid(self):
+    def test_avi_rejected_with_ffmpeg_hint(self):
+        """AVI is not supported — validate_media_file returns a helpful ffmpeg hint."""
         with tempfile.TemporaryDirectory() as d:
             p = self._write(d, "a.avi", b"RIFF" + b"\x00\x00\x00\x00" + b"AVI " + b"\x00" * 4)
-            self.assertIsNone(validate_media_file(p))
+            result = validate_media_file(p)
+            self.assertIsNotNone(result)
+            self.assertIn("ffmpeg", result.lower())
 
     # ------------------------------------------------------------------
     # Corrupt / wrong-header files

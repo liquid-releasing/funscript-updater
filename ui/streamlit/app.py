@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Funscript Forge — Streamlit UI entry point.
+"""FunscriptForge — Streamlit UI entry point.
 
 Launch with:
     streamlit run ui/streamlit/app.py
@@ -65,7 +65,7 @@ def _load_favicon():
     return "🔨"
 
 st.set_page_config(
-    page_title="Funscript Forge",
+    page_title="FunscriptForge",
     page_icon=_load_favicon(),
     layout="wide",
     initial_sidebar_state="expanded",
@@ -276,7 +276,7 @@ def _sidebar() -> None:
     if os.path.exists(_logo):
         st.sidebar.image(_logo, width="stretch")
     else:
-        st.sidebar.title("Funscript Forge")
+        st.sidebar.title("FunscriptForge")
     st.sidebar.markdown("---")
 
     # --- File picker: local path input or web upload ---
@@ -666,7 +666,7 @@ def _render_welcome() -> None:
             st.image(_media("funscriptforge.png"), width="stretch")
 
     st.markdown(
-        "**Funscript Forge** analyses funscripts, detects phrase structure and motion "
+        "**FunscriptForge** analyses funscripts, detects phrase structure and motion "
         "patterns, and lets you apply per-phrase transforms before exporting a clean, "
         "device-safe output file."
     )
@@ -777,8 +777,6 @@ def _render_phrase_selector_tab(project: Project) -> None:
 def _render_phrase_editor_tab(project: Project) -> None:
     """Phrase Editor view — single-phrase editor with prev/next navigation."""
     from ui.streamlit.panels import phrase_detail
-    from ui.streamlit.panels.media_player import render_player
-    import json
 
     view_state = st.session_state.view_state
     assessment_dict = project.assessment.to_dict()
@@ -791,19 +789,6 @@ def _render_phrase_editor_tab(project: Project) -> None:
         view_state.reset_zoom()
         st.session_state["phrase_table_ver"] = st.session_state.get("phrase_table_ver", 0) + 1
         st.rerun()
-
-    sel_start = view_state.selection_start_ms or 0
-    sel_end   = view_state.selection_end_ms   or duration_ms
-    with st.spinner("Loading phrase…"):
-        with open(project.funscript_path, encoding="utf-8") as _fp:
-            _sel_acts = [a for a in json.load(_fp).get("actions", [])
-                         if sel_start <= a["at"] <= sel_end]
-        render_player(
-            start_ms=sel_start,
-            end_ms=sel_end,
-            actions=_sel_acts,
-            key_suffix=f"editor_{sel_start}",
-        )
 
     phrase_detail.render(
         phrases=phrases,

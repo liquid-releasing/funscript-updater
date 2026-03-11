@@ -1,12 +1,30 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Phrase-restricted audio player Streamlit component.
+"""Phrase-restricted media player Streamlit component.
 
-Renders an HTML5 audio player scoped to a single phrase window, with:
-- Play / Pause, Stop, Back 5 s, Forward 5 s controls
-- A live Plotly.js chart of the phrase's actions with an animated playhead
-- A 📌 "Set split here" button that returns the current time to Python
+Supports both audio and video playback scoped to a single phrase window.
+
+Controls: Play/Pause, Stop, ±1 s seek, frame step (◀fr / fr▶), volume,
+speed (0.25× / 0.5× / 1× / 2×), 📌 Set split here.
+
+Displays a Plotly waveform chart with animated red playhead, plus a
+position readout (``⏸ MM:SS.mmm  pos NN``) shown in green below the
+controls.
+
+Position readout update triggers
+---------------------------------
+The readout is **intentionally blank during playback** — it updates only on:
+
+* **Pause** (click ▶ again, or playback reaches phrase end)
+* **Stop** — readout is cleared (position resets to phrase start)
+* **±1 s seek** buttons
+* **◀fr / fr▶** frame-step buttons
+
+This is by design: showing a rapidly changing position during playback
+would be distracting and hard to read.  Pause at the moment of interest
+to capture the exact timestamp and funscript position (0–100) of the
+action currently at the playhead.
 
 Python usage::
 
@@ -26,6 +44,20 @@ Python usage::
         # user pinned a split point
         _add_split_point(label, inst_idx, cycle, result["split_ms"])
         st.rerun(scope="app")
+
+Video (new)::
+
+    result = phrase_audio_player(
+        media_type="video",
+        media_url=url,          # local-mode HTTP stream
+        media_mime="video/mp4",
+        media_hash="file.mp4:1234567890.0",
+        start_ms=phrase["start_ms"],
+        end_ms=phrase["end_ms"],
+        actions=actions_in_phrase,
+        split_points=[],
+        key="vp_phrase_0",
+    )
 """
 
 from __future__ import annotations
@@ -44,59 +76,73 @@ _component_func = components.declare_component(
 
 def phrase_audio_player(
     *,
-    audio_hash: str,
+    # Legacy audio_* params — kept for backward compatibility.
+    audio_hash: str = "",
+    # Phrase window
     start_ms: int,
     end_ms: int,
     actions: list,
     split_points: list,
-    # Local mode: stream directly from the media server.
+    # Generic media params (preferred over audio_* when provided).
+    media_type: str = "audio",          # "audio" | "video"
+    media_hash: str | None = None,
+    media_url: str | None = None,       # local-mode HTTP stream
+    media_b64: str | None = None,       # web-mode base64 bytes
+    media_mime: str | None = None,
+    # Legacy audio_* aliases (still accepted for backward compat).
     audio_url: str | None = None,
-    # Web mode: base64-encoded audio embedded in the component.
     audio_b64: str | None = None,
     audio_mime: str | None = None,
     key: str | None = None,
 ) -> dict | None:
-    """Render the phrase-restricted audio player component.
+    """Render the phrase-restricted media player component.
 
-    Exactly one of *audio_url* (local/desktop mode) or *audio_b64* + *audio_mime*
-    (web mode) must be supplied.
+    Pass exactly one of *media_url* (local/desktop mode) or
+    *media_b64* + *media_mime* (web mode).  The legacy ``audio_*``
+    parameters are accepted for backward compatibility and are used
+    when the corresponding ``media_*`` params are not provided.
 
     Parameters
     ----------
-    audio_hash:
-        Short string that changes only when the audio file changes (e.g.
-        ``f"{path}:{mtime}"``).  Used by the component to decide whether to
-        reload the audio source without comparing the full base64 blob.
-    start_ms:
-        Phrase start in milliseconds — audio playback begins here.
-    end_ms:
-        Phrase end in milliseconds — audio playback stops here.
+    media_type:
+        ``"audio"`` (default) or ``"video"``.  Controls whether the
+        video display area is shown above the waveform chart.
+    media_hash:
+        Short string that changes only when the file changes (e.g.
+        ``f"{path}:{mtime}"``).  Used to avoid reloading on re-renders.
+    start_ms / end_ms:
+        Phrase window in milliseconds.
     actions:
-        List of ``{"at": int, "pos": int}`` dicts for the phrase chart.
+        ``[{"at": int, "pos": int}]`` list for the waveform chart.
     split_points:
-        Existing split ms values shown as dashed vertical lines on the chart.
-    audio_url:
-        HTTP URL served by the local media server.  When set, ``audio_b64``
-        and ``audio_mime`` are ignored.
-    audio_b64:
-        Base64-encoded audio bytes (web mode only).
-    audio_mime:
-        MIME type, e.g. ``"audio/mpeg"`` or ``"audio/wav"`` (web mode only).
+        Existing split-point timestamps (ms) shown as dashed lines.
+    media_url / audio_url:
+        HTTP URL from the local media server.
+    media_b64 / audio_b64:
+        Base64-encoded file bytes (web mode).
+    media_mime / audio_mime:
+        MIME type string.
     key:
-        Streamlit widget key.  Change when switching phrase instances to
-        reset the component state.
+        Streamlit widget key.
 
     Returns
     -------
     dict or None
-        ``{"split_ms": <int>}`` when the user clicks 📌 Set split here,
-        ``None`` otherwise.
+        ``{"split_ms": <int>}`` when 📌 is clicked; ``None`` otherwise.
     """
     return _component_func(
+        # Generic media params (JS reads these first, falls back to audio_*)
+        media_type=media_type,
+        media_hash=media_hash or audio_hash,
+        media_url=media_url or audio_url,
+        media_b64=media_b64 or audio_b64,
+        media_mime=media_mime or audio_mime,
+        # Legacy audio_* pass-through so old JS callers still work
+        audio_hash=audio_hash,
         audio_url=audio_url,
         audio_b64=audio_b64,
         audio_mime=audio_mime,
-        audio_hash=audio_hash,
+        # Phrase window + chart data
         start_ms=start_ms,
         end_ms=end_ms,
         actions=actions,

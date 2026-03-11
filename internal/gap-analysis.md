@@ -1,4 +1,4 @@
-# Funscript Forge — Gap Analysis
+# FunscriptForge — Gap Analysis
 
 *Last updated 2026-03-10 against `main` (v0.5.0).*
 

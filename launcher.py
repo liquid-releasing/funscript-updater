@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
 # Written by human and Claude AI (Claude Sonnet).
 
-"""Funscript Forge launcher.
+"""FunscriptForge launcher.
 
 Entry point for both development (`python launcher.py`) and the PyInstaller
 packaged executable.  Starts the Streamlit web server on a free local port
@@ -73,18 +73,37 @@ class _MediaHandler(http.server.BaseHTTPRequestHandler):
         qs = parse_qs(urlparse(self.path).query)
         file_path = unquote(qs.get("path", [""])[0])
 
-        if not file_path or not os.path.isabs(file_path) or not os.path.isfile(file_path):
+        if not file_path or not os.path.isabs(file_path):
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        # Resolve symlinks before any further checks.  A symlink whose name
+        # ends in ".mp4" could otherwise point at an arbitrary file (e.g. a
+        # shell config or SSH key).
+        try:
+            real_path = os.path.realpath(file_path)
+        except OSError:
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        if not os.path.isfile(real_path):
             self.send_response(404)
             self.end_headers()
             return
 
-        ext = os.path.splitext(file_path)[1].lower()
+        # Check the extension of the *resolved* path, not the original name,
+        # so a symlink named "trick.mp4" → "sensitive.txt" is refused.
+        ext = os.path.splitext(real_path)[1].lower()
 
         # Allowlist: only serve known media extensions — refuse everything else.
         if ext not in self._MIME:
             self.send_response(403)
             self.end_headers()
             return
+
+        file_path = real_path  # use resolved path for all subsequent I/O
 
         content_type = self._MIME[ext]
         file_size    = os.path.getsize(file_path)
@@ -130,7 +149,7 @@ def main() -> None:
     app_path = os.path.join(base, "ui", "streamlit", "app.py")
 
     if not os.path.exists(app_path):
-        sys.exit(f"[Funscript Forge] Cannot find app.py at: {app_path}")
+        sys.exit(f"[FunscriptForge] Cannot find app.py at: {app_path}")
 
     port       = _find_free_port()
     media_port = _find_free_port()
@@ -157,9 +176,9 @@ def main() -> None:
 
     # Start the local media file server (serves audio/video by absolute path).
     threading.Thread(target=_start_media_server, args=(media_port,), daemon=True).start()
-    print(f"[Funscript Forge] Media server on port {media_port}")
+    print(f"[FunscriptForge] Media server on port {media_port}")
 
-    print(f"[Funscript Forge] Starting on {url}")
+    print(f"[FunscriptForge] Starting on {url}")
 
     # Open the browser after a short delay so Streamlit has time to start.
     threading.Thread(target=_open_browser, args=(url,), daemon=True).start()
@@ -167,7 +186,7 @@ def main() -> None:
     # Run Streamlit in-process (blocking until the window is closed).
     from streamlit.web import bootstrap  # noqa: PLC0415
 
-    bootstrap.run(app_path, "", [], {})
+    bootstrap.run(app_path, False, [], {})
 
 
 if __name__ == "__main__":

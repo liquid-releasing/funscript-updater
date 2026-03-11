@@ -227,8 +227,22 @@ test.txt
 test_funscript/*.mp4
 test_funscript/*.mov
 
+# demo media — large video/audio files; funscripts are committed, binaries are not
+demo/*.mp4
+demo/*.mov
+demo/*.mkv
+demo/*.mp3
+demo/*.m4a
+demo/*.wav
+demo/*.ogg
+demo/*.webm
+demo/*.avi
+
 # output artifacts
 output/
+# Bundled JS vendor files (downloaded at dev-setup time — not committed)
+ui/streamlit/components/audio_player/frontend/plotly-*.min.js
+
 # media — ignore large video/audio files, keep images
 media/*.mp4
 media/*.mkv
