@@ -245,6 +245,13 @@ These items are explicitly deferred until the SaaS / multi-user phase:
 + **REST API** ([#8](https://github.com/liquid-releasing/funscript-forge/issues/8)) — needed for SaaS, not local use
 + **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscript-forge/issues/3)) — SaaS only
 + **Upload and sync media/audio** ([#6](https://github.com/liquid-releasing/funscript-forge/issues/6)) — nice-to-have, not blocking
++ **Python plugins as a supported feature** — the code infrastructure exists and is tested,
+  but Python plugins cannot be safely sandboxed on a local machine without OS-level container
+  isolation.  **Planned for the SaaS paid tier only**, where each plugin runs in a
+  short-lived container with no access to other tenants' data or the host file system.
+  This is a genuine differentiator for the paid tier: "bring your own transform logic."
+  See `internal/SECURITY.md` → *Python Plugin Roadmap Decision* for the full rationale
+  and tier comparison table.
 
 ---
 

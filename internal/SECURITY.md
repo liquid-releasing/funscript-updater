@@ -140,10 +140,40 @@ This is a standard supply-chain risk not specific to this application.
 
 | Approach | Reason not implemented |
 | --- | --- |
-| **RestrictedPython for plugins** | Complex; the opt-in gate (M5) provides sufficient protection for a local tool; RestrictedPython is not a dependency we want to add at this stage |
-| **Subprocess sandboxing for plugins** | Hard to implement cross-platform (especially Windows); deferred until/if Python plugins become a first-class feature |
+| **RestrictedPython for plugins** | Complex; the opt-in gate (M5) provides sufficient protection for a local tool; Python plugins are planned for the SaaS tier only where container isolation replaces code-level sandboxing |
+| **Subprocess sandboxing for plugins** | Hard to implement cross-platform (especially Windows); the right solution is a containerised execution environment — i.e., the SaaS tier |
 | **File-size limits on funscript input** | Low priority; deferred |
 | **Dependency checksum pinning** | Tracked in backlog; not yet part of CI |
+
+---
+
+## Python Plugin Roadmap Decision
+
+Python plugins are **not a local-app feature**.  The code infrastructure exists
+(and is tested) but is disabled by default and will not be promoted as a
+supported local feature.
+
+**Rationale:**  A local app cannot adequately sandbox arbitrary Python code
+without OS-level container isolation.  The risk to the user's machine
+(credential theft, file destruction, network exfiltration) is too high to
+expose as a general feature.
+
+**Planned home: SaaS / cloud tier (paid).**  In a containerised environment:
+
+- Each plugin execution runs in an isolated container destroyed at session end
+- No access to other tenants' data or the host file system
+- Network egress can be blocked at the infrastructure level
+- Resource limits (CPU, memory, wall-clock time) are enforced by the runtime
+- Code can be scanned (AST analysis, sandboxed test run) before acceptance
+- This is a genuine paid-tier differentiator: "bring your own transform logic"
+
+**Tier split summary:**
+
+| Feature | Local app | SaaS free | SaaS paid |
+| --- | --- | --- | --- |
+| JSON recipes (`user_transforms/`) | ✓ | ✓ | ✓ |
+| Built-in transform catalog | ✓ | ✓ | ✓ |
+| Python plugins (`plugins/`) | — (gated, unsupported) | — | ✓ (containerised) |
 
 ---
 
