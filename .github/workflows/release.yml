@@ -31,6 +31,9 @@ jobs:
           pip install -r requirements.txt
           pip install -r ui/streamlit/requirements.txt
 
+      - name: Run tests
+        run: python cli.py test
+
       - name: Build with PyInstaller
         run: pyinstaller funscript_forge.spec --noconfirm
 
@@ -72,6 +75,9 @@ jobs:
           python -m pip install --upgrade pip pyinstaller
           pip install -r requirements.txt
           pip install -r ui/streamlit/requirements.txt
+
+      - name: Run tests
+        run: python cli.py test
 
       - name: Generate .icns icon
         run: |

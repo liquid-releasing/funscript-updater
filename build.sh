@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 Liquid Releasing. Licensed under the MIT License.
-# Build script for Funscript Forge packaged executable — macOS.
+# Build script for FunscriptForge packaged executable — macOS.
 #
 # Usage:
 #   ./build.sh            — clean build into dist/FunscriptForge.app
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "=========================================================="
-echo " Funscript Forge — macOS Package Build"
+echo " FunscriptForge — macOS Package Build"
 echo "=========================================================="
 echo
 
