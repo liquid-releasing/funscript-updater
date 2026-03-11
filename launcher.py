@@ -162,13 +162,18 @@ def main() -> None:
     # writable root differs from sys._MEIPASS in a frozen executable.
     os.environ["FUNSCRIPT_FORGE_DATA_DIR"]   = _data_dir()
 
-    # Configure Streamlit via environment variables (before import).
-    os.environ.setdefault("STREAMLIT_SERVER_PORT", str(port))
-    os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
-    os.environ.setdefault("STREAMLIT_SERVER_ENABLE_CORS", "false")
-    os.environ.setdefault("STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION", "false")
-    os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
-    os.environ.setdefault("STREAMLIT_THEME_BASE", "dark")
+    # Streamlit config passed directly via flag_options — env vars are not
+    # reliably read in a frozen (PyInstaller) context because Streamlit may
+    # have already initialised its config singleton before the env vars are set.
+    _st_flags: dict = {
+        "global.developmentMode": False,
+        "server.port": port,
+        "server.headless": True,
+        "server.enableCORS": False,
+        "server.enableXsrfProtection": False,
+        "browser.gatherUsageStats": False,
+        "theme.base": "dark",
+    }
 
     # Add project root to sys.path so all package imports resolve.
     if base not in sys.path:
@@ -185,8 +190,12 @@ def main() -> None:
 
     # Run Streamlit in-process (blocking until the window is closed).
     from streamlit.web import bootstrap  # noqa: PLC0415
+    from streamlit.web.bootstrap import load_config_options  # noqa: PLC0415
 
-    bootstrap.run(app_path, False, [], {})
+    # Apply config options BEFORE bootstrap.run — the flag_options dict passed
+    # to bootstrap.run only sets up file-change watchers, not the initial config.
+    load_config_options(_st_flags)
+    bootstrap.run(app_path, False, [], _st_flags)
 
 
 if __name__ == "__main__":
