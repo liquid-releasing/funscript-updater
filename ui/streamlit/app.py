@@ -287,6 +287,16 @@ def _sidebar() -> None:
         if funscript_path is None:
             return
         _media_picker_local(funscript_path, output_dir)
+        _folder = os.path.dirname(os.path.abspath(funscript_path))
+        if st.sidebar.button("📂 Open folder", help=f"Open {_folder} in Explorer", use_container_width=True):
+            import subprocess as _sp
+            import sys as _sys
+            if _sys.platform == "win32":
+                os.startfile(_folder)
+            elif _sys.platform == "darwin":
+                _sp.Popen(["open", _folder])
+            else:
+                _sp.Popen(["xdg-open", _folder])
     else:
         # Web mode: file upload widgets (kept for the web UI deployment).
         st.sidebar.subheader("Funscript Project")
