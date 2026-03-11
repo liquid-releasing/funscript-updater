@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 6px 4px 2px;
+      background: #0e1117; color: #ddd;
+      font-family: "Source Sans Pro", sans-serif; font-size: 13px;
+    }
+    #chart { width: 100%; }
+
+    /* ---- controls bar ---- */
+    #controls {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 2px 4px; flex-wrap: wrap;
+    }
+    .btn {
+      background: #262730; color: #ddd;
+      border: 1px solid #444; border-radius: 4px;
+      padding: 4px 10px; cursor: pointer; font-size: 13px;
+      white-space: nowrap;
+    }
+    .btn:hover  { background: #3a3a50; }
+    .btn.play   { background: #1f77b4; border-color: #1f77b4; color: #fff; }
+    .btn.play:hover { background: #2a8acc; }
+    .btn.pin    { background: #2d5a2d; border-color: #4a9a4a; }
+    .btn.pin:hover  { background: #3a703a; }
+    .btn:disabled { opacity: 0.38; cursor: not-allowed; }
+
+    #time-display { color: #9ca3af; min-width: 85px; text-align: center; font-size: 12px; }
+    #pin-label    { color: #6ee66e; font-size: 12px; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<div id="chart"></div>
+
+<div id="controls">
+  <button class="btn" id="btn-back" aria-label="Back 5 seconds">⏮ 5s</button>
+  <button class="btn play" id="btn-play" aria-label="Play">▶ Play</button>
+  <button class="btn" id="btn-stop" aria-label="Stop">⏹ Stop</button>
+  <button class="btn" id="btn-fwd"  aria-label="Forward 5 seconds">5s ⏭</button>
+  <span   id="time-display" role="timer" aria-live="off" aria-label="Playback position">0:00 / 0:00</span>
+  <button class="btn pin" id="btn-pin" aria-label="Set split here">📌 Set split here</button>
+  <span   id="pin-label" aria-live="polite"></span>
+</div>
+
+<audio id="audio" preload="auto"></audio>
+
+<!-- Plotly loaded from CDN — requires internet; offline build will bundle it separately -->
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ------------------------------------------------------------------ *
+   *  Minimal Streamlit component protocol                               *
+   * ------------------------------------------------------------------ */
+  function sendMsg(type, payload) {
+    window.parent.postMessage(Object.assign({ type }, payload), "*");
+  }
+
+  window.addEventListener("message", (ev) => {
+    if (ev.data && ev.data.type === "streamlit:render") {
+      onRender(ev.data.args);
+    }
+  });
+
+  // Tell Streamlit we are ready for data.
+  sendMsg("streamlit:componentReady", { apiVersion: 1 });
+
+  /* ------------------------------------------------------------------ *
+   *  State                                                              *
+   * ------------------------------------------------------------------ */
+  let startMs = 0, endMs = 0;
+  let lastAudioHash = null;
+  let chartInitialized = false;
+  let rafId = null;
+
+  /* ------------------------------------------------------------------ *
+   *  DOM refs                                                           *
+   * ------------------------------------------------------------------ */
+  const audio       = document.getElementById("audio");
+  const btnPlay     = document.getElementById("btn-play");
+  const btnStop     = document.getElementById("btn-stop");
+  const btnBack     = document.getElementById("btn-back");
+  const btnFwd      = document.getElementById("btn-fwd");
+  const btnPin      = document.getElementById("btn-pin");
+  const timeDisplay = document.getElementById("time-display");
+  const pinLabel    = document.getElementById("pin-label");
+
+  /* ------------------------------------------------------------------ *
+   *  Helpers                                                            *
+   * ------------------------------------------------------------------ */
+  function fmtSec(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function phraseRelSec() {
+    return Math.max(0, audio.currentTime - startMs / 1000);
+  }
+
+  function phraseDurSec() {
+    return (endMs - startMs) / 1000;
+  }
+
+  function currentAbsMs() {
+    return Math.round(audio.currentTime * 1000);
+  }
+
+  function updateTimeDisplay() {
+    timeDisplay.textContent = `${fmtSec(phraseRelSec())} / ${fmtSec(phraseDurSec())}`;
+  }
+
+  function movePlayhead(absMs) {
+    Plotly.relayout("chart", {
+      "shapes[0].x0": absMs,
+      "shapes[0].x1": absMs,
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Animation loop                                                     *
+   * ------------------------------------------------------------------ */
+  function animatePlayhead() {
+    const absMs = currentAbsMs();
+    movePlayhead(absMs);
+    updateTimeDisplay();
+    if (!audio.paused) {
+      rafId = requestAnimationFrame(animatePlayhead);
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Audio: enforce phrase end boundary                                 *
+   * ------------------------------------------------------------------ */
+  audio.addEventListener("timeupdate", () => {
+    if (audio.currentTime >= endMs / 1000) {
+      audio.pause();
+      audio.currentTime = endMs / 1000;
+      btnPlay.textContent = "▶ Play";
+      btnPlay.setAttribute("aria-label", "Play");
+      cancelAnimationFrame(rafId);
+      movePlayhead(endMs);
+      updateTimeDisplay();
+    }
+  });
+
+  /* ------------------------------------------------------------------ *
+   *  Controls                                                           *
+   * ------------------------------------------------------------------ */
+  btnPlay.addEventListener("click", () => {
+    if (audio.paused) {
+      // Snap back to start if we're outside the phrase window.
+      if (audio.currentTime < startMs / 1000 || audio.currentTime >= endMs / 1000) {
+        audio.currentTime = startMs / 1000;
+      }
+      audio.play();
+      btnPlay.textContent = "⏸ Pause";
+      btnPlay.setAttribute("aria-label", "Pause");
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(animatePlayhead);
+    } else {
+      audio.pause();
+      btnPlay.textContent = "▶ Play";
+      btnPlay.setAttribute("aria-label", "Play");
+      cancelAnimationFrame(rafId);
+    }
+  });
+
+  btnStop.addEventListener("click", () => {
+    audio.pause();
+    audio.currentTime = startMs / 1000;
+    btnPlay.textContent = "▶ Play";
+    btnPlay.setAttribute("aria-label", "Play");
+    cancelAnimationFrame(rafId);
+    movePlayhead(startMs);
+    updateTimeDisplay();
+  });
+
+  btnBack.addEventListener("click", () => {
+    audio.currentTime = Math.max(startMs / 1000, audio.currentTime - 5);
+    movePlayhead(currentAbsMs());
+    updateTimeDisplay();
+  });
+
+  btnFwd.addEventListener("click", () => {
+    audio.currentTime = Math.min(endMs / 1000 - 0.001, audio.currentTime + 5);
+    movePlayhead(currentAbsMs());
+    updateTimeDisplay();
+  });
+
+  btnPin.addEventListener("click", () => {
+    const absMs = currentAbsMs();
+    if (absMs <= startMs || absMs >= endMs) return;
+    const relSec = phraseRelSec();
+    pinLabel.textContent = `✓ split at ${fmtSec(relSec)}`;
+    sendMsg("streamlit:setComponentValue", { value: { split_ms: absMs } });
+  });
+
+  /* ------------------------------------------------------------------ *
+   *  Chart build / update                                               *
+   * ------------------------------------------------------------------ */
+  function buildShapes(splitPoints) {
+    const shapes = [
+      // index 0 = animated playhead (red)
+      {
+        type: "line",
+        x0: startMs, x1: startMs,
+        y0: 0,       y1: 100,
+        line: { color: "#ef4444", width: 2 },
+        layer: "above",
+      },
+    ];
+    // index 1+ = existing split points (amber dashed)
+    for (const sp of (splitPoints || [])) {
+      shapes.push({
+        type: "line",
+        x0: sp, x1: sp,
+        y0: 0,  y1: 100,
+        line: { color: "#f59e0b", width: 1.5, dash: "dash" },
+        layer: "above",
+      });
+    }
+    return shapes;
+  }
+
+  function renderChart(actions, splitPoints) {
+    const xs = actions.map(a => a.at);
+    const ys = actions.map(a => a.pos);
+
+    const trace = {
+      x: xs, y: ys,
+      type: "scatter",
+      mode: "lines+markers",
+      line:   { color: "#3b82f6", width: 1.5 },
+      marker: { color: "#3b82f6", size: 4 },
+    };
+
+    // Restore playhead position if currently playing.
+    const headMs = (audio.paused) ? startMs : currentAbsMs();
+    const shapes = buildShapes(splitPoints);
+    shapes[0].x0 = shapes[0].x1 = headMs;
+
+    const layout = {
+      xaxis: {
+        range: [startMs, endMs],
+        showgrid: false, zeroline: false,
+        color: "#6b7280",
+        tickfont: { size: 10, color: "#6b7280" },
+      },
+      yaxis: {
+        range: [0, 100],
+        showgrid: false, zeroline: false,
+        color: "#6b7280",
+        tickfont: { size: 10, color: "#6b7280" },
+        dtick: 25,
+      },
+      paper_bgcolor: "#0e1117",
+      plot_bgcolor:  "#0e1117",
+      margin: { l: 32, r: 6, t: 6, b: 28 },
+      shapes,
+      showlegend: false,
+      height: 180,
+    };
+
+    const cfg = { displayModeBar: false, responsive: true };
+
+    if (!chartInitialized) {
+      Plotly.newPlot("chart", [trace], layout, cfg).then(() => {
+        chartInitialized = true;
+        autoHeight();
+      });
+    } else {
+      Plotly.react("chart", [trace], layout, cfg);
+    }
+  }
+
+  function autoHeight() {
+    const h = document.body.scrollHeight + 4;
+    sendMsg("streamlit:setFrameHeight", { height: h });
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Render callback (called on every Streamlit re-render)             *
+   * ------------------------------------------------------------------ */
+  function onRender(args) {
+    startMs = args.start_ms || 0;
+    endMs   = args.end_ms   || 0;
+
+    // Reload audio only when the source file actually changes.
+    if (args.audio_hash !== lastAudioHash) {
+      lastAudioHash = args.audio_hash;
+      // Local mode: stream from media server URL; web mode: data URI.
+      if (args.audio_url) {
+        audio.src = args.audio_url;
+      } else {
+        audio.src = `data:${args.audio_mime};base64,${args.audio_b64}`;
+      }
+      audio.currentTime = startMs / 1000;
+      btnPlay.textContent = "▶ Play";
+      btnPlay.setAttribute("aria-label", "Play");
+      pinLabel.textContent = "";
+      cancelAnimationFrame(rafId);
+    }
+
+    updateTimeDisplay();
+    renderChart(args.actions || [], args.split_points || []);
+  }
+
+})();
+</script>
+</body>
+</html>

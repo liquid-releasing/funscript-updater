@@ -1,0 +1,8 @@
+# Development and build dependencies (not needed at runtime).
+# Install with: pip install -r requirements-dev.txt
+
+# Packaging
+pyinstaller>=6.0
+
+# Linting / formatting
+ruff>=0.4

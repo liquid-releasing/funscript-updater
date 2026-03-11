@@ -23,10 +23,13 @@ Typical usage::
 
 from __future__ import annotations
 
+import copy
+import json
 import os
 import sys
+import tempfile
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Allow imports from the project root regardless of CWD.
 _ROOT = os.path.dirname(
@@ -159,3 +162,103 @@ def run_pipeline(
     result.log.extend(customizer.get_log())
 
     return result
+
+
+def run_pipeline_in_memory(
+    funscript_path: str,
+    assessment: "AssessmentResult",  # noqa: F821
+    transformer_config: Optional[TransformerConfig] = None,
+    customizer_config: Optional[CustomizerConfig] = None,
+    performance_windows: Optional[List[dict]] = None,
+    break_windows: Optional[List[dict]] = None,
+    raw_windows: Optional[List[dict]] = None,
+) -> Tuple[list, dict]:
+    """Run FunscriptTransformer → WindowCustomizer entirely in memory.
+
+    Intended for the Streamlit Export panel where writing final output files
+    is handled by ``st.download_button`` rather than ``save()``.
+
+    Parameters
+    ----------
+    funscript_path : str
+        Path to the source ``.funscript`` file.
+    assessment : AssessmentResult
+        Pre-computed assessment (phrases for transformer; cycles for customizer).
+    transformer_config : TransformerConfig, optional
+        BPM-threshold transformer settings. Uses defaults if omitted.
+    customizer_config : CustomizerConfig, optional
+        Window customizer settings. Uses defaults if omitted.
+    performance_windows, break_windows, raw_windows : list of dict, optional
+        Window dicts as returned by ``project.performance_windows()`` etc.
+        Each dict must have ``"start"`` / ``"end"`` as HH:MM:SS.mmm strings.
+
+    Returns
+    -------
+    (actions, log) : Tuple[list, dict]
+        ``actions`` — final transformed actions list.
+        ``log``     — summary dict suitable for embedding in the export JSON.
+    """
+    tcfg = transformer_config or TransformerConfig()
+
+    # ------------------------------------------------------------------
+    # Stage 1: BPM Transformer
+    # ------------------------------------------------------------------
+    transformer = FunscriptTransformer(config=tcfg)
+    transformer.load_funscript(funscript_path)
+    transformer.load_assessment(assessment)
+    transformed_actions = transformer.transform()
+
+    # ------------------------------------------------------------------
+    # Stage 2: WindowCustomizer (only when windows or explicit config given)
+    # ------------------------------------------------------------------
+    has_windows = any([performance_windows, break_windows, raw_windows])
+    ccfg = customizer_config or CustomizerConfig()
+
+    if has_windows or customizer_config is not None:
+        # Hand off Stage 1 output via a temp file (customizer requires a path)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".funscript", delete=False, encoding="utf-8"
+        ) as tmp_fs:
+            json.dump({"actions": copy.deepcopy(transformed_actions)}, tmp_fs)
+            tmp_fs_path = tmp_fs.name
+
+        try:
+            customizer = WindowCustomizer(config=ccfg)
+            customizer.load_funscript(tmp_fs_path)
+            customizer.load_assessment(assessment)
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                def _write_windows(windows: Optional[List[dict]], filename: str) -> Optional[str]:
+                    if not windows:
+                        return None
+                    path = os.path.join(tmp_dir, filename)
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(windows, f)
+                    return path
+
+                customizer.load_manual_overrides(
+                    perf_path=_write_windows(performance_windows, "performance.json"),
+                    break_path=_write_windows(break_windows, "break.json"),
+                    raw_path=_write_windows(raw_windows, "raw.json"),
+                )
+                final_actions = customizer.customize()
+        finally:
+            os.unlink(tmp_fs_path)
+    else:
+        final_actions = transformed_actions
+
+    log = {
+        "transformer": {
+            "bpm_threshold":   tcfg.bpm_threshold,
+            "amplitude_scale": tcfg.amplitude_scale,
+            "lpf_default":     tcfg.lpf_default,
+            "time_scale":      tcfg.time_scale,
+        },
+        "customizer_applied": has_windows or customizer_config is not None,
+        "windows": {
+            "performance": len(performance_windows or []),
+            "break":       len(break_windows       or []),
+            "raw":         len(raw_windows         or []),
+        },
+    }
+    return final_actions, log

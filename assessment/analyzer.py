@@ -17,7 +17,7 @@ The AssessmentResult contains:
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from models import Phase, Cycle, Pattern, Phrase, BpmTransition, AssessmentResult
 from utils import ms_to_timestamp
@@ -40,6 +40,11 @@ class AnalyzerConfig:
     # After phrase detection, merge any phrase shorter than this into its
     # shortest neighbour.  Set to 0 to disable.
     min_phrase_duration_ms: int = 20_000
+    # During phrase detection, force a phrase boundary once the accumulated
+    # duration would exceed this value even if the pattern is still uniform.
+    # Prevents a single giant phrase on perfectly uniform funscripts (e.g.
+    # VictoriaOaks).  Set to 0 to disable.
+    max_phrase_duration_ms: int = 300_000  # 5 minutes
     # Flag BPM transitions whose absolute percentage change exceeds this value
     bpm_change_threshold_pct: float = 40.0
 
@@ -99,16 +104,37 @@ class FunscriptAnalyzer:
         self._actions = data["actions"]
         self._source_file = path
 
-    def analyze(self) -> AssessmentResult:
-        """Run the full analysis pipeline and return an AssessmentResult."""
+    def analyze(
+        self,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> AssessmentResult:
+        """Run the full analysis pipeline and return an AssessmentResult.
+
+        Parameters
+        ----------
+        progress_callback:
+            Optional callable invoked at the start of each pipeline stage with
+            a human-readable stage label, e.g. ``"Detecting phases…"``.
+            Useful for updating progress indicators in a UI.
+        """
         if not self._actions:
             raise RuntimeError("No actions loaded. Call load() first.")
 
+        def _cb(stage: str) -> None:
+            if progress_callback:
+                progress_callback(stage)
+
+        _cb("Detecting phases…")
         phases = self._detect_phases()
+        _cb("Detecting cycles…")
         cycles = self._detect_cycles(phases)
+        _cb("Detecting patterns…")
         patterns = self._detect_patterns(cycles)
+        _cb("Detecting phrases…")
         phrases = self._detect_phrases(patterns)
+        _cb("Detecting BPM transitions…")
         bpm_transitions = self._detect_bpm_transitions(phrases)
+        _cb("Classifying behaviors…")
 
         # Behavioral classification — adds "tags" and "metrics" to each phrase dict
         from assessment.classifier import annotate_phrases
@@ -295,9 +321,23 @@ class FunscriptAnalyzer:
                 amp_changed = deviation > self.config.amplitude_tolerance
 
             if not label_changed and not amp_changed:
-                current.append((start, end))
-                current_oscillations += osc
-                current_amp_sum += amp
+                # Duration-based fallback split: prevent one giant phrase on
+                # perfectly uniform funscripts (fixes VictoriaOaks / issue #2).
+                max_dur = self.config.max_phrase_duration_ms
+                duration_exceeded = (
+                    max_dur > 0
+                    and (end - current[0][0]) > max_dur
+                )
+                if duration_exceeded:
+                    phrases.append(self._make_phrase(current, current_label, current_oscillations))
+                    current = [(start, end)]
+                    current_label = label
+                    current_oscillations = osc
+                    current_amp_sum = amp
+                else:
+                    current.append((start, end))
+                    current_oscillations += osc
+                    current_amp_sum += amp
             else:
                 phrases.append(self._make_phrase(current, current_label, current_oscillations))
                 current = [(start, end)]

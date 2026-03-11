@@ -1,8 +1,8 @@
 # tests
 
-Unit tests for the core pipeline modules and UI-panel split logic.
+Unit tests for the core pipeline modules, UI-panel split logic, accessibility, and smoke tests.
 
-451 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **511 total**, all using Python's stdlib `unittest` — no extra dependencies required.
+638 tests in `tests/` + 60 UI-layer tests in `ui/common/tests/` = **698 total**, all using Python's stdlib `unittest` — no extra dependencies required.
 
 ## Running
 
@@ -112,6 +112,63 @@ python -m unittest discover -s ui/common/tests -v
 | --- | --- |
 | `TestAssessTransformCustomizeChain` | Assessment stage, transformer stage, customizer stage, `run_pipeline()` writes all outputs, positions in range, log non-empty, missing assessment error, per-item config carried through to window JSON |
 
+### `test_export_integrity.py` — output validation
+
+| Class | What it covers |
+| --- | --- |
+| `TestClampSortDedup` | Positions clamped to [0, 100], out-of-range flagged, timestamps sorted, duplicates deduplicated (last-write wins), no-op on clean input, empty list, single action |
+
+### `test_priority2.py` — P2 features
+
+| Class | What it covers |
+| --- | --- |
+| `TestFileUpload` | Upload saved to `output/uploads/`, prefix in selectbox, auto-selects most recent |
+| `TestQualityCheck` | Velocity > 200 warn, velocity > 300 error, interval < 50 ms warn, pass on clean input, 50-row cap |
+| `TestProgressCallback` | Callback invoked for each pipeline stage, stage labels non-empty, thread-safe |
+| `TestValidateMediaFile` | Magic-byte pass for all 10 types, unknown extension rejected, truncated file handled, 403 on disallowed extension from media server |
+| `TestRecentsHelpers` | Save/load recent files, max-recents cap, missing file handled gracefully |
+
+### `test_undo_stack.py` — undo/redo core
+
+| Class | What it covers |
+| --- | --- |
+| `TestUndoStack` | Push, undo, redo, cap at 50 levels, clear, empty undo/redo no-ops, operation labels, multi-level round-trip |
+
+### `test_undo_helpers.py` — Streamlit undo integration
+
+| Class | What it covers |
+| --- | --- |
+| `TestUndoHelpers` | `push_undo` stores snapshot, `apply_snapshot` restores state, undo/redo buttons toggle availability, operation label visible in tooltip |
+
+### `test_accessibility.py` — WCAG 2.1 AA
+
+| Class | What it covers |
+| --- | --- |
+| `TestAudioPlayerAccessibility` | All 5 buttons have `aria-label`, specific label per button, JS `setAttribute` called on play/pause/stop/end (4 locations), `role="timer"` on time display, `aria-live` attributes |
+| `TestRejectedRowSrOnly` | `.sr-only` span present in rejected rows, text contains "Rejected", appears in both completed and recommended tables |
+| `TestBpmBarTextLogic` | Threshold logic (> 4% width shows label), format `"{bpm:.0f}"`, edge cases (empty, zero width, single phrase) |
+| `TestNoCollapsedLabels` | Regex scan confirms no `label_visibility="collapsed"` in any `ui/streamlit/panels/*.py` |
+| `TestChartCaptions` | BPM step chart caption present, behavioral tag chart caption present, export preview caption present, captions follow `st.plotly_chart` within 8 lines |
+| `TestLangInjection` | `lang="en"` injection present in `app.py`, inside keyboard sentinel block, `.sr-only` CSS injected globally |
+
+### `test_input_validation.py` — corrupted and truncated funscript input
+
+| Class | What it covers |
+| --- | --- |
+| `TestAnalyzerBadInput` | Missing file, empty file, truncated JSON, binary garbage, bare-string JSON, JSON array, missing `actions` key, `actions` is null/string/number — each must raise `FileNotFoundError` or `ValueError` with a clear message; empty `actions` list and single-action file must succeed |
+| `TestCliBadInput` | Same inputs via `cli.py assess` — exit code 1 for every bad input, `"Error:"` in stderr, no Python traceback; valid funscript still exits 0 |
+| `TestProjectBadInput` | `Project.from_funscript()` propagates `FileNotFoundError` / `ValueError` for missing, corrupt, truncated, and schema-invalid files |
+
+### `test_smoke.py` — integration smoke tests
+
+| Class | What it covers |
+| --- | --- |
+| `SmokeTest_Timeline` | Full assess → export on `Timeline1.original.funscript`: required keys, non-empty phases/cycles/patterns/phrases, positive BPM, contiguous boundaries, duration matches last action, passthrough export valid JSON |
+| `SmokeTest_LongAndCut` | Same 16-test suite on `LongandCut-hdr.original.funscript` |
+| `SmokeTest_Victoria` | Same 16-test suite on `VictoriaOaks_stingy.original.funscript` |
+| `TestVictoriaOaksUniformTempo` | Confirms issue #2 fix: >1 phrase produced, no phrase exceeds 300 s cap, contiguous boundaries, all BPMs positive |
+| `TestAllAvailableFunscriptsParse` | Every `.original.funscript` in `test_funscript/` loads and analyzes without error (subTest per file) |
+
 ## Fixture
 
 `fixtures/sample.funscript` — a small synthetic funscript used by all modules.
@@ -121,7 +178,7 @@ It is intentionally short so tests run in < 0.1 s.
 
 | Module | Tests |
 | --- | --- |
-| `test_analyzer.py` | 25 |
+| `test_analyzer.py` | 33 |
 | `test_transformer.py` | 15 |
 | `test_customizer.py` | 12 |
 | `test_utils.py` | 24 |
@@ -129,12 +186,19 @@ It is intentionally short so tests run in < 0.1 s.
 | `test_pattern_catalog.py` | 29 |
 | `test_pattern_editor_splits.py` | 47 |
 | `test_phrase_transforms.py` | 160 |
-| `test_integration.py` | 9 |
+| `test_integration.py` | 20 |
 | `test_cli.py` | 42 |
 | `test_user_transforms.py` | 21 |
+| `test_export_integrity.py` | 15 |
+| `test_priority2.py` | 47 |
+| `test_undo_stack.py` | 20 |
+| `test_undo_helpers.py` | 17 |
+| `test_accessibility.py` | 32 |
+| `test_smoke.py` | 53 |
+| `test_input_validation.py` | 23 |
 | other modules | *(see `tests/` directory)* |
 | `ui/common/tests/` | 60 |
-| **Total** | **511** |
+| **Total** | **698** |
 
 ---
 

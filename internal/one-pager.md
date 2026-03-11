@@ -87,6 +87,14 @@ transform based on the behavioral tag and BPM — you review and accept.
 Accumulates behavioral statistics across all the scripts you process. See at
 a glance how your library compares and where the patterns are.
 
+**Audio / video player**
+Listen while you edit. A phrase-restricted player streams your media file in
+sync with the selected phrase. Click 📌 at any point to set a split boundary
+without leaving the keyboard.
+
+**Undo / redo**
+50-level undo/redo for accepted transforms. `Ctrl+Z` / `Ctrl+Y` everywhere.
+
 **CLI + UI**
 Use the full Streamlit UI for interactive work, or script the entire pipeline
 from the command line for batch processing.
@@ -111,8 +119,9 @@ from the command line for batch processing.
 - **Open source** — MIT licensed, Python 3.11+
 - **Local-first** — runs entirely on your machine; no data leaves your system
 - **Extensible** — add custom transforms via JSON recipes or Python plugins
-- **Tested** — 511 unit tests covering the full pipeline
+- **Tested** — 698 unit tests covering the full pipeline, smoke tests against real funscripts, and input validation against corrupted/truncated files
 - **Fast** — a 10-minute script analyses in under 2 seconds
+- **Accessible** — WCAG 2.1 Level AA (screen reader labels, keyboard shortcuts, colour-blind-safe labels)
 
 ---
 
@@ -174,7 +183,7 @@ Step 5 — Route to device(s) (MultiFunPlayer, Restim)
 | Raw script quality | Flat, noisy, device-straining | Behaviorally classified, range-optimised |
 | Scene transitions | Jarring velocity jumps | Smooth blended seams |
 | Tempo alignment | Manual BPM annotation | Automatic phrase-level BPM detection |
-| Device safety | No velocity validation | Automated quality gate (coming soon) |
+| Device safety | No velocity validation | Automated quality gate — velocity + short-interval checks |
 | Audio sync prep | Manual phrase marking | BPM transitions ready for beat alignment |
 
 Funscript Forge does not play back media or drive devices directly — it is the

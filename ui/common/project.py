@@ -24,7 +24,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 # Allow imports from the project root regardless of CWD.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -67,6 +67,8 @@ class Project:
     assessment: Optional[AssessmentResult] = None
     work_items: List[WorkItem] = field(default_factory=list)
     selected_item_id: Optional[str] = None
+    custom_name: str = ""        # User-defined project name (empty = use filename)
+    description: str = ""       # User-defined description (empty = use auto_description)
 
     # ------------------------------------------------------------------
     # Construction helpers
@@ -78,6 +80,7 @@ class Project:
         path: str,
         analyzer_config: Optional[AnalyzerConfig] = None,
         existing_assessment_path: Optional[str] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> "Project":
         """Create a Project and run (or load) the assessment.
 
@@ -89,12 +92,15 @@ class Project:
             Optional custom analyzer settings.
         existing_assessment_path:
             If provided, load the assessment JSON instead of re-running it.
+        progress_callback:
+            Optional callable forwarded to :meth:`FunscriptAnalyzer.analyze`
+            for stage-by-stage progress reporting.
         """
         project = cls(funscript_path=path)
         if existing_assessment_path and os.path.exists(existing_assessment_path):
             project.assessment = AssessmentResult.load(existing_assessment_path)
         else:
-            project.run_assessment(analyzer_config)
+            project.run_assessment(analyzer_config, progress_callback=progress_callback)
         project._init_work_items()
         return project
 
@@ -103,12 +109,14 @@ class Project:
     # ------------------------------------------------------------------
 
     def run_assessment(
-        self, config: Optional[AnalyzerConfig] = None
+        self,
+        config: Optional[AnalyzerConfig] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> AssessmentResult:
         """Run the analyzer on the loaded funscript and cache the result."""
         analyzer = FunscriptAnalyzer(config=config or AnalyzerConfig())
         analyzer.load(self.funscript_path)
-        self.assessment = analyzer.analyze()
+        self.assessment = analyzer.analyze(progress_callback=progress_callback)
         return self.assessment
 
     def save_assessment(self, output_path: str) -> None:
@@ -174,7 +182,17 @@ class Project:
     def update_item_times(
         self, item_id: str, start_ms: int, end_ms: int
     ) -> None:
-        """Adjust the time window of a work item."""
+        """Adjust the time window of a work item.
+
+        Raises
+        ------
+        ValueError
+            If ``end_ms <= start_ms``.
+        """
+        if end_ms <= start_ms:
+            raise ValueError(
+                f"end_ms ({end_ms}) must be greater than start_ms ({start_ms})"
+            )
         item = self.get_item(item_id)
         if item:
             item.start_ms = start_ms
@@ -242,10 +260,12 @@ class Project:
         return written
 
     def export_project(self, path: str) -> None:
-        """Save the full project state (work items) to a JSON file."""
+        """Save the full project state to a JSON file."""
         data = {
             "funscript_path": self.funscript_path,
-            "work_items": [w.to_dict() for w in self.work_items],
+            "custom_name":    self.custom_name,
+            "description":    self.description,
+            "work_items":     [w.to_dict() for w in self.work_items],
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -256,7 +276,9 @@ class Project:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         project = cls(funscript_path=data.get("funscript_path", ""))
-        project.work_items = [
+        project.custom_name  = data.get("custom_name", "")
+        project.description  = data.get("description", "")
+        project.work_items   = [
             WorkItem.from_dict(d) for d in data.get("work_items", [])
         ]
         return project
@@ -269,6 +291,35 @@ class Project:
     def name(self) -> str:
         """Friendly display name derived from the funscript filename."""
         return os.path.splitext(os.path.basename(self.funscript_path))[0]
+
+    @property
+    def display_name(self) -> str:
+        """User-defined name if set, else the filename-derived name."""
+        # getattr guards against old session-state objects that pre-date this field
+        return getattr(self, "custom_name", "").strip() or self.name
+
+    def auto_description(self) -> str:
+        """Generate a verbose description from assessment metadata."""
+        if not self.assessment:
+            return ""
+        s = self.summary()
+        parts = []
+        if s.get("duration"):
+            parts.append(f"This project is {s['duration']} long.")
+        if s.get("bpm"):
+            parts.append(f"It averages {s['bpm']:.0f} beats per minute.")
+        phrases  = s.get("phrases", 0)
+        patterns = s.get("patterns", 0)
+        if phrases or patterns:
+            parts.append(
+                f"You can edit based on {phrases} phrase{'s' if phrases != 1 else ''}"
+                f" and {patterns} pattern{'s' if patterns != 1 else ''}."
+            )
+        return " ".join(parts)
+
+    def get_description(self) -> str:
+        """User description if set, else auto-generated from assessment."""
+        return getattr(self, "description", "").strip() or self.auto_description()
 
     @property
     def is_loaded(self) -> bool:

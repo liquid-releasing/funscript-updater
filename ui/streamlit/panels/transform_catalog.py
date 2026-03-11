@@ -39,18 +39,57 @@ _BLUE  = "#4a90d9"
 _GREEN = "#2ecc71"
 
 # ---------------------------------------------------------------------------
-# Transform groups: (group_label, [transform_key, ...])
+# Meta-categories: each has a headline, description, and list of groups.
+# Groups are (group_label, [transform_key, ...]).
 # ---------------------------------------------------------------------------
 
-_GROUPS: List[Tuple[str, List[str]]] = [
-    ("Passthrough", ["passthrough"]),
-    ("Amplitude Shaping", ["amplitude_scale", "normalize", "boost_contrast"]),
-    ("Position Adjustment", ["shift", "recenter", "clamp_upper", "clamp_lower", "invert"]),
-    ("Smoothing & Filtering", ["smooth", "blend_seams", "final_smooth"]),
-    ("Break / Recovery", ["break"]),
-    ("Performance / Device Realism", ["performance"]),
-    ("Rhythmic Patterns", ["beat_accent", "three_one"]),
-    ("Structural — Tempo", ["halve_tempo"]),
+_META: List[Tuple[str, str, List[Tuple[str, List[str]]]]] = [
+    (
+        "Behavior",
+        "Behavior transforms reshape, scale, or filter a phrase while keeping the same "
+        "number of actions and overall timing. They adjust *how* a phrase moves — its "
+        "amplitude, position, smoothness, or rhythm — without changing the phrase duration "
+        "or stroke count.",
+        [
+            ("Passthrough",                  ["passthrough"]),
+            ("Amplitude Shaping",            ["amplitude_scale", "normalize", "boost_contrast"]),
+            ("Position Adjustment",          ["shift", "recenter", "clamp_upper", "clamp_lower", "invert"]),
+            ("Smoothing & Filtering",        ["smooth", "blend_seams", "final_smooth"]),
+            ("Break / Recovery",             ["break", "waiting"]),
+            ("Performance / Device Realism", ["performance"]),
+            ("Rhythmic Patterns",            ["beat_accent", "three_one"]),
+        ],
+    ),
+    (
+        "Structural / Tempo",
+        "Structural transforms alter the fundamental timing of a phrase. They may change "
+        "the number of strokes, redistribute action timestamps, or thin out cycles to "
+        "reduce BPM. Because the output timing differs from the input, these transforms "
+        "replace the original action sequence rather than modifying it in-place.",
+        [
+            ("Tempo Reduction", ["halve_tempo"]),
+        ],
+    ),
+    (
+        "Replacement",
+        "Replacement transforms discard the original phrase entirely and synthesize a new "
+        "waveform from scratch. Use them when the source material is too noisy, too sparse, "
+        "or structurally unsuitable — and a clean, generated shape is preferable. "
+        "Parameters control the generated shape, not the original signal.",
+        [
+            ("Generated Shapes", ["stroke", "drift", "tide"]),
+        ],
+    ),
+    (
+        "Funnel",
+        "Funnel transforms create a progressive energy arc across a phrase — ramping "
+        "from small, compressed strokes to large, expansive strokes (funnel open) or "
+        "the reverse (funnel close). Both the center position and the stroke amplitude "
+        "scale linearly, creating a visually ordered ramp-up or ramp-down shape.",
+        [
+            ("Energy Funnel", ["funnel"]),
+        ],
+    ),
 ]
 
 # Best-fit behavioral tags for each transform key
@@ -72,65 +111,69 @@ _TAG_FIT: Dict[str, List[str]] = {
     "beat_accent":     ["Drone (add variation)", "Lazy", "repetitive sections"],
     "three_one":       ["Drone (rhythmic pattern)", "monotone sections"],
     "halve_tempo":     ["Frantic (too fast)", "high-BPM reduction"],
+    "waiting":         ["Break / rest zones", "low-intensity gaps", "recovery pauses"],
+    "stroke":          ["Replacement — clean full stroke", "any phrase needing a simple oscillation"],
+    "drift":           ["Replacement — high plateau with one slow dip", "Drift behavioral pattern"],
+    "tide":            ["Replacement — fast oscillations on slow center wave", "sustained intensity with ebb-and-flow"],
+    "funnel":          ["Ramp behavioral tag", "transition sections", "energy ramp-up or ramp-down", "Ambient"],
 }
+
+# Per-transform preview duration overrides (ms).  Replacement transforms need
+# long windows so their shape is visible at default parameters.
+_PREVIEW_DURATION_MS: Dict[str, int] = {
+    "drift": 25_000,
+    "tide":  120_000,
+}
+_DEFAULT_PREVIEW_MS = 5_600
+
+# Structural transforms that should still show a Before/After comparison
+# (they reshape an existing phrase rather than generating from scratch).
+_SHOW_BEFORE: frozenset = frozenset({"halve_tempo"})
+
 
 # ---------------------------------------------------------------------------
 # Synthetic waveform generator (fixed, deterministic)
 # ---------------------------------------------------------------------------
 
-def _make_preview_actions() -> List[Dict[str, int]]:
-    """Return a varied funscript waveform that clearly shows transform effects.
+def _make_preview_actions(duration_ms: int = _DEFAULT_PREVIEW_MS) -> List[Dict[str, int]]:
+    """Return a varied funscript waveform scaled to *duration_ms*.
 
-    Six distinct sections:
-      0–1200 ms   Full-stroke moderate tempo  — baseline (0↔100)
-      1200–2200   Partial amplitude / stingy  — strokes only reach 25–70
-      2200–3000   Fast beats / frantic        — double tempo, full stroke
-      3000–3900   Slow wide strokes           — half tempo, full stroke
-      3900–4800   Drifted upward              — strokes centred around 75 (50–100)
-      4800–5600   Return to full-stroke       — same as section 1
+    Uses the original six-section pattern for the default 5600 ms window and
+    tiles / truncates it for other durations.
     """
-    pts = [
-        # --- section 1: full stroke, moderate tempo ---
-        (0,    0),
-        (200,  100),
-        (400,  0),
-        (600,  100),
-        (800,  0),
-        (1000, 100),
-        (1200, 0),
-        # --- section 2: partial amplitude (stingy / plateau) ---
-        (1380, 25),
-        (1560, 70),
-        (1740, 25),
-        (1920, 70),
-        (2100, 25),
-        (2200, 30),
-        # --- section 3: fast beats (frantic) ---
-        (2300, 100),
-        (2400, 0),
-        (2500, 100),
-        (2600, 0),
-        (2700, 100),
-        (2800, 0),
-        (2900, 100),
-        (3000, 0),
-        # --- section 4: slow wide strokes ---
-        (3300, 100),
-        (3600, 0),
-        (3900, 100),
-        # --- section 5: drifted upward (half-stroke / drift) ---
-        (4100, 50),
-        (4300, 100),
-        (4500, 50),
-        (4700, 100),
-        (4800, 50),
-        # --- section 6: full stroke return ---
-        (5000, 0),
-        (5200, 100),
-        (5400, 0),
-        (5600, 100),
+    base_pts = [
+        (0,    0),   (200,  100), (400,  0),   (600,  100), (800,  0),
+        (1000, 100), (1200, 0),   (1380, 25),  (1560, 70),  (1740, 25),
+        (1920, 70),  (2100, 25),  (2200, 30),  (2300, 100), (2400, 0),
+        (2500, 100), (2600, 0),   (2700, 100), (2800, 0),   (2900, 100),
+        (3000, 0),   (3300, 100), (3600, 0),   (3900, 100), (4100, 50),
+        (4300, 100), (4500, 50),  (4700, 100), (4800, 50),  (5000, 0),
+        (5200, 100), (5400, 0),   (5600, 100),
     ]
-    return [{"at": t, "pos": p} for t, p in pts]
+    base_len = 5_600
+    if duration_ms <= base_len:
+        pts = [(t, p) for t, p in base_pts if t <= duration_ms]
+        if not pts or pts[-1][0] < duration_ms:
+            pts.append((duration_ms, base_pts[-1][1]))
+        return [{"at": t, "pos": p} for t, p in pts]
+
+    # Tile the base pattern until we cover duration_ms
+    result = []
+    tile = 0
+    while True:
+        offset = tile * base_len
+        for t, p in base_pts:
+            at = offset + t
+            if at > duration_ms:
+                break
+            result.append({"at": at, "pos": p})
+        else:
+            tile += 1
+            continue
+        break
+    if not result or result[-1]["at"] < duration_ms:
+        result.append({"at": duration_ms, "pos": base_pts[-1][1]})
+    return result
 
 
 _PREVIEW_ACTIONS = _make_preview_actions()
@@ -140,23 +183,27 @@ _PREVIEW_ACTIONS = _make_preview_actions()
 # ---------------------------------------------------------------------------
 
 def _make_chart(actions: List[Dict], color: str, title: str, height: int = 160) -> go.Figure:
-    xs = [a["at"] for a in actions]
+    xs = [a["at"] / 1000.0 for a in actions]   # ms → seconds
     ys = [a["pos"] for a in actions]
     fig = go.Figure(go.Scatter(
         x=xs, y=ys,
         mode="lines+markers",
         line=dict(color=color, width=2),
         marker=dict(size=4),
-        hovertemplate="%{y}<extra></extra>",
+        hovertemplate="%{x:.1f}s  pos %{y}<extra></extra>",
         showlegend=False,
     ))
     fig.update_layout(
         title=dict(text=title, font=dict(size=12), x=0.0, xanchor="left"),
         height=height,
-        margin=dict(l=30, r=10, t=30, b=20),
+        margin=dict(l=30, r=10, t=30, b=30),
         paper_bgcolor=_BG,
         plot_bgcolor=_BG,
-        xaxis=dict(gridcolor=_GRID, zeroline=False, showticklabels=False),
+        xaxis=dict(
+            gridcolor=_GRID, zeroline=False,
+            showticklabels=True, ticksuffix="s",
+            title=dict(text="time (s)", font=dict(size=10)),
+        ),
         yaxis=dict(gridcolor=_GRID, zeroline=False, range=[-5, 105], title="pos"),
     )
     return fig
@@ -257,28 +304,153 @@ def _render_transform_card(spec) -> None:
             width="stretch",
         )
 
-    # Two-column layout: Before chart (left) | sliders + After chart (right)
-    before_actions = list(_PREVIEW_ACTIONS)
+    # Choose preview duration
+    preview_ms = _PREVIEW_DURATION_MS.get(spec.key, _DEFAULT_PREVIEW_MS)
+    before_actions = _make_preview_actions(preview_ms)
 
-    chart_left, chart_right = st.columns(2)
-    with chart_left:
-        st.plotly_chart(
-            _make_chart(before_actions, _BLUE, "Before"),
-            width="stretch",
-            config={"displayModeBar": False},
-            key=f"tc_chart_before_{spec.key}",
-        )
-    with chart_right:
+    if spec.structural and spec.key not in _SHOW_BEFORE:
+        # Replacement transforms generate their shape independently — skip Before chart,
+        # show the output full-width so the generated shape fills the available space.
+        st.caption("*Structural transform — replaces the original phrase entirely.*")
         param_values = _render_param_widgets(spec.key, spec.params)
         after_actions = spec.apply(before_actions, param_values)
         st.plotly_chart(
-            _make_chart(after_actions, _GREEN, "After"),
+            _make_chart(after_actions, _GREEN, "Output", height=220),
             width="stretch",
             config={"displayModeBar": False},
             key=f"tc_chart_after_{spec.key}",
         )
+    else:
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(
+                _make_chart(before_actions, _BLUE, "Before"),
+                width="stretch",
+                config={"displayModeBar": False},
+                key=f"tc_chart_before_{spec.key}",
+            )
+        with chart_right:
+            param_values = _render_param_widgets(spec.key, spec.params)
+            after_actions = spec.apply(before_actions, param_values)
+            st.plotly_chart(
+                _make_chart(after_actions, _GREEN, "After"),
+                width="stretch",
+                config={"displayModeBar": False},
+                key=f"tc_chart_after_{spec.key}",
+            )
 
     st.divider()
+
+
+# ---------------------------------------------------------------------------
+# Tag Catalog
+# ---------------------------------------------------------------------------
+
+def _render_tag_chart(
+    actions: List[Dict],
+    color: str,
+    title: str,
+    height: int = 140,
+) -> go.Figure:
+    """Thin wrapper around _make_chart with a smaller default height for tag cards."""
+    return _make_chart(actions, color, title, height=height)
+
+
+def _render_tag_catalog() -> None:
+    """Render the Tag Catalog section — one card per behavioral tag."""
+    from assessment.classifier import TAGS
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+
+    st.markdown("## Tag Catalog")
+    st.info(
+        "Behavioral tags describe patterns that may need attention. "
+        "Each phrase is automatically tagged during assessment. "
+        "Use the Pattern Editor tab to browse and fix phrases by tag.",
+        icon=None,
+    )
+
+    # Collect catalog stats if available (best-effort)
+    catalog = None
+    try:
+        import streamlit as _st
+        catalog = _st.session_state.get("pattern_catalog")
+    except Exception:
+        pass
+    catalog_stats = catalog.get_tag_stats() if catalog else {}
+
+    for tag_key, meta in TAGS.items():
+        with st.expander(f"**{meta.label}** — {meta.description[:60]}…", expanded=False):
+            col_info, col_charts = st.columns([1, 2])
+
+            with col_info:
+                st.markdown(f"### {meta.label}")
+                st.write(meta.description)
+
+                # Characteristics from catalog stats
+                cs = catalog_stats.get(tag_key, {})
+                if cs.get("count", 0) > 0:
+                    st.caption(
+                        f"Typical BPM {cs['bpm_min']}–{cs['bpm_max']} "
+                        f"· span {cs['span_min']}–{cs['span_max']}"
+                    )
+
+                # Suggested transform
+                spec = TRANSFORM_CATALOG.get(meta.suggested_transform)
+                if spec:
+                    st.caption(f"Suggested transform: **{spec.name}**")
+                    st.caption(meta.fix_hint)
+                else:
+                    st.caption(f"Suggested transform: **{meta.suggested_transform}**")
+                    st.caption(meta.fix_hint)
+
+            with col_charts:
+                if not TRANSFORM_CATALOG.get(meta.suggested_transform):
+                    continue
+                spec = TRANSFORM_CATALOG[meta.suggested_transform]
+                preview_ms = _PREVIEW_DURATION_MS.get(meta.suggested_transform, _DEFAULT_PREVIEW_MS)
+                before_actions = _make_preview_actions(preview_ms)
+
+                if spec.structural and spec.key not in _SHOW_BEFORE:
+                    # Replacement — just show the output
+                    default_params = {pk: p.default for pk, p in spec.params.items()}
+                    after_actions = spec.apply(before_actions, default_params)
+                    st.plotly_chart(
+                        _render_tag_chart(after_actions, _GREEN, f"Output — {spec.name}"),
+                        width="stretch",
+                        config={"displayModeBar": False},
+                        key=f"tc_tag_after_{tag_key}",
+                    )
+                else:
+                    c_left, c_right = st.columns(2)
+                    with c_left:
+                        st.plotly_chart(
+                            _render_tag_chart(before_actions, _BLUE, "Before"),
+                            width="stretch",
+                            config={"displayModeBar": False},
+                            key=f"tc_tag_before_{tag_key}",
+                        )
+                    with c_right:
+                        default_params = {pk: p.default for pk, p in spec.params.items()}
+                        after_actions = spec.apply(before_actions, default_params)
+                        st.plotly_chart(
+                            _render_tag_chart(after_actions, _GREEN, f"After — {spec.name}"),
+                            width="stretch",
+                            config={"displayModeBar": False},
+                            key=f"tc_tag_after_{tag_key}",
+                        )
+
+    st.markdown("### Behavior Tags (summary)")
+    rows = []
+    for tag_key, meta in TAGS.items():
+        cs = catalog_stats.get(tag_key, {})
+        rows.append({
+            "Tag":                 meta.label,
+            "Description":         meta.description[:80] + ("…" if len(meta.description) > 80 else ""),
+            "Suggested Transform": meta.suggested_transform,
+            "Catalog Phrases":     cs.get("count", "—"),
+        })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
 # ---------------------------------------------------------------------------
@@ -287,20 +459,63 @@ def _render_transform_card(spec) -> None:
 
 
 def render() -> None:
-    """Render the full Transform Catalog panel."""
+    """Render the full Catalogs panel (Transform Catalog + Tag Catalog)."""
     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
 
-    st.subheader("Transform Catalog")
+    st.subheader("Catalogs")
     st.caption(
-        "Reference guide for all phrase transforms. "
+        "Reference guides for all phrase transforms and behavioral tags. "
         "Adjust parameters to see their effect live on the preview waveform."
     )
 
-    for group_label, keys in _GROUPS:
-        specs = [TRANSFORM_CATALOG[k] for k in keys if k in TRANSFORM_CATALOG]
-        if not specs:
-            continue
+    # Track every key that appears in a built-in meta-section
+    grouped_keys: set = {
+        k
+        for _, _, groups in _META
+        for _, keys in groups
+        for k in keys
+    }
 
-        with st.expander(f"**{group_label}** ({len(specs)} transform{'s' if len(specs) != 1 else ''})", expanded=True):
-            for spec in specs:
-                _render_transform_card(spec)
+    for meta_label, meta_desc, groups in _META:
+        st.markdown(f"## {meta_label}")
+        st.info(meta_desc, icon=None)
+
+        for group_label, keys in groups:
+            specs = [TRANSFORM_CATALOG[k] for k in keys if k in TRANSFORM_CATALOG]
+            if not specs:
+                continue
+            n = len(specs)
+            with st.expander(
+                f"**{group_label}** ({n} transform{'s' if n != 1 else ''})",
+                expanded=True,
+            ):
+                for spec in specs:
+                    _render_transform_card(spec)
+
+        # Tag Catalog appears directly under the Behavior section
+        if meta_label == "Behavior":
+            _render_tag_catalog()
+
+    # Auto-display any plugin transforms not already in a meta-section
+    extra: Dict[str, list] = {}
+    for key, spec in TRANSFORM_CATALOG.items():
+        if key not in grouped_keys and not key.startswith("__sep_"):
+            cat = getattr(spec, "category", "") or "Plugins"
+            extra.setdefault(cat, []).append(spec)
+
+    if extra:
+        st.markdown("## Plugins")
+        st.info(
+            "Plugin transforms are loaded from the `plugins/` or `user_transforms/` "
+            "folders at startup. They extend the catalog with custom or experimental "
+            "transforms. See `plugins/example_plugin.py` for the authoring template.",
+            icon=None,
+        )
+        for cat, specs in extra.items():
+            n = len(specs)
+            with st.expander(
+                f"**{cat}** ({n} transform{'s' if n != 1 else ''})",
+                expanded=True,
+            ):
+                for spec in specs:
+                    _render_transform_card(spec)

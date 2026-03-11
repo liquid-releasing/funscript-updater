@@ -191,6 +191,121 @@ class TestAnalyzerConfig(unittest.TestCase):
             AnalyzerConfig(bpm_change_threshold_pct=0.0)
 
 
+class TestUniformTempoSegmentation(unittest.TestCase):
+    """Tests for duration-based phrase splitting (fix for issue #2 / VictoriaOaks).
+
+    A perfectly uniform funscript (constant BPM, constant amplitude) would
+    previously produce a single giant phrase.  The fix forces a boundary
+    whenever the accumulated phrase would exceed max_phrase_duration_ms.
+    """
+
+    @staticmethod
+    def _make_uniform_funscript(total_ms: int, half_cycle_ms: int = 250) -> str:
+        """Build a perfectly uniform oscillating funscript and return its path."""
+        actions = []
+        t = 0
+        i = 0
+        while t < total_ms:
+            actions.append({"at": t, "pos": 100 if i % 2 == 0 else 0})
+            t += half_cycle_ms
+            i += 1
+        actions.append({"at": total_ms, "pos": 50})
+
+        import tempfile
+        path = tempfile.mktemp(suffix=".funscript")
+        with open(path, "w") as f:
+            json.dump({"actions": actions}, f)
+        return path
+
+    def _analyze(self, path: str, max_dur: int, min_dur: int = 0) -> "AssessmentResult":
+        cfg = AnalyzerConfig(max_phrase_duration_ms=max_dur, min_phrase_duration_ms=min_dur)
+        a = FunscriptAnalyzer(config=cfg)
+        a.load(path)
+        return a.analyze()
+
+    def test_uniform_without_cap_produces_one_phrase(self):
+        """Baseline: without the cap, 10-min uniform → 1 phrase."""
+        path = self._make_uniform_funscript(600_000)
+        try:
+            result = self._analyze(path, max_dur=0)
+            self.assertEqual(len(result.phrases), 1)
+        finally:
+            os.unlink(path)
+
+    def test_uniform_with_cap_produces_multiple_phrases(self):
+        """With a 5-min cap, a 10-min uniform funscript → ≥2 phrases."""
+        path = self._make_uniform_funscript(600_000)
+        try:
+            result = self._analyze(path, max_dur=300_000)
+            self.assertGreater(len(result.phrases), 1)
+        finally:
+            os.unlink(path)
+
+    def test_phrase_count_scales_with_duration(self):
+        """A 15-min funscript with a 5-min cap should produce ~3 phrases."""
+        path = self._make_uniform_funscript(900_000)
+        try:
+            result = self._analyze(path, max_dur=300_000)
+            self.assertGreaterEqual(len(result.phrases), 2)
+        finally:
+            os.unlink(path)
+
+    def test_phrases_are_contiguous(self):
+        """Phrase boundaries must not overlap or leave gaps."""
+        path = self._make_uniform_funscript(600_000)
+        try:
+            result = self._analyze(path, max_dur=300_000)
+            phrases = result.phrases
+            for i in range(1, len(phrases)):
+                self.assertEqual(
+                    phrases[i - 1].end_ms, phrases[i].start_ms,
+                    f"Gap or overlap between phrase {i-1} and {i}",
+                )
+        finally:
+            os.unlink(path)
+
+    def test_each_phrase_within_cap(self):
+        """No individual phrase should exceed max_phrase_duration_ms by more than
+        one cycle duration (we split at cycle boundaries, not mid-cycle)."""
+        half_cycle_ms = 250
+        max_dur = 60_000  # 1-minute cap
+        path = self._make_uniform_funscript(600_000, half_cycle_ms=half_cycle_ms)
+        try:
+            result = self._analyze(path, max_dur=max_dur)
+            for ph in result.phrases:
+                dur = ph.end_ms - ph.start_ms
+                # Allow one extra cycle beyond the cap
+                self.assertLessEqual(
+                    dur, max_dur + half_cycle_ms * 2 + 1000,
+                    f"Phrase duration {dur}ms exceeds cap {max_dur}ms by more than one cycle",
+                )
+        finally:
+            os.unlink(path)
+
+    def test_cap_disabled_when_zero(self):
+        """max_phrase_duration_ms=0 disables the cap."""
+        path = self._make_uniform_funscript(120_000)
+        try:
+            result = self._analyze(path, max_dur=0)
+            self.assertEqual(len(result.phrases), 1)
+        finally:
+            os.unlink(path)
+
+    def test_cap_larger_than_funscript_no_effect(self):
+        """If the cap is larger than the total duration, no extra splits occur."""
+        path = self._make_uniform_funscript(60_000)
+        try:
+            result = self._analyze(path, max_dur=300_000)
+            self.assertEqual(len(result.phrases), 1)
+        finally:
+            os.unlink(path)
+
+    def test_config_default_is_300000(self):
+        """Default max_phrase_duration_ms should be 5 minutes."""
+        cfg = AnalyzerConfig()
+        self.assertEqual(cfg.max_phrase_duration_ms, 300_000)
+
+
 class TestAnalyzerErrorPaths(unittest.TestCase):
     def test_load_missing_file_raises(self):
         analyzer = FunscriptAnalyzer()

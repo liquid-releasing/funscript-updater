@@ -1,6 +1,6 @@
 # funscript-forge
 
-![Funscript Forge](media/funscriptforge.png)
+![Funscript Forge](media/funscriptforge-logo-wide.png)
 
 A structure-aware post-processor for funscripts. It analyzes the motion
 structure of an existing script, lets you review and tag sections through an
@@ -11,38 +11,74 @@ expressive performance sections, and gentle breaks.
 
 ## Features
 
-**Analysis**
+### Analysis
+
 - Structural analysis: phases → cycles → patterns → phrases → BPM transitions
 - Behavioral classification into 8 tags (stingy, giggle, plateau, drift, half-stroke, drone, lazy, frantic)
+- Duration-based phrase splitting for uniform-tempo funscripts (no more single-phrase output on long uniform files)
+- Real-time progress indicator shows each pipeline stage as it runs
 - Cross-funscript pattern catalog — accumulates stats across all analysed files (persistent JSON)
 
-**Phrase Editor (Streamlit UI)**
+### Phrase Selector (Streamlit UI)
+
 - Full-funscript colour-coded chart with phrase bounding boxes; click any phrase to open its detail panel
 - Per-phrase transform selection with live parameter sliders and Before / After preview
 - Cycle-based phrase split — slider selects the split boundary; a dashed line marks it on the chart; hover any dot to see its cycle number
 - ✓ Accept stores the transform in session state; ✕ Cancel discards only the current phrase's pending change
 - Selector chart shows the accumulated edited funscript (with banner) once any transform has been accepted
+- **Large-file phrase highlight** — for long funscripts the selected phrase renders with full velocity colour lines over the grey background, so the active window is always visually distinct
 
-**Pattern Editor (Streamlit UI)**
+### Pattern Editor (Streamlit UI)
+
 - Select phrases by behavioral tag; view all matching instances at once
 - Per-instance transform + per-segment split (split into non-overlapping sub-ranges, each with its own transform)
 - Apply to all — copies the current instance's transform (or split structure, scaled proportionally) to every other instance of the same tag
 - Selector chart also reflects accepted phrase-editor transforms
 
-**Export (Streamlit UI)**
+### Audio / Video Player
+
+- Phrase-restricted HTML5 player embedded in the sidebar — plays only the currently selected phrase window
+- Animated red playhead overlaid on the waveform chart; Back 5 s / Forward 5 s controls
+- **📌 Set split here** — click during playback to send the current timestamp to the Pattern Editor as a split point
+- Local mode: media streams directly from disk at full quality (no file size limit, no upload wait)
+- Web mode: media uploaded via browser and encoded inline; no server required
+- Magic-byte validation on all 10 supported types (MP3, MP4, M4A, MOV, WAV, OGG, WebM, MKV, AAC, AVI)
+
+### Export (Streamlit UI)
+
 - Static preview chart at the top shows the full proposed export
+- **Before / After overlay** — toggle to show the original funscript as a semi-transparent grey line on the preview chart, so you can see exactly what the transforms changed
 - Completed transforms (from Phrase Editor or Pattern Editor) listed with reject / restore per row
 - Recommended transforms (tag-aware auto-suggestions) listed separately; each must be explicitly accepted before it is included in the download
 - Optional post-processing: blend seams (bilateral LPF at high-velocity style boundaries) and final smooth (light global LPF)
+- **Download confirmation** — a review checkbox must be ticked before the download button enables, preventing accidental clicks that would discard session state
+- **Output integrity** — all positions clamped to [0, 100] and timestamps sorted/deduplicated automatically; warning shown if any actions were clamped
+- **Export log** — every downloaded funscript contains a `_forge_log` key recording the transform name, parameters, source, and export timestamp for each change (reproducible sessions)
+- **Full pipeline export** — collapsible panel runs BPM Transformer + Window Customizer directly in the browser; result downloads as a separate `_pipeline.funscript` independent of phrase-editor transforms
+- **Quality gate** — velocity and short-interval checks before download; pass/fail badge with an issues table (capped at 50 rows)
 - Download builds the full result on demand
 
-**CLI**
+### Undo / Redo
+
+- 50-level undo/redo stack for accepted phrase transforms
+- Sidebar ↩ Undo / ↪ Redo buttons with operation-label tooltips
+- Keyboard shortcuts: `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo, `Ctrl+S` save
+
+### Accessibility
+
+- WCAG 2.1 Level AA — all Critical items and five of seven Major items resolved
+- `aria-label` on all audio player buttons; `role="timer"` on the time display
+- Screen-reader-only text on rejected export rows; BPM value labels on phrase timeline bars
+- Keyboard shortcut support throughout; `lang="en"` injected at page load
+
+### CLI
+
 - `assess`, `transform`, `customize`, `pipeline` — full analysis and transform pipeline
 - `phrase-transform` — apply any catalog transform to individual phrases from the command line
 - `finalize` — blend seams + final smooth as standalone post-processing
 - `export-plan` — mirror of the UI Export tab; supports `--apply` to write output directly
 - `catalog` — query and manage the cross-funscript pattern catalog
-- `test` — run all 511 tests
+- `test` — run all 698 tests
 
 ---
 
@@ -126,10 +162,19 @@ Click **Download edited funscript** to build and save the result.
 
 You can also query the same plan from the CLI — see `export-plan` below.
 
-### 4 — Transform and customize (CLI, UI integration coming soon)
+### 4 — Transform and customize
 
-Run the transformer and customizer from the CLI using the exported window
-files:
+After reviewing in the UI, run the full pipeline to produce the final funscript.
+
+#### Option A — in the browser (Export tab)
+
+Open the **Export** tab and expand **"Run full pipeline — BPM Transformer + Window Customizer"**.
+Adjust the BPM threshold and amplitude scale sliders, toggle whether to apply your Work Item
+windows, then click **▶ Run Pipeline**. Download the result with
+**⬇ Download pipeline result**.  This is independent of any phrase-editor transforms and
+produces a `_pipeline.funscript` file with an embedded `_forge_log`.
+
+#### Option B — command line
 
 ```bash
 # Step 1 — analyze (or use the UI; it saves a cached JSON automatically)
@@ -147,6 +192,9 @@ python cli.py customize output/transformed.funscript \
     --break output/input.break.json \
     --raw output/input.raw.json \
     --output output/final.funscript
+
+# Or run both steps at once
+python cli.py pipeline input.funscript --output-dir output/
 ```
 
 ---
@@ -163,11 +211,20 @@ pip install -r ui/streamlit/requirements.txt
 ### Launch the UI
 
 ```bash
+# Desktop launcher (recommended) — starts local HTTP media server for audio/video streaming
+python launcher.py
+
+# Or run directly (web/upload mode)
 streamlit run ui/streamlit/app.py
 ```
 
 Opens at `http://localhost:8501`. Select a funscript from the sidebar and
 click **Load / Analyse** to see the assessment results immediately.
+
+The desktop launcher enables local mode: file paths are entered directly, recent files are
+remembered across sessions, and audio/video streams from disk with no upload or size limit.
+The launcher also works correctly as a PyInstaller frozen executable — writable data
+(`output/`, pattern catalog) is stored beside the executable, not in the read-only bundle.
 
 ### Analyze from the command line
 
@@ -194,20 +251,23 @@ funscript-forge/
 ├── user_customization/       # Step 3: window-based fine-tuning
 │   ├── customizer.py         #   WindowCustomizer
 │   └── config.py             #   CustomizerConfig
-├── visualizations/           # matplotlib motion chart
-│   └── motion.py
+├── visualizations/           # Plotly + matplotlib motion chart components
 ├── ui/                       # All UI code
 │   ├── common/               #   Framework-agnostic models and logic
 │   │   ├── work_items.py     #   WorkItem + ItemType
 │   │   ├── project.py        #   Project session state
+│   │   ├── pipeline.py       #   run_pipeline / run_pipeline_in_memory
 │   │   └── tests/
 │   ├── streamlit/            #   Streamlit app (local + cloud deployable)
 │   │   ├── app.py
 │   │   └── panels/
 │   └── web/                  #   FastAPI + frontend (planned)
+├── docs/                     # MkDocs user documentation site (in progress)
+├── internal/                 # Internal planning docs (gap analysis, backlogs, build notes)
+├── media/                    # App images, logos, icons
 ├── tests/                    # Core pipeline unit tests
 ├── models.py                 # Shared dataclasses (Phrase now carries tags + metrics)
-├── utils.py                  # Timestamp helpers, low-pass filter
+├── utils.py                  # Timestamp helpers, low-pass filter, writable_base_dir
 ├── cli.py                    # CLI entry point
 └── requirements.txt
 ```
@@ -267,13 +327,13 @@ python cli.py test
 ## Running tests
 
 ```bash
-# Core pipeline + UI-panel split logic (422 tests)
+# Core pipeline + integration + UI tests (638 tests)
 python -m unittest discover -s tests -v
 
 # UI layer (60 tests)
 python -m unittest discover -s ui/common/tests -v
 
-# All at once (482 tests)
+# All at once (698 tests)
 python cli.py test
 ```
 
@@ -286,14 +346,19 @@ python cli.py test
 | [assessment/readme.md](assessment/readme.md) | Structural analysis pipeline — phases, cycles, patterns, phrases, BPM transitions (Step 1) |
 | [pattern_catalog/README.md](pattern_catalog/README.md) | BPM-threshold baseline transformer (Step 2) |
 | [user_customization/README.md](user_customization/README.md) | Window-based fine-tuning customizer (Step 3) |
-| [ui/README.md](ui/README.md) | Streamlit UI overview — sidebar controls, all six tabs |
+| [ui/README.md](ui/README.md) | Streamlit UI overview — launcher, local mode, sidebar controls, all four tabs |
 | [ui/streamlit/README.md](ui/streamlit/README.md) | Detailed Streamlit panel reference — Phrase Editor, Pattern Editor, Export |
+| [ui/streamlit/UNDO.md](ui/streamlit/UNDO.md) | Undo/redo — what is captured, how to use it, architecture, extending it |
 | [ui/common/README.md](ui/common/README.md) | Framework-agnostic business logic: `Project`, `WorkItem`, `ViewState` |
 | [user_transforms/README.md](user_transforms/README.md) | Adding custom transforms via JSON recipe files |
 | [plugins/README.md](plugins/README.md) | Adding custom transforms via Python plugins |
 | [visualizations/README.md](visualizations/README.md) | Matplotlib motion chart components |
 | [tests/README.md](tests/README.md) | Test suite structure and coverage |
+| [internal/ACCESSIBILITY.md](internal/ACCESSIBILITY.md) | WCAG 2.1 AA accessibility assessment — issues, severity, recommended fixes |
+| [internal/BUILD.md](internal/BUILD.md) | Building a standalone installer on Windows and macOS |
 
 ---
+
+![Liquid Releasing](media/liquid-releasing-Color-Logo.svg)
 
 *© 2026 [Liquid Releasing](https://github.com/liquid-releasing). Licensed under the [MIT License](LICENSE).  Written by human and Claude AI (Claude Sonnet).*

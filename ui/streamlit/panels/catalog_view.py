@@ -134,7 +134,7 @@ def _render_funscript_section(project, phrases: List[dict], catalog) -> None:
                 pr[2].write(f"{span_val:.0f}")
                 if pr[3].button("✏", key=f"cv_edit_{tag}_{j}", help="Edit in Phrase Editor"):
                     st.session_state.view_state.set_selection(ph["start_ms"], ph["end_ms"])
-                    st.session_state.goto_tab = 1
+                    st.session_state.goto_tab = 0
                     st.rerun()
 
 

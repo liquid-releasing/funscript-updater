@@ -9,21 +9,22 @@ Launch with:
 Layout
 ------
 Sidebar
-  • File picker (test_funscript/*.original.funscript)
-  • Assessment controls (run / load cached)
-  • Export buttons
+  • File picker (local path / recent files) or upload (web mode)
+  • Optional media file for context playback
+  • Phrase detection settings + Re-analyse
 
 Main area  (tabs)
-  1. Assessment        — pipeline output inspection
-  2. Phrase Editor     — three-panel colour-coded chart with assessment navigator
-  3. Pattern Behaviors — catalog of tagged phrase patterns
-  4. Pattern Editor    — per-instance waveform shaping
-  5. Transform Catalog — reference guide for all phrase transforms
-  6. Export            — summary of output files
+  1. Phrase Selector   — full-funscript chart; click a phrase to edit it
+                         (Assessment details collapsible at the bottom)
+  2. Pattern Editor    — batch transform + per-instance waveform shaping
+                         (Pattern Behaviors catalog collapsible at the top)
+  3. Transform Catalog — reference guide for all phrase transforms
+  4. Export            — quality gate, transform plan, download
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -33,6 +34,10 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 import streamlit as st
+
+# True when launched from launcher.py (desktop / PyInstaller).
+# False when accessed via the web UI or plain `streamlit run`.
+_IS_LOCAL = os.environ.get("FUNSCRIPT_FORGE_LOCAL") == "1"
 
 from ui.common.project import Project
 from ui.common.view_state import ViewState
@@ -48,12 +53,37 @@ from ui.streamlit.panels import viewer as viewer_panel
 # Page config (must be the first Streamlit call)
 # ------------------------------------------------------------------
 
-_LOGO = os.path.join(_ROOT, "media", "funscriptforge.png")
+_LOGO    = os.path.join(_ROOT, "media", "funscriptforge.png")
+_FAVICON = os.path.join(_ROOT, "media", "anvil.png")
+
+def _load_favicon():
+    """Return a PIL Image for the favicon, falling back to emoji."""
+    from PIL import Image
+    for path in (_FAVICON, _LOGO):
+        if os.path.exists(path):
+            return Image.open(path)
+    return "🔨"
+
 st.set_page_config(
     page_title="Funscript Forge",
-    page_icon=_LOGO if os.path.exists(_LOGO) else "🎵",
+    page_icon=_load_favicon(),
     layout="wide",
     initial_sidebar_state="expanded",
+)
+
+# ------------------------------------------------------------------
+# Global accessibility CSS
+# ------------------------------------------------------------------
+# .sr-only: visually hidden but readable by screen readers (WCAG C2, M4).
+st.markdown(
+    """<style>
+    .sr-only {
+        position: absolute; width: 1px; height: 1px;
+        padding: 0; margin: -1px; overflow: hidden;
+        clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+    </style>""",
+    unsafe_allow_html=True,
 )
 
 # ------------------------------------------------------------------
@@ -64,12 +94,27 @@ if "project" not in st.session_state:
     st.session_state.project: Project | None = None
 
 if "output_dir" not in st.session_state:
-    st.session_state.output_dir = os.path.join(_ROOT, "output")
+    # G32: the launcher sets FUNSCRIPT_FORGE_DATA_DIR to the writable root
+    # beside the executable (frozen) or the project root (dev). Without the
+    # launcher (plain `streamlit run`), fall back to writable_base_dir().
+    _env_data = os.environ.get("FUNSCRIPT_FORGE_DATA_DIR")
+    if _env_data:
+        st.session_state.output_dir = os.path.join(_env_data, "output")
+    else:
+        from utils import writable_base_dir as _writable_base_dir
+        st.session_state.output_dir = os.path.join(_writable_base_dir(), "output")
 
 if "pattern_catalog" not in st.session_state:
     from catalog.pattern_catalog import PatternCatalog
-    _catalog_path = os.path.join(_ROOT, "output", "pattern_catalog.json")
-    st.session_state.pattern_catalog = PatternCatalog(_catalog_path)
+    _catalog_path = os.path.join(st.session_state.output_dir, "pattern_catalog.json")
+    try:
+        st.session_state.pattern_catalog = PatternCatalog(_catalog_path)
+    except Exception:
+        # Corrupt catalog — back it up and start fresh so the app can still load.
+        if os.path.exists(_catalog_path):
+            os.rename(_catalog_path, _catalog_path + ".bak")
+        st.session_state.pattern_catalog = PatternCatalog(_catalog_path)
+        st.session_state["_catalog_reset_warning"] = True
 
 if "view_state" not in st.session_state:
     st.session_state.view_state = ViewState()
@@ -92,12 +137,141 @@ if "bpm_threshold" not in st.session_state:
 if "last_loaded_cfg" not in st.session_state:
     st.session_state.last_loaded_cfg = None
 
+if "project_dirty" not in st.session_state:
+    st.session_state.project_dirty = False
+
+if "undo_stack" not in st.session_state:
+    from ui.common.undo_stack import UndoStack
+    st.session_state.undo_stack = UndoStack(max_size=50)
+
+# ------------------------------------------------------------------
+# Local-mode helpers: recent-files list and path pickers
+# ------------------------------------------------------------------
+
+_RECENTS_FILE = "recent_funscripts.json"
+_RECENTS_MAX  = 10
+
+
+def _load_recents(output_dir: str) -> list[str]:
+    """Load the list of recently used funscript paths from disk."""
+    path = os.path.join(output_dir, _RECENTS_FILE)
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        return [p for p in data if isinstance(p, str) and os.path.isfile(p)]
+    except Exception:
+        return []
+
+
+def _save_recents(output_dir: str, file_path: str) -> None:
+    """Prepend *file_path* to the recents list and persist."""
+    recents = _load_recents(output_dir)
+    if file_path in recents:
+        recents.remove(file_path)
+    recents.insert(0, file_path)
+    recents = recents[:_RECENTS_MAX]
+    path = os.path.join(output_dir, _RECENTS_FILE)
+    os.makedirs(output_dir, exist_ok=True)
+    with open(path, "w") as fh:
+        json.dump(recents, fh, indent=2)
+
+
+_BROWSE_SENTINEL = "— enter a path below —"
+
+
+def _funscript_picker_local(output_dir: str) -> str | None:
+    """Local-mode funscript picker: selectbox of recents + text-input fallback.
+
+    Returns the selected absolute path, or ``None`` if nothing valid is chosen.
+    """
+    st.sidebar.subheader("Funscript Project")
+    _proj = st.session_state.get("project")
+    if _proj and _proj.is_loaded:
+        st.sidebar.markdown(f"**{_proj.display_name}**")
+        _desc = _proj.get_description()
+        if _desc:
+            st.sidebar.caption(_desc)
+    recents = _load_recents(output_dir)
+    options = recents + [_BROWSE_SENTINEL]
+    sel = st.sidebar.selectbox(
+        "Recent files",
+        options=options,
+        format_func=lambda p: os.path.basename(p) if p != _BROWSE_SENTINEL else p,
+        key="local_funscript_sel",
+        label_visibility="collapsed",
+    )
+
+    if sel == _BROWSE_SENTINEL:
+        typed = st.sidebar.text_input(
+            "Path to .funscript",
+            key="local_funscript_typed",
+            placeholder=r"C:\path\to\video.funscript",
+            label_visibility="collapsed",
+        ).strip()
+        if not typed:
+            st.sidebar.caption("Paste or type the full path to a .funscript file.")
+            return None
+        if not os.path.isfile(typed):
+            st.sidebar.warning("File not found.")
+            return None
+        return typed
+
+    return sel  # already validated by _load_recents
+
+
+def _media_picker_local(funscript_path: str, output_dir: str) -> None:
+    """Local-mode media picker: auto-detect by stem, or type a path manually."""
+    # Auto-detect once per funscript switch.
+    if st.session_state.get("media_auto_for") != funscript_path:
+        from ui.streamlit.panels.media_player import find_matching_media, MEDIA_EXTS
+        _auto = find_matching_media(funscript_path, os.path.dirname(funscript_path))
+        if _auto:
+            st.session_state["media_path"] = _auto
+        st.session_state["media_auto_for"] = funscript_path
+
+    # Show current media + clear button.
+    _mp = st.session_state.get("media_path")
+    if _mp and os.path.exists(_mp):
+        _mc1, _mc2 = st.sidebar.columns([5, 1])
+        _mc1.caption(f"🎵 {os.path.basename(_mp)}")
+        if _mc2.button("✕", key="clear_media", help="Remove media"):
+            st.session_state.pop("media_path", None)
+            st.session_state.pop("media_auto_for", None)
+            st.rerun()
+        return  # don't show picker when a file is already loaded
+
+    # Manual path entry.
+    typed = st.sidebar.text_input(
+        "Audio/video path (optional)",
+        key="local_media_typed",
+        placeholder=r"C:\path\to\video.mp4",
+        label_visibility="collapsed",
+    ).strip()
+    if typed:
+        if not os.path.isfile(typed):
+            st.sidebar.warning("Media file not found.")
+        else:
+            from ui.streamlit.panels.media_player import validate_media_file
+            _err = validate_media_file(typed)
+            if _err:
+                st.sidebar.warning(f"Media file may be corrupt: {_err}")
+            else:
+                st.session_state["media_path"] = typed
+                st.rerun()
+
+
 # ------------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------------
 
 
 def _sidebar() -> None:
+    if st.session_state.pop("_catalog_reset_warning", False):
+        st.sidebar.warning(
+            "Pattern catalog was corrupt and has been reset. "
+            "The old file was backed up as `pattern_catalog.json.bak`."
+        )
+
     _logo = os.path.join(_ROOT, "media", "funscriptforge.png")
     if os.path.exists(_logo):
         st.sidebar.image(_logo, width="stretch")
@@ -105,24 +279,102 @@ def _sidebar() -> None:
         st.sidebar.title("Funscript Forge")
     st.sidebar.markdown("---")
 
-    # --- File selection ---
-    st.sidebar.subheader("Funscript")
-    funscript_dir = os.path.join(_ROOT, "test_funscript")
-    candidates = sorted(
-        f for f in os.listdir(funscript_dir)
-        if f.endswith(".funscript")
-    ) if os.path.isdir(funscript_dir) else []
+    # --- File picker: local path input or web upload ---
+    output_dir = st.session_state.output_dir
 
-    if not candidates:
-        st.sidebar.warning(f"No .funscript files found in {funscript_dir}")
-        return
+    if _IS_LOCAL:
+        funscript_path = _funscript_picker_local(output_dir)
+        if funscript_path is None:
+            return
+        _media_picker_local(funscript_path, output_dir)
+    else:
+        # Web mode: file upload widgets (kept for the web UI deployment).
+        st.sidebar.subheader("Funscript Project")
+        _proj = st.session_state.get("project")
+        if _proj and _proj.is_loaded:
+            st.sidebar.markdown(f"**{_proj.display_name}**")
+            _desc = _proj.get_description()
+            if _desc:
+                st.sidebar.caption(_desc)
+        uploaded = st.sidebar.file_uploader(
+            "Upload a funscript",
+            type=["funscript"],
+            label_visibility="collapsed",
+            help="Upload a .funscript file to analyse it.",
+        )
+        if uploaded is not None:
+            uploads_dir = os.path.join(output_dir, "uploads")
+            os.makedirs(uploads_dir, exist_ok=True)
+            save_path = os.path.join(uploads_dir, uploaded.name)
+            with open(save_path, "wb") as _fh:
+                _fh.write(uploaded.read())
+            st.session_state["last_upload_name"] = uploaded.name
 
-    selected_file = st.sidebar.selectbox(
-        "Select funscript",
-        options=candidates,
-        index=0,
-    )
-    funscript_path = os.path.join(funscript_dir, selected_file)
+        media_uploaded = st.sidebar.file_uploader(
+            "Upload audio/video for context playback",
+            type=["mp3", "m4a", "wav", "ogg", "mp4", "mkv", "mov"],
+            label_visibility="collapsed",
+            help="Upload audio or video matching this funscript to enable playback while editing.",
+        )
+        if media_uploaded is not None:
+            uploads_dir = os.path.join(output_dir, "uploads")
+            os.makedirs(uploads_dir, exist_ok=True)
+            media_save_path = os.path.join(uploads_dir, media_uploaded.name)
+            with open(media_save_path, "wb") as _mfh:
+                _mfh.write(media_uploaded.read())
+            st.session_state["media_path"] = media_save_path
+
+        # Build candidate list: uploaded files first, then test_funscript/.
+        _path_for: dict[str, str] = {}
+        uploads_dir = os.path.join(output_dir, "uploads")
+        if os.path.isdir(uploads_dir):
+            for _f in sorted(os.listdir(uploads_dir)):
+                if _f.endswith(".funscript"):
+                    _path_for[f"[↑] {_f}"] = os.path.join(uploads_dir, _f)
+
+        funscript_dir = os.path.join(_ROOT, "test_funscript")
+        if os.path.isdir(funscript_dir):
+            for _f in sorted(os.listdir(funscript_dir)):
+                if _f.endswith(".funscript"):
+                    _path_for[_f] = os.path.join(funscript_dir, _f)
+
+        if not _path_for:
+            st.sidebar.warning("No .funscript files found. Upload one above.")
+            return
+
+        candidate_labels = list(_path_for.keys())
+        _default_idx = 0
+        _last_upload  = st.session_state.get("last_upload_name")
+        if _last_upload:
+            _upload_label = f"[↑] {_last_upload}"
+            if _upload_label in candidate_labels:
+                _default_idx = candidate_labels.index(_upload_label)
+
+        selected_label = st.sidebar.selectbox(
+            "Select funscript",
+            options=candidate_labels,
+            index=_default_idx,
+        )
+        funscript_path = _path_for[selected_label]
+
+        # Auto-detect media by stem in uploads dir.
+        if st.session_state.get("media_auto_for") != funscript_path:
+            from ui.streamlit.panels.media_player import find_matching_media
+            _auto = find_matching_media(funscript_path, uploads_dir)
+            if _auto:
+                st.session_state["media_path"] = _auto
+            st.session_state["media_auto_for"] = funscript_path
+
+        _mp = st.session_state.get("media_path")
+        if _mp and os.path.exists(_mp):
+            _mc1, _mc2 = st.sidebar.columns([5, 1])
+            _mc1.caption(f"🎵 {os.path.basename(_mp)}")
+            if _mc2.button("✕", key="clear_media", help="Remove media"):
+                st.session_state.pop("media_path", None)
+                st.session_state.pop("media_auto_for", None)
+                st.rerun()
+
+    selected_file = os.path.basename(funscript_path)
 
     # --- Phrase detection parameters ---
     with st.sidebar.expander("Phrase detection settings", expanded=True):
@@ -174,40 +426,59 @@ def _sidebar() -> None:
     )
     cfg_key = (funscript_path, min_phrase_s, amp_sensitivity)
 
-    # Auto-load when the file or settings change.
-    needs_load = (
-        cfg_key != st.session_state.last_loaded_cfg
-    )
+    # Auto-load only when the selected file changes; settings changes require
+    # an explicit Re-analyse click so rapid slider adjustments don't trigger
+    # a full re-assessment on every interaction (T3 debounce).
+    _last_cfg = st.session_state.last_loaded_cfg
+    file_changed     = _last_cfg is None or cfg_key[0] != _last_cfg[0]
+    settings_changed = not file_changed and cfg_key != _last_cfg
 
-    if needs_load or st.sidebar.button("Re-analyse", type="primary"):
+    if settings_changed:
+        st.sidebar.info("Settings changed — click **Re-analyse** to apply.")
+
+    if file_changed or st.sidebar.button("Re-analyse", type="primary"):
         import time
-        with st.spinner("Running assessment…"):
-            _t0 = time.time()
-            st.session_state.project = Project.from_funscript(
-                funscript_path,
-                analyzer_config=analyzer_cfg,
+
+        # Progress indicator: sidebar placeholder shows current stage.
+        # Using a sidebar placeholder (not st.spinner) avoids a lingering
+        # full-page spinner that persists visually after the chart renders.
+        _stage_ph = st.sidebar.empty()
+        _stage_ph.caption("⟳ Running assessment…")
+
+        def _on_stage(stage: str) -> None:
+            _stage_ph.caption(f"⟳ {stage}")
+
+        _t0 = time.time()
+        st.session_state.project = Project.from_funscript(
+            funscript_path,
+            analyzer_config=analyzer_cfg,
+            progress_callback=_on_stage,
+        )
+        st.session_state.last_assessment_elapsed = time.time() - _t0
+        st.session_state.last_loaded_cfg  = cfg_key
+        st.session_state.last_loaded_file = selected_file
+        st.session_state.view_state       = ViewState()
+        if _IS_LOCAL:
+            _save_recents(output_dir, funscript_path)
+        st.session_state.export_rejected  = set()
+        st.session_state.export_accepted  = set()
+
+        # Auto-update the pattern catalog with this funscript's tagged phrases
+        try:
+            _proj    = st.session_state.project
+            _phrases = _proj.assessment.to_dict().get("phrases", [])
+            _cat     = st.session_state.pattern_catalog
+            _cat.add_assessment(
+                funscript_name=selected_file,
+                phrases=_phrases,
+                duration_ms=_proj.assessment.duration_ms,
             )
-            st.session_state.last_assessment_elapsed = time.time() - _t0
-            st.session_state.last_loaded_cfg  = cfg_key
-            st.session_state.last_loaded_file = selected_file
-            st.session_state.view_state       = ViewState()
-            st.session_state.export_rejected  = set()
-            st.session_state.export_accepted  = set()
+            _cat.save()
+        except Exception as _cat_err:
+            # Best-effort — never block the UI, but surface disk/permission errors.
+            st.sidebar.warning(f"Pattern catalog could not be saved: {_cat_err}")
 
-            # Auto-update the pattern catalog with this funscript's tagged phrases
-            try:
-                _proj    = st.session_state.project
-                _phrases = _proj.assessment.to_dict().get("phrases", [])
-                _cat     = st.session_state.pattern_catalog
-                _cat.add_assessment(
-                    funscript_name=selected_file,
-                    phrases=_phrases,
-                    duration_ms=_proj.assessment.duration_ms,
-                )
-                _cat.save()
-            except Exception:
-                pass  # catalog update is best-effort; never block the UI
-
+        _stage_ph.empty()
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -216,68 +487,85 @@ def _sidebar() -> None:
     project: Project | None = st.session_state.project
     if project and project.is_loaded:
         s = project.summary()
-        st.sidebar.markdown(f"**{s['name']}**")
-        elapsed = st.session_state.last_assessment_elapsed
-        timing_str = f"  |  assessed in {elapsed:.1f}s" if elapsed is not None else ""
-        st.sidebar.caption(
-            f"Duration: {s['duration']}  |  Avg BPM: {s['bpm']:.1f}{timing_str}\n\n"
-            f"{s['phrases']} phrases  •  {s['bpm_transitions']} transitions"
+
+        # --- Project Specs ---
+        st.sidebar.markdown("**Project Specs**")
+        _phrases_data = project.assessment.to_dict().get("phrases", [])
+        _bpms = [p["bpm"] for p in _phrases_data if p.get("bpm")]
+        _elapsed = st.session_state.last_assessment_elapsed
+        _spec_lines = [
+            f"● {s['phrases']} phrases",
+            f"● {s['bpm_transitions']} transitions",
+            f"● {s['patterns']} patterns",
+        ]
+        if _bpms:
+            _spec_lines.append(f"● BPM avg: {s['bpm']:.0f}")
+            _spec_lines.append(f"● Phrase BPM range: {min(_bpms):.0f}–{max(_bpms):.0f}")
+        if _elapsed is not None:
+            _spec_lines.append(f"● Assessed in {_elapsed:.1f}s")
+        st.sidebar.caption("\n\n".join(_spec_lines))
+
+        # --- Available Transforms ---
+        from pattern_catalog.phrase_transforms import get_transforms_by_category
+        _tx_cats = get_transforms_by_category()
+        st.sidebar.markdown("**Available Transforms**")
+        st.sidebar.caption("\n\n".join(
+            f"● {cat}: {len(pairs)}" for cat, pairs in _tx_cats.items()
+        ))
+
+        # --- Editing Progress (only once work has started) ---
+        _n_phrases = s["phrases"]
+        _phrases_edited = sum(
+            1 for i in range(_n_phrases)
+            if st.session_state.get(f"phrase_transform_chain_{i}")
         )
-
-        # Work item type summary.
-        type_counts = {}
-        for item in project.work_items:
-            type_counts[item.item_type] = type_counts.get(item.item_type, 0) + 1
-        if type_counts:
-            summary_lines = [f"**Work items ({len(project.work_items)})**"]
-            icons = {ItemType.PERFORMANCE: "🔥", ItemType.BREAK: "🌊",
-                     ItemType.RAW: "🎯", ItemType.NEUTRAL: "⚪"}
-            for itype, count in sorted(type_counts.items(), key=lambda x: x[0].value):
-                summary_lines.append(f"{icons[itype]} {itype.value.title()}: {count}")
-            st.sidebar.markdown("\n\n".join(summary_lines))
-
-        st.sidebar.markdown("---")
-
-        # --- Manual item ---
-        with st.sidebar.expander("Add manual item"):
-            m_start = st.number_input("Start (ms)", min_value=0, value=0, step=1000, key="m_start")
-            m_end = st.number_input("End (ms)", min_value=0, value=10000, step=1000, key="m_end")
-            m_type = st.selectbox(
-                "Type",
-                options=["Performance", "Break", "Raw", "Neutral"],
-                key="m_type",
-            )
-            m_label = st.text_input("Label", key="m_label")
-            if st.button("Add item"):
-                type_map = {
-                    "Performance": ItemType.PERFORMANCE,
-                    "Break": ItemType.BREAK,
-                    "Raw": ItemType.RAW,
-                    "Neutral": ItemType.NEUTRAL,
-                }
-                project.add_item(WorkItem(
-                    start_ms=int(m_start), end_ms=int(m_end),
-                    item_type=type_map[m_type], label=m_label, source="manual",
-                ))
-                st.rerun()
+        _pe_applied = sum(
+            1 for k, v in st.session_state.items()
+            if k.startswith("pe_apply_") and v is True
+        )
+        if _phrases_edited or _pe_applied:
+            st.sidebar.markdown("**Editing Progress**")
+            _prog_lines = []
+            if _n_phrases:
+                _prog_lines.append(f"● Phrases edited: {_phrases_edited} / {_n_phrases}")
+            if _pe_applied:
+                _prog_lines.append(f"● Pattern instances applied: {_pe_applied}")
+            st.sidebar.caption("\n\n".join(_prog_lines))
 
         st.sidebar.markdown("---")
-
-        # --- Export ---
-        st.sidebar.subheader("Export")
-        if st.sidebar.button("Export window JSONs"):
-            written = project.export_windows(st.session_state.output_dir)
-            if written:
-                st.sidebar.success("Written:\n" + "\n".join(written.values()))
-            else:
-                st.sidebar.info("No typed items to export yet.")
 
         project_save_path = os.path.join(
             st.session_state.output_dir, f"{project.name}.project.json"
         )
-        if st.sidebar.button("Save project"):
+        _dirty = st.session_state.get("project_dirty", False)
+        _save_label = "● Save project" if _dirty else "Save project"
+        _save_help  = "Unsaved changes — click to save." if _dirty else "Save the current project state."
+        if st.sidebar.button(_save_label, help=_save_help):
             project.export_project(project_save_path)
+            st.session_state.project_dirty = False
             st.sidebar.success(f"Saved to {project_save_path}")
+
+    _render_sidebar_footer()
+
+
+def _render_sidebar_footer() -> None:
+    """Liquid Releasing logo + copyright notice at the bottom of the sidebar."""
+    _lr_logo = os.path.join(_ROOT, "media", "liquid-releasing-Color-Logo.svg")
+    st.sidebar.markdown("---")
+    if os.path.exists(_lr_logo):
+        with open(_lr_logo, encoding="utf-8") as _f:
+            _svg = _f.read()
+        # Render as an inline HTML block — Streamlit supports SVG via unsafe_allow_html.
+        st.sidebar.markdown(
+            f'<div style="text-align:center;opacity:0.65;padding:4px 0;">'
+            f'<div style="max-width:50%;margin:0 auto;">{_svg}</div>'
+            f'<div style="font-size:10px;color:#888;margin-top:4px;line-height:1.4;">'
+            f'© 2026 Liquid Releasing<br>MIT License</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.sidebar.caption("© 2026 Liquid Releasing · MIT License")
 
 
 # ------------------------------------------------------------------
@@ -289,63 +577,247 @@ def _main() -> None:
     project: Project | None = st.session_state.project
 
     if project is None or not project.is_loaded:
-        st.title("Funscript Forge")
-        st.markdown(
-            "Use the **sidebar** to select a funscript and click **Load / Analyse** "
-            "to begin.  The assessment pipeline will detect phases, cycles, patterns, "
-            "and phrases, then present them as interactive work items for you to review."
-        )
-        st.divider()
-        st.markdown(
-            "### Pipeline\n"
-            "1. **Assess** — structural analysis (phases → cycles → patterns → phrases)\n"
-            "2. **Work Items** — review and tag detected sections\n"
-            "3. **Edit** — fine-tune per-section settings\n"
-            "4. **Export** — write JSON window files for the customizer\n"
-        )
+        _render_welcome()
         return
 
-    tab_assessment, tab_viewer, tab_catalog, tab_pattern, tab_transforms, tab_export = st.tabs(
-        ["Assessment", "Phrase Editor", "Pattern Behaviors", "Pattern Editor", "Transform Catalog", "Export"]
+    # 4 tabs: Phrase (Selector ↔ Editor), Pattern Editor, Transform Catalog, Export.
+    # The Phrase tab shows the Selector or Editor depending on view_state.has_selection(),
+    # eliminating the need for JS-based programmatic tab navigation.
+    tab_phrase, tab_pattern, tab_transforms, tab_export = st.tabs(
+        ["Phrases", "Patterns", "Catalogs", "Export"]
     )
 
-    with tab_assessment:
-        assessment_panel.render(project)
-
-    with tab_viewer:
-        _render_viewer_tab(project)
-
-    with tab_catalog:
-        catalog_view_panel.render(project)
+    with tab_phrase:
+        st.session_state["active_tab"] = 0
+        _render_phrase_tab(project)
 
     with tab_pattern:
-        pattern_editor_panel.render(project)
+        st.session_state["active_tab"] = 1
+        _render_pattern_editor_tab(project)
 
     with tab_transforms:
+        st.session_state["active_tab"] = 2
         transform_catalog_panel.render()
 
     with tab_export:
+        st.session_state["active_tab"] = 3
         export_panel.render(project)
 
-    # Programmatic tab navigation: set st.session_state.goto_tab = <0-based index>
-    # before calling st.rerun(); the JS below clicks the tab after DOM is ready.
-    if "goto_tab" in st.session_state:
-        tab_idx = st.session_state.pop("goto_tab")
-        import streamlit.components.v1 as components
-        components.html(
-            f"""<script>
-                (function() {{
-                    var tabs = window.parent.document.querySelectorAll('[data-testid="stTab"]');
-                    if (tabs[{tab_idx}]) tabs[{tab_idx}].click();
-                }})();
-            </script>""",
-            height=0,
+    # Keyboard shortcuts — registered once per page load via a sentinel flag on
+    # window.parent so reruns don't stack duplicate listeners.
+    #   Ctrl+Z        → Undo
+    #   Ctrl+Y        → Redo
+    #   Ctrl+Shift+Z  → Redo (macOS convention)
+    #   Ctrl+S        → Save project
+    import streamlit.components.v1 as _comp
+    _comp.html(
+        """<script>
+        (function() {
+            var p = window.parent;
+            if (p.__forgeKeysRegistered) return;
+            p.__forgeKeysRegistered = true;
+
+            // M5: ensure screen readers use English pronunciation rules.
+            p.document.documentElement.lang = 'en';
+
+            function clickButton(startsWith) {
+                var btns = p.document.querySelectorAll('button');
+                for (var i = 0; i < btns.length; i++) {
+                    if (btns[i].textContent.trim().startsWith(startsWith)
+                            && !btns[i].disabled) {
+                        btns[i].click();
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            p.document.addEventListener('keydown', function(e) {
+                var ctrl = e.ctrlKey || e.metaKey;
+                if (!ctrl) return;
+
+                if (e.key === 'z' && !e.shiftKey) {
+                    e.preventDefault();
+                    clickButton('\u21a9');        // ↩ Undo
+                } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+                    e.preventDefault();
+                    clickButton('\u21aa');        // ↪ Redo
+                } else if (e.key === 's') {
+                    e.preventDefault();
+                    clickButton('Save project'); // sidebar Save project
+                }
+            });
+        })();
+        </script>""",
+        height=0,
+    )
+
+
+def _render_welcome() -> None:
+    """Onboarding welcome screen shown before any funscript is loaded."""
+    _media = lambda name: os.path.join(_ROOT, "media", name)  # noqa: E731
+
+    # Centered wide wordmark logo
+    _il, _ic, _ir = st.columns([1, 4, 1])
+    with _ic:
+        if os.path.exists(_media("funscriptforge-logo-wide.png")):
+            st.image(_media("funscriptforge-logo-wide.png"), width="stretch")
+        elif os.path.exists(_media("funscriptforge.png")):
+            st.image(_media("funscriptforge.png"), width="stretch")
+
+    st.markdown(
+        "**Funscript Forge** analyses funscripts, detects phrase structure and motion "
+        "patterns, and lets you apply per-phrase transforms before exporting a clean, "
+        "device-safe output file."
+    )
+    st.divider()
+
+    # Workflow icon row — one column per main tab
+    _icons = [
+        ("anvil.png",     "Phrase Selector",   "Analyse & select phrases"),
+        ("worktable.png", "Pattern Editor",     "Shape motion patterns"),
+        ("oven.png",      "Catalogs",           "Browse transforms & tag reference"),
+    ]
+    icon_cols = st.columns(len(_icons))
+    for col, (img, label, desc) in zip(icon_cols, _icons):
+        with col:
+            if os.path.exists(_media(img)):
+                st.image(_media(img), width="stretch")
+            st.markdown(
+                f'<div style="text-align:center"><strong>{label}</strong><br>{desc}</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.divider()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(
+            "#### How to get started\n\n"
+            "1. **Open a funscript** — paste the file path in the sidebar "
+            "(or upload it if using the web UI).\n\n"
+            "2. **Add matching media** *(optional)* — point to the audio or video "
+            "file so you can hear each phrase while editing.\n\n"
+            "3. **Select a phrase** — the **Phrase Selector** tab shows the full "
+            "funscript as a chart.  Click any phrase band or use the Edit buttons "
+            "to open it for detail editing.\n\n"
+            "4. **Shape patterns** — the **Pattern Editor** tab lets you batch-apply "
+            "transforms to every phrase sharing the same motion pattern.\n\n"
+            "5. **Export** — the **Export** tab runs a quality check, previews all "
+            "accepted transforms, and downloads the final funscript."
+        )
+    with c2:
+        st.markdown(
+            "#### What the assessment detects\n\n"
+            "| Stage | What it finds |\n"
+            "| --- | --- |\n"
+            "| Phases | Individual up/down strokes |\n"
+            "| Cycles | Complete oscillations (one full stroke pair) |\n"
+            "| Patterns | Runs of similar cycles grouped by tempo & depth |\n"
+            "| Phrases | Contiguous sections with stable motion character |\n"
+            "| BPM transitions | Points where tempo shifts significantly |\n\n"
+            "Each phrase is automatically tagged with a **behavioural label** "
+            "(frantic, edging, teasing, build, etc.) that drives transform suggestions."
         )
 
+    st.divider()
+    st.caption(
+        "Tip: the sidebar **Phrase detection settings** control how aggressively "
+        "short phrases are merged and how sensitive the amplitude-change detector is. "
+        "Re-analyse any time after adjusting them."
+    )
 
-def _render_viewer_tab(project: Project) -> None:
+
+def _render_phrase_tab(project: Project) -> None:
+    """Phrases tab — shows Selector when nothing is selected, Editor when a phrase is selected.
+
+    Switching between the two views is driven entirely by view_state.has_selection(),
+    so Done/Close simply clears the selection and reruns — no JS tab clicks needed.
+
+    The table selection is pre-processed HERE, before deciding which view to render,
+    to avoid a one-render lag where the Editor would open for the previously-selected
+    phrase rather than the one just clicked.
+    """
     view_state = st.session_state.view_state
-    viewer_panel.render(project, view_state, large_funscript_threshold=st.session_state.large_funscript_threshold)
+    assessment_dict = project.assessment.to_dict()
+    phrases = assessment_dict.get("phrases", [])
+
+    # Read pending table-row click straight from widget session state.
+    # on_select="rerun" stores the selection in st.session_state[key] before
+    # the rerun fires, so we can process it here, at the very top, and set
+    # view_state.selection before choosing which view to render.
+    _tver = st.session_state.get("phrase_table_ver", 0)
+    _tstate = st.session_state.get(f"phrase_table_{_tver}")
+    if _tstate is not None and phrases:
+        _rows = getattr(getattr(_tstate, "selection", None), "rows", [])
+        if _rows and 0 <= _rows[0] < len(phrases):
+            ph = phrases[_rows[0]]
+            view_state.selection_start_ms = ph["start_ms"]
+            view_state.selection_end_ms   = ph["end_ms"]
+            # Bump version so the widget reinitialises with no selection next render.
+            st.session_state["phrase_table_ver"] = _tver + 1
+
+    if view_state.has_selection():
+        _render_phrase_editor_tab(project)
+    else:
+        _render_phrase_selector_tab(project)
+
+
+def _render_phrase_selector_tab(project: Project) -> None:
+    """Phrase Selector view — full chart + phrase table."""
+    view_state = st.session_state.view_state
+    viewer_panel.render(
+        project, view_state,
+        large_funscript_threshold=st.session_state.large_funscript_threshold,
+    )
+    with st.expander("Assessment details", expanded=False):
+        assessment_panel.render(project)
+
+
+def _render_phrase_editor_tab(project: Project) -> None:
+    """Phrase Editor view — single-phrase editor with prev/next navigation."""
+    from ui.streamlit.panels import phrase_detail
+    from ui.streamlit.panels.media_player import render_player
+    import json
+
+    view_state = st.session_state.view_state
+    assessment_dict = project.assessment.to_dict()
+    phrases     = assessment_dict.get("phrases", [])
+    duration_ms = project.assessment.duration_ms
+
+    # Close button — clearing selection switches the Phrase tab back to Selector view.
+    if st.button("✕  Close and return to Phrase Selector", key="editor_close"):
+        view_state.clear_selection()
+        view_state.reset_zoom()
+        st.session_state["phrase_table_ver"] = st.session_state.get("phrase_table_ver", 0) + 1
+        st.rerun()
+
+    sel_start = view_state.selection_start_ms or 0
+    sel_end   = view_state.selection_end_ms   or duration_ms
+    with st.spinner("Loading phrase…"):
+        with open(project.funscript_path, encoding="utf-8") as _fp:
+            _sel_acts = [a for a in json.load(_fp).get("actions", [])
+                         if sel_start <= a["at"] <= sel_end]
+        render_player(
+            start_ms=sel_start,
+            end_ms=sel_end,
+            actions=_sel_acts,
+            key_suffix=f"editor_{sel_start}",
+        )
+
+    phrase_detail.render(
+        phrases=phrases,
+        view_state=view_state,
+        duration_ms=duration_ms,
+        bpm_threshold=st.session_state.get("bpm_threshold", 120.0),
+    )
+
+
+def _render_pattern_editor_tab(project: Project) -> None:
+    """Tab 2 — Pattern Behaviors catalog (collapsible) then Pattern Editor."""
+    with st.expander("Pattern Behaviors catalog", expanded=False):
+        catalog_view_panel.render(project)
+    pattern_editor_panel.render(project)
 
 
 def _commit_actions(project: Project, committed_actions: list) -> None:
@@ -353,6 +825,9 @@ def _commit_actions(project: Project, committed_actions: list) -> None:
     import json
     import tempfile
     import streamlit as st
+    from ui.streamlit.undo_helpers import push_undo
+
+    push_undo("Edit phrase actions")
 
     with tempfile.NamedTemporaryFile(
         suffix=".funscript", delete=False, mode="w"

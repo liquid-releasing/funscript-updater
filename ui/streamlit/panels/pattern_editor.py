@@ -202,6 +202,8 @@ def _add_split_point(label: str, i: int, cycle: dict, new_ms: int) -> bool:
     the left half's transform.  All subsequent transforms are renumbered +1.
     Returns True on success, False if the split is invalid.
     """
+    from ui.streamlit.undo_helpers import push_undo
+    push_undo(f"Add split at {new_ms // 1000 // 60}:{(new_ms // 1000) % 60:02d}")
     splits = _get_splits(label, i)
     if new_ms <= cycle["start_ms"] or new_ms >= cycle["end_ms"]:
         return False
@@ -243,6 +245,9 @@ def _remove_split_boundary(label: str, i: int, cycle: dict, split_idx: int) -> b
     the left segment's transform.  Subsequent segments renumbered -1.
     Returns True on success.
     """
+    from ui.streamlit.undo_helpers import push_undo
+    push_undo("Remove split")
+
     splits = _get_splits(label, i)
     if not splits or split_idx >= len(splits):
         return False
@@ -344,7 +349,7 @@ def _detail_fragment(
     st.subheader(f"{display_name}  ·  {n_instances} phrase{'s' if n_instances != 1 else ''}")
     if meta:
         st.caption(meta.description)
-        st.caption(f"Suggested fix: **{meta.suggested_transform}** — {meta.fix_hint}")
+        st.caption(f"Suggested transform: **{meta.suggested_transform}** — {meta.fix_hint}")
 
     # Catalog context for this tag
     catalog = st.session_state.get("pattern_catalog")
@@ -368,8 +373,10 @@ def _detail_fragment(
     # Show edited version in selector chart if phrase editor transforms exist
     from ui.streamlit.panels.phrase_detail import build_edited_actions
     has_edits = any(
-        k.startswith("phrase_transform_")
-        and st.session_state[k].get("transform_key", "passthrough") != "passthrough"
+        k.startswith("phrase_transform_chain_")
+        and isinstance(st.session_state[k], list)
+        and len(st.session_state[k]) > 0
+        and any(t.get("transform_key", "passthrough") != "passthrough" for t in st.session_state[k])
         for k in st.session_state
     )
     if has_edits:
@@ -452,6 +459,41 @@ def _detail_fragment(
             funscript_path=funscript_path,
         )
 
+    # Phrase-restricted audio player — restricted to [start_ms, end_ms]
+    _media_path = st.session_state.get("media_path")
+    if _media_path and os.path.exists(_media_path):
+        from ui.streamlit.panels.media_player import AUDIO_EXTS
+        _ext = os.path.splitext(_media_path)[1].lower()
+        if _ext in AUDIO_EXTS:
+            import base64
+            from ui.streamlit.components.audio_player import phrase_audio_player
+            from ui.streamlit.panels.media_player import _read_media_bytes
+
+            _mime_map = {
+                ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
+                ".wav": "audio/wav",  ".ogg": "audio/ogg", ".aac": "audio/aac",
+            }
+            _mime       = _mime_map.get(_ext, "audio/mpeg")
+            _audio_hash = f"{_media_path}:{os.path.getmtime(_media_path)}"
+            _raw        = _read_media_bytes(_media_path, os.path.getmtime(_media_path))
+            _b64        = base64.b64encode(_raw).decode()
+            _split_pts  = _get_splits(selected_label, inst_idx)
+
+            _player_result = phrase_audio_player(
+                audio_b64=_b64,
+                audio_mime=_mime,
+                audio_hash=_audio_hash,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                actions=[{"at": a["at"], "pos": a["pos"]} for a in original_window],
+                split_points=_split_pts,
+                key=f"ap_{selected_label}_{inst_idx}",
+            )
+            if _player_result and "split_ms" in _player_result:
+                _split_ms = int(_player_result["split_ms"])
+                if _add_split_point(selected_label, inst_idx, cycle, _split_ms):
+                    st.rerun(scope="app")
+
 
 # ------------------------------------------------------------------
 # Instance table
@@ -484,10 +526,10 @@ def _render_instance_table(
             tx_key = stored.get("transform_key", "")
             tx_display = tx_key if (tx_key and tx_key != "passthrough") else suggested
 
-        apply = st.session_state.get(f"pe_apply_{selected_label}_{i}", True)
+        apply = st.session_state.get(f"pe_apply_{selected_label}_{i}", False)
         rows.append({
-            "#":         i + 1,
             "Apply":     apply,
+            "#":         i + 1,
             "Pattern":   cy.get("pattern_label", "—"),
             "Start":     ms_to_timestamp(cy["start_ms"]),
             "End":       ms_to_timestamp(cy["end_ms"]),
@@ -511,8 +553,8 @@ def _render_instance_table(
         key=f"pe_instance_table_{selected_label}",
         disabled=_READ_ONLY,
         column_config={
+            "Apply":     st.column_config.CheckboxColumn("✓", default=False, width="small"),
             "#":         st.column_config.NumberColumn(width="small"),
-            "Apply":     st.column_config.CheckboxColumn("Apply", default=True, width="small"),
             "Pattern":   st.column_config.TextColumn(width="medium"),
             "Start":     st.column_config.TextColumn(width="small"),
             "End":       st.column_config.TextColumn(width="small"),
@@ -545,12 +587,9 @@ def _render_controls(
     original_actions: List[dict],
     funscript_path: str,
 ) -> None:
-    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+    from ui.streamlit.transform_picker import render_transform_picker
     from utils import ms_to_timestamp
-
-    catalog_keys    = [k for k in TRANSFORM_ORDER if k in TRANSFORM_CATALOG]
-    catalog_labels  = [TRANSFORM_CATALOG[k].name for k in catalog_keys]
-    passthrough_idx = catalog_keys.index("passthrough") if "passthrough" in catalog_keys else 0
 
     # Always single segment (no splits)
     active_seg = 0
@@ -586,63 +625,29 @@ def _render_controls(
     # ------------------------------------------------------------------
     st.markdown("**Transform**")
 
-    stored      = _get_seg_transform(selected_label, inst_idx, active_seg)
-    stored_key  = stored.get("transform_key", "passthrough")
-    try:
-        default_idx = catalog_keys.index(stored_key)
-    except ValueError:
-        default_idx = passthrough_idx
+    stored     = _get_seg_transform(selected_label, inst_idx, active_seg)
+    stored_key = stored.get("transform_key", "passthrough")
 
-    chosen_label = st.selectbox(
-        "Select transform",
-        options=catalog_labels,
-        index=default_idx,
-        key=f"pe_tx_sel_{selected_label}_{inst_idx}_{active_seg}",
-        label_visibility="collapsed",
-    )
-    chosen_key = catalog_keys[catalog_labels.index(chosen_label)]
-    spec       = TRANSFORM_CATALOG[chosen_key]
-
-    st.caption(spec.description)
-
+    _pe_prefix      = f"pe_txpick_{selected_label}_{inst_idx}_{active_seg}"
+    _pe_param_pfx   = f"pe_tx_{selected_label}_{inst_idx}_{active_seg}"
     cycle_duration_ms = cycle["end_ms"] - cycle["start_ms"]
 
-    # UI overrides for beat_accent
-    _ui_int_overrides: dict = {}
-    if chosen_key == "beat_accent":
-        _ui_int_overrides["start_at_ms"] = dict(max_value=cycle_duration_ms, step=500)
-        _ui_int_overrides["max_accents"]  = dict(max_value=60)
-
-    # Clamp any stale session state values before rendering sliders
-    for _pk, _ov in _ui_int_overrides.items():
-        _sk  = f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{_pk}"
-        _cap = _ov.get("max_value")
-        if _cap is not None and st.session_state.get(_sk, 0) > _cap:
-            st.session_state[_sk] = _cap
-
-    param_values: Dict[str, Any] = {}
-    for pk, param in spec.params.items():
-        if param.type == "float":
-            param_values[pk] = st.slider(
-                param.label,
-                min_value=float(param.min_val or 0.0),
-                max_value=float(param.max_val or 1.0),
-                value=float(param.default),
-                step=float(param.step or 0.05),
-                help=param.help,
-                key=f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{pk}",
-            )
-        elif param.type == "int":
-            overrides = _ui_int_overrides.get(pk, {})
-            param_values[pk] = st.slider(
-                param.label,
-                min_value=int(param.min_val or 0),
-                max_value=int(overrides.get("max_value", param.max_val or 100)),
-                value=int(param.default),
-                step=int(overrides.get("step", param.step or 1)),
-                help=param.help,
-                key=f"pe_tx_{selected_label}_{inst_idx}_{active_seg}_{pk}",
-            )
+    chosen_key = render_transform_picker(
+        prefix             = _pe_prefix,
+        param_prefix       = _pe_param_pfx,
+        current_key        = stored_key,
+        transform_overrides = {
+            "beat_accent": {
+                "start_at_ms": {"max_value": cycle_duration_ms, "step": 500},
+                "max_accents": {"max_value": 60},
+            },
+        },
+    )
+    spec = TRANSFORM_CATALOG[chosen_key]
+    param_values: Dict[str, Any] = {
+        pk: st.session_state.get(f"{_pe_param_pfx}_{pk}", p.default)
+        for pk, p in spec.params.items()
+    }
 
     # Persist transform for this instance
     _set_seg_transform(selected_label, inst_idx, active_seg, {
@@ -665,7 +670,7 @@ def _render_controls(
             for wi in proj.work_items:
                 if wi.start_ms == cycle["start_ms"]:
                     proj.set_item_status(wi.id, "done")
-        st.session_state.goto_tab = 5
+        st.session_state.goto_tab = 3
         st.rerun(scope="app")
 
     # Apply this instance's transform to all other instances
@@ -675,6 +680,8 @@ def _render_controls(
         width="stretch",
         help=f"Copy this transform to all {n_instances} instances of '{selected_label}' and go to Export.",
     ):
+        from ui.streamlit.undo_helpers import push_undo
+        push_undo(f"Apply transform to all '{selected_label}'")
         _copy_instance_to_all(selected_label, inst_idx, cycle, cycles)
         # Mark every matching work item as done
         proj = st.session_state.get("project")
@@ -683,7 +690,7 @@ def _render_controls(
             for wi in proj.work_items:
                 if wi.start_ms in cycle_starts:
                     proj.set_item_status(wi.id, "done")
-        st.session_state.goto_tab = 5
+        st.session_state.goto_tab = 3
         st.rerun(scope="app")
 
     st.divider()
@@ -747,7 +754,6 @@ def _render_controls(
                 options=range(len(pat_names)),
                 format_func=lambda i: pat_names[i],
                 key=f"pe_replace_sel_{selected_label}_{inst_idx}",
-                label_visibility="collapsed",
             )
             chosen_pat = saved_patterns[chosen_idx]
 
@@ -1054,7 +1060,7 @@ def _build_all_transforms(
     result = copy.deepcopy(original_actions)
 
     for i, cycle in enumerate(cycles):
-        if not st.session_state.get(f"pe_apply_{selected_label}_{i}", True):
+        if not st.session_state.get(f"pe_apply_{selected_label}_{i}", False):
             continue
 
         segments = _get_segments(selected_label, i, cycle)

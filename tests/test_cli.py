@@ -424,5 +424,156 @@ class TestCliListTransforms(unittest.TestCase):
         self.assertIn("scale", data["amplitude_scale"]["params"])
 
 
+class TestCliProject(unittest.TestCase):
+    """Tests for `cli.py project` — get/set name and description."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        # Create a minimal .project.json with no custom metadata.
+        self.project_file = os.path.join(self.tmp, "test.project.json")
+        data = {
+            "funscript_path": FIXTURE,
+            "custom_name": "",
+            "description": "",
+            "work_items": [],
+        }
+        with open(self.project_file, "w") as f:
+            json.dump(data, f)
+
+    def test_get_name_returns_filename_when_no_custom(self):
+        rc, stdout, _ = run("project", self.project_file, "get-name")
+        self.assertEqual(rc, 0)
+        self.assertIn("sample", stdout)
+
+    def test_set_name_persists(self):
+        rc, _, _ = run("project", self.project_file, "set-name", "My Project")
+        self.assertEqual(rc, 0)
+        with open(self.project_file) as f:
+            data = json.load(f)
+        self.assertEqual(data["custom_name"], "My Project")
+
+    def test_get_name_after_set(self):
+        run("project", self.project_file, "set-name", "Renamed")
+        rc, stdout, _ = run("project", self.project_file, "get-name")
+        self.assertEqual(rc, 0)
+        self.assertIn("Renamed", stdout)
+
+    def test_set_desc_persists(self):
+        rc, _, _ = run("project", self.project_file, "set-desc", "A test description.")
+        self.assertEqual(rc, 0)
+        with open(self.project_file) as f:
+            data = json.load(f)
+        self.assertEqual(data["description"], "A test description.")
+
+    def test_get_desc_after_set(self):
+        run("project", self.project_file, "set-desc", "Hello desc.")
+        rc, stdout, _ = run("project", self.project_file, "get-desc")
+        self.assertEqual(rc, 0)
+        self.assertIn("Hello desc.", stdout)
+
+    def test_missing_file_exits_nonzero(self):
+        rc, _, _ = run("project", "/nonexistent/path.project.json", "get-name")
+        self.assertNotEqual(rc, 0)
+
+
+class TestClassifierTags(unittest.TestCase):
+    """Tests for the new ramp and ambient behavioral tags in classifier.py."""
+
+    def setUp(self):
+        from assessment.classifier import compute_phrase_metrics, classify_phrase
+        self.compute = compute_phrase_metrics
+        self.classify = classify_phrase
+
+    def _make_phrase(self, start_ms=0, end_ms=10_000, bpm=120.0, tags=None):
+        return {"start_ms": start_ms, "end_ms": end_ms, "bpm": bpm, "tags": tags or []}
+
+    def _make_actions(self, positions):
+        """Build equally-spaced actions from a list of positions."""
+        step = 200
+        return [{"at": i * step, "pos": p} for i, p in enumerate(positions)]
+
+    def test_ramp_tag_detected_when_center_shifts(self):
+        """Phrase where mean_pos rises from ~30 to ~70 should get 'ramp' tag."""
+        # First half: low strokes (0-60 range, center ~30)
+        # Second half: high strokes (40-100 range, center ~70)
+        actions = (
+            [{"at": i * 100, "pos": 0 if i % 2 == 0 else 60} for i in range(20)]
+            + [{"at": 2000 + i * 100, "pos": 40 if i % 2 == 0 else 100} for i in range(20)]
+        )
+        phrase = {"start_ms": 0, "end_ms": 3900, "bpm": 120.0}
+        metrics = self.compute(phrase, actions)
+        tags = self.classify(phrase, metrics)
+        self.assertIn("ramp", tags)
+        self.assertIn("ramp_delta", metrics)
+        self.assertGreater(metrics["ramp_delta"], 0)  # positive = ramp up
+
+    def test_ambient_tag_detected_for_slow_shallow(self):
+        """Phrase with very low BPM and shallow amplitude should get 'ambient' tag."""
+        actions = [{"at": i * 2000, "pos": 45 if i % 2 == 0 else 55} for i in range(10)]
+        phrase = {"start_ms": 0, "end_ms": 18_000, "bpm": 20.0}
+        metrics = self.compute(phrase, actions)
+        tags = self.classify(phrase, metrics)
+        self.assertIn("ambient", tags)
+
+    def test_no_ramp_for_stable_phrase(self):
+        """Uniformly alternating phrase should not get 'ramp' tag."""
+        actions = [{"at": i * 250, "pos": 0 if i % 2 == 0 else 100} for i in range(20)]
+        phrase = {"start_ms": 0, "end_ms": 4750, "bpm": 120.0}
+        metrics = self.compute(phrase, actions)
+        tags = self.classify(phrase, metrics)
+        self.assertNotIn("ramp", tags)
+
+
+class TestFunnelTransform(unittest.TestCase):
+    """Tests for the Funnel transform in phrase_transforms.py."""
+
+    def setUp(self):
+        from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+        self.spec = TRANSFORM_CATALOG["funnel"]
+
+    def _make_actions(self, n=20, step_ms=200):
+        """Simple alternating 0-100 phrase."""
+        return [{"at": i * step_ms, "pos": 0 if i % 2 == 0 else 100} for i in range(n)]
+
+    def test_funnel_in_catalog(self):
+        from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG, TRANSFORM_ORDER
+        self.assertIn("funnel", TRANSFORM_CATALOG)
+        self.assertIn("funnel", TRANSFORM_ORDER)
+
+    def test_funnel_ramp_up_expands_amplitude(self):
+        """Start amplitude should be smaller than end amplitude for ramp-up."""
+        actions = self._make_actions()
+        result = self.spec.apply(actions, {"start_center": 30, "end_center": 70,
+                                           "start_scale": 0.2, "end_scale": 1.0})
+        start_span = abs(result[1]["pos"] - result[0]["pos"])
+        end_span   = abs(result[-1]["pos"] - result[-2]["pos"])
+        self.assertLess(start_span, end_span)
+
+    def test_funnel_ramp_down_compresses_amplitude(self):
+        """Start amplitude should be larger than end amplitude for ramp-down."""
+        actions = self._make_actions()
+        result = self.spec.apply(actions, {"start_center": 70, "end_center": 30,
+                                           "start_scale": 1.0, "end_scale": 0.2})
+        start_span = abs(result[1]["pos"] - result[0]["pos"])
+        end_span   = abs(result[-1]["pos"] - result[-2]["pos"])
+        self.assertGreater(start_span, end_span)
+
+    def test_funnel_preserves_action_count(self):
+        """Funnel is not structural; action count should be unchanged."""
+        actions = self._make_actions()
+        result = self.spec.apply(actions, {"start_center": 30, "end_center": 70,
+                                           "start_scale": 0.2, "end_scale": 1.0})
+        self.assertEqual(len(result), len(actions))
+
+    def test_funnel_clamps_positions(self):
+        """All output positions should be in [0, 100]."""
+        actions = self._make_actions()
+        result = self.spec.apply(actions, {"start_center": 0, "end_center": 100,
+                                           "start_scale": 0.0, "end_scale": 3.0})
+        for a in result:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+
 if __name__ == "__main__":
     unittest.main()

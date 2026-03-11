@@ -19,7 +19,7 @@ from assessment.analyzer import FunscriptAnalyzer, AnalyzerConfig
 from pattern_catalog import FunscriptTransformer, TransformerConfig
 from user_customization import WindowCustomizer, CustomizerConfig
 from ui.common.project import Project
-from ui.common.pipeline import run_pipeline
+from ui.common.pipeline import run_pipeline, run_pipeline_in_memory
 from ui.common.work_items import ItemType
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "sample.funscript")
@@ -176,6 +176,109 @@ class TestAssessTransformCustomizeChain(unittest.TestCase):
         self.assertEqual(len(windows), 1)
         self.assertIn("config", windows[0])
         self.assertAlmostEqual(windows[0]["config"]["max_velocity"], 0.10)
+
+
+class TestRunPipelineInMemory(unittest.TestCase):
+    """Tests for run_pipeline_in_memory — in-memory transformer + customizer chain."""
+
+    def _assess(self):
+        analyzer = FunscriptAnalyzer()
+        analyzer.load(FIXTURE)
+        return analyzer.analyze()
+
+    def test_returns_actions_list(self):
+        assessment = self._assess()
+        actions, log = run_pipeline_in_memory(FIXTURE, assessment)
+        self.assertIsInstance(actions, list)
+        self.assertGreater(len(actions), 0)
+
+    def test_returns_log_dict(self):
+        assessment = self._assess()
+        _, log = run_pipeline_in_memory(FIXTURE, assessment)
+        self.assertIsInstance(log, dict)
+        self.assertIn("transformer", log)
+        self.assertIn("customizer_applied", log)
+        self.assertIn("windows", log)
+
+    def test_actions_have_required_keys(self):
+        assessment = self._assess()
+        actions, _ = run_pipeline_in_memory(FIXTURE, assessment)
+        for a in actions:
+            self.assertIn("at", a)
+            self.assertIn("pos", a)
+
+    def test_output_positions_in_range(self):
+        assessment = self._assess()
+        actions, _ = run_pipeline_in_memory(FIXTURE, assessment)
+        for a in actions:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
+
+    def test_timestamps_sorted(self):
+        assessment = self._assess()
+        actions, _ = run_pipeline_in_memory(FIXTURE, assessment)
+        timestamps = [a["at"] for a in actions]
+        self.assertEqual(timestamps, sorted(timestamps))
+
+    def test_no_duplicate_timestamps(self):
+        assessment = self._assess()
+        actions, _ = run_pipeline_in_memory(FIXTURE, assessment)
+        timestamps = [a["at"] for a in actions]
+        self.assertEqual(len(timestamps), len(set(timestamps)))
+
+    def test_custom_transformer_config(self):
+        assessment = self._assess()
+        tcfg = TransformerConfig(bpm_threshold=200.0, amplitude_scale=1.5)
+        actions, log = run_pipeline_in_memory(FIXTURE, assessment, transformer_config=tcfg)
+        self.assertGreater(len(actions), 0)
+        self.assertEqual(log["transformer"]["bpm_threshold"], 200.0)
+        self.assertEqual(log["transformer"]["amplitude_scale"], 1.5)
+
+    def test_customizer_not_applied_without_windows(self):
+        assessment = self._assess()
+        _, log = run_pipeline_in_memory(FIXTURE, assessment)
+        self.assertFalse(log["customizer_applied"])
+        self.assertEqual(log["windows"]["performance"], 0)
+        self.assertEqual(log["windows"]["break"], 0)
+        self.assertEqual(log["windows"]["raw"], 0)
+
+    def test_customizer_applied_with_explicit_config(self):
+        assessment = self._assess()
+        ccfg = CustomizerConfig()
+        _, log = run_pipeline_in_memory(FIXTURE, assessment, customizer_config=ccfg)
+        self.assertTrue(log["customizer_applied"])
+
+    def test_performance_windows_counted_in_log(self):
+        assessment = self._assess()
+        # Build a minimal valid window entry using the first phrase
+        from utils import ms_to_timestamp
+        ph = assessment.phrases[0]
+        windows = [{"start": ms_to_timestamp(ph.start_ms), "end": ms_to_timestamp(ph.end_ms)}]
+        actions, log = run_pipeline_in_memory(
+            FIXTURE, assessment, performance_windows=windows
+        )
+        self.assertTrue(log["customizer_applied"])
+        self.assertEqual(log["windows"]["performance"], 1)
+        self.assertGreater(len(actions), 0)
+
+    def test_via_project_windows(self):
+        """run_pipeline_in_memory works with windows from project.performance_windows()."""
+        project = Project.from_funscript(FIXTURE)
+        if project.work_items:
+            project.set_item_type(project.work_items[0].id, ItemType.PERFORMANCE)
+
+        assessment = project.assessment
+        actions, log = run_pipeline_in_memory(
+            FIXTURE,
+            assessment,
+            performance_windows=project.performance_windows(),
+            break_windows=project.break_windows(),
+            raw_windows=project.raw_windows(),
+        )
+        self.assertGreater(len(actions), 0)
+        for a in actions:
+            self.assertGreaterEqual(a["pos"], 0)
+            self.assertLessEqual(a["pos"], 100)
 
 
 if __name__ == "__main__":

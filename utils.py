@@ -3,7 +3,24 @@
 
 """Shared utility functions and base classes used across the pipeline."""
 
+import os
+import sys
 from typing import List
+
+
+def writable_base_dir() -> str:
+    """Return the directory where writable app data (e.g. output/) should live.
+
+    When running as a PyInstaller frozen executable ``sys.frozen`` is True and
+    ``sys._MEIPASS`` points to the *read-only* extracted bundle.  Writable data
+    must instead live beside the executable (``sys.executable``).
+
+    In development (non-frozen) mode this is the project root (parent of this
+    file), matching the existing convention of ``output/`` at the repo root.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)  # type: ignore[attr-defined]
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 class LoggingMixin:

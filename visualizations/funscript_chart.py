@@ -187,7 +187,9 @@ class FunscriptChart:
 
         if n > 0:
             if large:
-                # Large funscript: single grey line for speed, coloured dots on top
+                # Large funscript: single grey line for speed, coloured dots on top.
+                # Exception: within the selected phrase window, overlay per-segment
+                # coloured lines so the active phrase is visually distinct.
                 fig.add_trace(go.Scatter(
                     x=s.times_ms,
                     y=s.positions,
@@ -196,6 +198,27 @@ class FunscriptChart:
                     showlegend=False,
                     hoverinfo="skip",
                 ))
+                if has_selection:
+                    sel_s = slice_series(
+                        s,
+                        view_state.selection_start_ms,
+                        view_state.selection_end_ms,
+                    )
+                    sel_colors = (
+                        sel_s.colors_velocity
+                        if color_mode == "velocity"
+                        else sel_s.colors_amplitude
+                    )
+                    sn = len(sel_s.times_ms)
+                    for i in range(sn - 1):
+                        fig.add_trace(go.Scatter(
+                            x=[sel_s.times_ms[i], sel_s.times_ms[i + 1]],
+                            y=[sel_s.positions[i], sel_s.positions[i + 1]],
+                            mode="lines",
+                            line=dict(color=sel_colors[i], width=2),
+                            showlegend=False,
+                            hoverinfo="skip",
+                        ))
             else:
                 # Small funscript: per-segment coloured lines match dot colours
                 for i in range(n - 1):

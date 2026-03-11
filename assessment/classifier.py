@@ -35,6 +35,10 @@ lazy        bpm < 60 AND span < 50
             — slow and shallow; unenergetic
 frantic     bpm > 200
             — too fast to feel; likely near device mechanical limit
+ramp        |mean_pos(second_half) - mean_pos(first_half)| > 20
+            — center of gravity shifts significantly across the phrase (ramp up or down)
+ambient     bpm < 40 AND span < 25 AND duration_ms > 5000
+            — very low BPM, minimal amplitude; ambient or transition filler
 """
 
 from __future__ import annotations
@@ -147,6 +151,30 @@ TAGS: Dict[str, BehavioralTag] = {
         suggested_transform="halve_tempo",
         fix_hint="Halve tempo to bring into a perceptible range.",
     ),
+    "ramp": BehavioralTag(
+        key="ramp",
+        label="Ramp",
+        description=(
+            "Center of gravity shifts significantly across the phrase — "
+            "motion ramps from low-to-high or high-to-low intensity. "
+            "Apply a Funnel transform to make the progression smooth and visually ordered."
+        ),
+        color="rgba(80,220,160,0.70)",
+        suggested_transform="funnel",
+        fix_hint="Apply a Funnel transform to shape the energy arc from start to end position.",
+    ),
+    "ambient": BehavioralTag(
+        key="ambient",
+        label="Ambient",
+        description=(
+            "Very low BPM and minimal amplitude — an ambient or transition filler section. "
+            "May appear between active phrases as breathing room or scene transitions. "
+            "Consider a waiting or drift transform to make it intentional."
+        ),
+        color="rgba(140,140,180,0.70)",
+        suggested_transform="waiting",
+        fix_hint="Apply a waiting or drift transform to give this section intentional shape.",
+    ),
 }
 
 
@@ -218,6 +246,15 @@ def compute_phrase_metrics(phrase_dict: dict, all_actions: List[dict]) -> dict:
     else:
         cv_bpm = 0.0
 
+    # Ramp detection: compare mean_pos in first vs second half of the phrase
+    mid_ms = start_ms + duration_ms // 2
+    first_half_pos  = [a["pos"] for a in window if a["at"] <= mid_ms]
+    second_half_pos = [a["pos"] for a in window if a["at"] > mid_ms]
+    if first_half_pos and second_half_pos:
+        ramp_delta = (sum(second_half_pos) / len(second_half_pos)) - (sum(first_half_pos) / len(first_half_pos))
+    else:
+        ramp_delta = 0.0
+
     return {
         "mean_pos":      round(mean_pos, 1),
         "span":          round(span, 1),
@@ -225,6 +262,7 @@ def compute_phrase_metrics(phrase_dict: dict, all_actions: List[dict]) -> dict:
         "peak_velocity": round(peak_velocity, 4),
         "cv_bpm":        round(cv_bpm, 4),
         "duration_ms":   duration_ms,
+        "ramp_delta":    round(ramp_delta, 1),
     }
 
 
@@ -288,6 +326,15 @@ def classify_phrase(
     # frantic: too fast to feel
     if bpm > 200:
         tags.append("frantic")
+
+    # ramp: center of gravity shifts significantly (>20 pos units) across the phrase
+    ramp_delta = metrics.get("ramp_delta", 0.0)
+    if abs(ramp_delta) > 20 and span > 15 and duration_ms > 3_000:
+        tags.append("ramp")
+
+    # ambient: very slow, very shallow, longer filler section
+    if bpm < 40 and span < 25 and duration_ms > 5_000:
+        tags.append("ambient")
 
     return tags
 

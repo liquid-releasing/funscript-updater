@@ -15,7 +15,7 @@ class TestTagRegistry(unittest.TestCase):
     def test_all_expected_tags_present(self):
         from assessment.classifier import TAGS
         expected = {"stingy", "giggle", "plateau", "drift", "half_stroke",
-                    "drone", "lazy", "frantic"}
+                    "drone", "lazy", "frantic", "ramp", "ambient"}
         self.assertEqual(set(TAGS.keys()), expected)
 
     def test_each_tag_has_required_fields(self):

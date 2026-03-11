@@ -54,12 +54,18 @@ _EXPECTED_KEYS = {
     "shift",
     "recenter",
     "break",
+    "waiting",
     "performance",
     "three_one",
     "blend_seams",
     "final_smooth",
     "beat_accent",
     "halve_tempo",
+    # Replacement transforms (moved from plugins/ to built-ins)
+    "stroke",
+    "drift",
+    "tide",
+    "funnel",
 }
 
 _PHRASE_HIGH_BPM = {"bpm": 150.0, "pattern_label": "regular", "amplitude_span": 80}

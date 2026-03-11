@@ -54,8 +54,7 @@ def _selector_fragment(
     # Show edited version if any phrase transforms have been accepted
     from ui.streamlit.panels.phrase_detail import build_edited_actions
     has_edits = any(
-        k.startswith("phrase_transform_")
-        and st.session_state[k].get("transform_key", "passthrough") != "passthrough"
+        k.startswith("phrase_transform_chain_") and bool(st.session_state[k])
         for k in st.session_state
     )
     if has_edits:
@@ -66,8 +65,6 @@ def _selector_fragment(
         )
     else:
         display_actions = original_actions
-
-    _render_controls(view_state, duration_ms, phrases)
 
     n_actions   = len(display_actions)
     spinner_msg = (
@@ -88,8 +85,6 @@ def _selector_fragment(
         )
     st.caption(f"Chart built in {_time.time() - _t0:.1f}s")
     _handle_chart_event(ev, view_state, phrases)
-
-    _render_phrase_bar(phrases, view_state)
 
 
 # ------------------------------------------------------------------
@@ -129,30 +124,16 @@ def render(
     # Ensure phrases are always shown even if view_state has them toggled off.
     view_state.show_phrases = True
 
-    from ui.streamlit.panels import phrase_detail
+    # Full-funscript chart always visible (fragment keeps scroll/zoom cheap).
+    _selector_fragment(
+        funscript_path=project.funscript_path,
+        assessment_dict=assessment_dict,
+        duration_ms=duration_ms,
+        large_funscript_threshold=large_funscript_threshold,
+    )
 
-    if view_state.has_selection():
-        # ------------------------------------------------------------------
-        # Detail mode: hide phrase selector, show only phrase detail panel
-        # ------------------------------------------------------------------
-        _render_phrase_info(view_state, phrases)
-        phrase_detail.render(
-            phrases=phrases,
-            view_state=view_state,
-            duration_ms=duration_ms,
-            bpm_threshold=st.session_state.get("bpm_threshold", 120.0),
-        )
-    else:
-        # ------------------------------------------------------------------
-        # Selector mode: chart + controls in a fragment so scroll/zoom
-        # interactions don't flash the whole page.
-        # ------------------------------------------------------------------
-        _selector_fragment(
-            funscript_path=project.funscript_path,
-            assessment_dict=assessment_dict,
-            duration_ms=duration_ms,
-            large_funscript_threshold=large_funscript_threshold,
-        )
+    # Phrase table always visible below the chart.
+    _render_phrase_table(phrases, view_state)
 
 
 # ------------------------------------------------------------------
@@ -177,7 +158,6 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
             index=0 if view_state.color_mode == "velocity" else 1,
             horizontal=True,
             key="viewer_color_mode",
-            label_visibility="collapsed",
         )
 
     # Keys include the current zoom values so the widgets re-initialize
@@ -186,7 +166,6 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
         t0_val = st.text_input(
             "From", value=ms_to_timestamp(zoom_start),
             key=f"ctrl_t0_{zoom_start}",
-            label_visibility="collapsed",
             placeholder="M:SS",
         )
 
@@ -194,7 +173,6 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
         t1_val = st.text_input(
             "To", value=ms_to_timestamp(zoom_end),
             key=f"ctrl_t1_{zoom_end}",
-            label_visibility="collapsed",
             placeholder="M:SS",
         )
 
@@ -245,32 +223,21 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
 # ------------------------------------------------------------------
 
 def _handle_chart_event(event, view_state, phrases: list) -> None:
-    """Map a Plotly point-click or box-select event to a ViewState update."""
+    """Box-drag on the chart zooms the viewport. Use the table below to select a phrase."""
     if not event:
         return
     sel = getattr(event, "selection", None)
     if not sel:
         return
 
-    # Single-point click → select enclosing phrase
-    points = getattr(sel, "points", [])
-    if points:
-        x = points[0].get("x")
-        if x is not None:
-            phrase = _find_phrase_at(int(x), phrases)
-            if phrase:
-                _select_phrase(phrase, view_state)
-                st.rerun(scope="app")   # full rerun → switches to detail mode
-        return
-
-    # Box drag → manual time range selection
+    # Box drag → zoom the chart to the selected time range
     box = getattr(sel, "box", None) or []
     if box:
         try:
             x_range = box[0].get("x", [])
             if len(x_range) == 2:
-                view_state.set_selection(int(x_range[0]), int(x_range[1]))
-                st.rerun(scope="app")   # full rerun
+                view_state.set_zoom(int(x_range[0]), int(x_range[1]))
+                st.rerun()   # fragment rerun — just updates the chart viewport
         except Exception:
             pass
 
@@ -279,59 +246,52 @@ def _handle_chart_event(event, view_state, phrases: list) -> None:
 # Phrase table
 # ------------------------------------------------------------------
 
-def _render_phrase_bar(phrases: list, view_state) -> None:
-    """Per-row table of all phrases with an Edit button on each row."""
+def _render_phrase_table(phrases: list, view_state) -> None:
+    """Compact dataframe of all phrases; click a row to open the editor."""
     if not phrases:
         return
 
+    import pandas as pd
     from assessment.classifier import TAGS
 
     st.caption(
         f"{len(phrases)} phrase{'s' if len(phrases) != 1 else ''} — "
-        "click a phrase on the chart above or use the Edit buttons below"
+        "click a row or a phrase on the chart above to open the editor"
     )
 
-    _col_w = [0.5, 3.0, 1.2, 1.0, 3.0, 1.2, 1.5]
-    hcols = st.columns(_col_w)
-    for h, lbl in zip(hcols, ["#", "Time", "Dur", "BPM", "Behavior", "Cycles", ""]):
-        h.caption(lbl)
-
+    rows = []
     for i, ph in enumerate(phrases):
-        start   = ph["start_ms"]
-        end     = ph["end_ms"]
-        dur_ms  = end - start
-        bpm     = ph.get("bpm", 0.0)
-        cycles  = ph.get("cycle_count", "—")
         raw_tags = ph.get("tags", []) or []
-
-        # Behavior: prefer human tag labels, fall back to pattern_label
         if raw_tags:
             behavior = ", ".join(TAGS[t].label if t in TAGS else t for t in raw_tags)
         else:
             behavior = (ph.get("pattern_label", "") or "—").replace("->", "→")
+        rows.append({
+            "Phrase":   f"P{i + 1}",
+            "Start":    ms_to_timestamp(ph["start_ms"]),
+            "End":      ms_to_timestamp(ph["end_ms"]),
+            "Dur":      ms_to_timestamp(max(0, ph["end_ms"] - ph["start_ms"])),
+            "BPM":      round(ph.get("bpm", 0.0), 1),
+            "Behavior": behavior,
+            "Cycles":   ph.get("cycle_count", "—"),
+        })
 
-        time_str = f"{ms_to_timestamp(start)} → {ms_to_timestamp(end)}"
-        dur_str  = ms_to_timestamp(max(0, dur_ms))
+    df = pd.DataFrame(rows, index=range(1, len(rows) + 1))
+    # Use a versioned key so that after a row is processed we can bump the
+    # version and get a completely fresh widget (no stale selection in the
+    # browser or Streamlit's reconciliation cache).
+    _tver = st.session_state.get("phrase_table_ver", 0)
+    ev = st.dataframe(
+        df,
+        on_select="rerun",
+        selection_mode="single-row",
+        width="stretch",
+        key=f"phrase_table_{_tver}",
+    )
 
-        is_sel = (
-            view_state.has_selection()
-            and view_state.selection_start_ms == start
-            and view_state.selection_end_ms   == end
-        )
-
-        rc = st.columns(_col_w)
-        rc[0].markdown(
-            f'<span style="white-space:nowrap">{"◆ " if is_sel else ""}{i + 1}</span>',
-            unsafe_allow_html=True,
-        )
-        rc[1].write(time_str)
-        rc[2].write(dur_str)
-        rc[3].write(f"{bpm:.1f}")
-        rc[4].write(behavior)
-        rc[5].write(str(cycles))
-        if rc[6].button("✏", key=f"phrase_btn_{i}", type="primary" if is_sel else "secondary", help="Edit phrase"):
-            _select_phrase(ph, view_state)
-            st.rerun(scope="app")
+    # Navigation is handled at the top of _render_phrase_tab (app.py) by reading
+    # the widget's session-state key before choosing Selector vs Editor view.
+    # Nothing to do here — on_select="rerun" is enough to trigger the rerun.
 
 
 # ------------------------------------------------------------------
@@ -391,7 +351,8 @@ def _find_phrase_at(time_ms: int, phrases: list):
 
 
 def _select_phrase(phrase: dict, view_state) -> None:
-    view_state.set_selection(phrase["start_ms"], phrase["end_ms"])
+    view_state.selection_start_ms = phrase["start_ms"]
+    view_state.selection_end_ms = phrase["end_ms"]
 
 
 def _zoom_to_phrase(phrase: dict, view_state, duration_ms: int) -> None:
