@@ -34,6 +34,16 @@ Without the launcher (or when deployed to the cloud), the app falls back to
 
 ## Sidebar
 
+### Top section — Funscript Project
+
+When a project is loaded, the project name and auto-generated description appear
+immediately under the **Funscript Project** heading, before the file picker:
+
+> *This project is 3:13 long. It averages 120 beats per minute. You can edit based on 34 phrases and 11 patterns.*
+
+The name defaults to the funscript filename; it can be changed via the CLI
+(`cli.py project <file> set-name "My Name"`).
+
 | Control | Description |
 | --- | --- |
 | Funscript picker | Recently used files dropdown + path input (local) or file uploader (web) |
@@ -43,10 +53,15 @@ Without the launcher (or when deployed to the cloud), the app falls back to
 | Fast rendering threshold | Funscripts above this action count use a grey line for speed |
 | Transform BPM threshold | Phrases at or above this BPM receive the Amplitude Scale suggestion |
 | Re-analyse | Force a fresh assessment with the current settings |
-| ↩ Undo / ↪ Redo | 50-level undo/redo; tooltip shows the operation label. See [UNDO.md](UNDO.md). |
-| Add manual item | Define a work item by typing start/end times (ms) and a type |
-| Export window JSONs | Write `performance.json`, `break.json`, `raw.json` to `output/` |
 | Save project | Write a full project snapshot to `output/<name>.project.json` |
+
+### After the divider — project info
+
+| Section | Contents |
+| --- | --- |
+| **Project Specs** | Phrases · transitions · patterns · BPM avg and range · assessed-in time |
+| **Available Transforms** | One bullet per category (Behavior / Structural / Plugins) with count |
+| **Editing Progress** | Shown once edits begin: phrases edited and pattern instances applied |
 
 Settings auto-apply when changed; the assessment reruns automatically.
 
@@ -141,7 +156,9 @@ Behavioral pattern batch-fix workspace. Phrases are pre-classified into 8 behavi
 
 ### 2. Transform Catalog
 
-Reference guide for all 17 phrase transforms, grouped by capability:
+Reference guide for all built-in phrase transforms, organized into three sections with explanatory info boxes.  A two-step selector (category pills → per-category dropdown) is used in both the Phrase Editor and Pattern Editor to pick transforms.
+
+**Behavior** — transforms that modify position values without changing timing:
 
 | Group | Transforms |
 | --- | --- |
@@ -149,12 +166,25 @@ Reference guide for all 17 phrase transforms, grouped by capability:
 | Amplitude Shaping | amplitude_scale, normalize, boost_contrast |
 | Position Adjustment | shift, recenter, clamp_upper, clamp_lower, invert |
 | Smoothing & Filtering | smooth, blend_seams, final_smooth |
-| Break / Recovery | break |
+| Break / Recovery | break, waiting |
 | Performance / Device Realism | performance |
 | Rhythmic Patterns | beat_accent, three_one |
+
+**Structural** — transforms that change the number or timing of actions:
+
+| Group | Transforms |
+| --- | --- |
 | Structural — Tempo | halve_tempo |
 
-Each entry shows: description, best-fit behavioral tags, a parameter table, live sliders, and side-by-side Before/After charts.
+**Replacement** — transforms that replace the original motion entirely:
+
+| Group | Transforms |
+| --- | --- |
+| Stroke Patterns | stroke, drift, tide |
+
+Each entry shows: description, best-fit behavioral tags, a parameter table, live sliders, and a Before/After chart.  Structural transforms show output-only (no Before chart); Behavior and Replacement transforms show side-by-side Before/After.
+
+Plugin transforms loaded from `plugins/` appear under a **Plugins** section.
 
 ### 3. Export
 

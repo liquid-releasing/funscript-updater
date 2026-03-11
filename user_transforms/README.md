@@ -25,8 +25,10 @@ Each file is an array of transform objects:
 
 passthrough, amplitude_scale, normalize, boost_contrast, shift,
 recenter, clamp_upper, clamp_lower, invert, smooth, blend_seams,
-final_smooth, break, performance, beat_accent, three_one, halve_tempo
+final_smooth, break, waiting, performance, beat_accent, three_one,
+halve_tempo, stroke, drift, tide
 
 ## Notes
+
 - Keys must not clash with built-ins (duplicates are skipped with a warning)
 - Restart Streamlit after adding or editing files here

@@ -424,5 +424,57 @@ class TestCliListTransforms(unittest.TestCase):
         self.assertIn("scale", data["amplitude_scale"]["params"])
 
 
+class TestCliProject(unittest.TestCase):
+    """Tests for `cli.py project` — get/set name and description."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        # Create a minimal .project.json with no custom metadata.
+        self.project_file = os.path.join(self.tmp, "test.project.json")
+        data = {
+            "funscript_path": FIXTURE,
+            "custom_name": "",
+            "description": "",
+            "work_items": [],
+        }
+        with open(self.project_file, "w") as f:
+            json.dump(data, f)
+
+    def test_get_name_returns_filename_when_no_custom(self):
+        rc, stdout, _ = run("project", self.project_file, "get-name")
+        self.assertEqual(rc, 0)
+        self.assertIn("sample", stdout)
+
+    def test_set_name_persists(self):
+        rc, _, _ = run("project", self.project_file, "set-name", "My Project")
+        self.assertEqual(rc, 0)
+        with open(self.project_file) as f:
+            data = json.load(f)
+        self.assertEqual(data["custom_name"], "My Project")
+
+    def test_get_name_after_set(self):
+        run("project", self.project_file, "set-name", "Renamed")
+        rc, stdout, _ = run("project", self.project_file, "get-name")
+        self.assertEqual(rc, 0)
+        self.assertIn("Renamed", stdout)
+
+    def test_set_desc_persists(self):
+        rc, _, _ = run("project", self.project_file, "set-desc", "A test description.")
+        self.assertEqual(rc, 0)
+        with open(self.project_file) as f:
+            data = json.load(f)
+        self.assertEqual(data["description"], "A test description.")
+
+    def test_get_desc_after_set(self):
+        run("project", self.project_file, "set-desc", "Hello desc.")
+        rc, stdout, _ = run("project", self.project_file, "get-desc")
+        self.assertEqual(rc, 0)
+        self.assertIn("Hello desc.", stdout)
+
+    def test_missing_file_exits_nonzero(self):
+        rc, _, _ = run("project", "/nonexistent/path.project.json", "get-name")
+        self.assertNotEqual(rc, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

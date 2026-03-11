@@ -142,6 +142,74 @@ class TestProjectPersistence(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_custom_name_roundtrips(self):
+        self.project.custom_name = "My Test Project"
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            path = f.name
+        try:
+            self.project.export_project(path)
+            restored = Project.load_project(path)
+            self.assertEqual(restored.custom_name, "My Test Project")
+            self.assertEqual(restored.display_name, "My Test Project")
+        finally:
+            os.unlink(path)
+
+    def test_description_roundtrips(self):
+        self.project.description = "A custom description."
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            path = f.name
+        try:
+            self.project.export_project(path)
+            restored = Project.load_project(path)
+            self.assertEqual(restored.description, "A custom description.")
+        finally:
+            os.unlink(path)
+
+
+class TestProjectMetadata(unittest.TestCase):
+    def setUp(self):
+        self.project = Project.from_funscript(_FIXTURE)
+
+    def test_display_name_defaults_to_filename(self):
+        self.assertEqual(self.project.display_name, "sample")
+
+    def test_display_name_uses_custom_name_when_set(self):
+        self.project.custom_name = "Custom"
+        self.assertEqual(self.project.display_name, "Custom")
+
+    def test_display_name_strips_whitespace(self):
+        self.project.custom_name = "  padded  "
+        self.assertEqual(self.project.display_name, "padded")
+
+    def test_display_name_falls_back_when_blank(self):
+        self.project.custom_name = "   "
+        self.assertEqual(self.project.display_name, "sample")
+
+    def test_auto_description_contains_duration(self):
+        desc = self.project.auto_description()
+        self.assertIn("long", desc)
+
+    def test_auto_description_contains_bpm(self):
+        desc = self.project.auto_description()
+        self.assertIn("beats per minute", desc)
+
+    def test_auto_description_contains_phrases(self):
+        desc = self.project.auto_description()
+        self.assertIn("phrase", desc)
+
+    def test_auto_description_contains_patterns(self):
+        desc = self.project.auto_description()
+        self.assertIn("pattern", desc)
+
+    def test_get_description_falls_back_to_auto(self):
+        self.project.description = ""
+        auto = self.project.auto_description()
+        self.assertEqual(self.project.get_description(), auto)
+
+    def test_get_description_uses_custom_when_set(self):
+        self.project.description = "Hand-written description."
+        self.assertEqual(self.project.get_description(), "Hand-written description.")
+
 
 if __name__ == "__main__":
     unittest.main()
