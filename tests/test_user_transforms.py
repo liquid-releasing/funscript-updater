@@ -135,8 +135,8 @@ class TestLoadRecipes(unittest.TestCase):
 
     def test_list_of_recipes_loaded(self):
         self._write_recipe("multi.json", [
-            {"key": "test_a", "name": "A", "description": "", "steps": []},
-            {"key": "test_b", "name": "B", "description": "", "steps": []},
+            {"key": "test_a", "name": "A", "description": "", "steps": [{"transform": "passthrough", "params": {}}]},
+            {"key": "test_b", "name": "B", "description": "", "steps": [{"transform": "passthrough", "params": {}}]},
         ])
         result = load_user_transforms(recipes_dir=self.tmp, plugins_dir=self.tmp)
         self.assertIn("test_a", result)
@@ -181,7 +181,7 @@ class TestLoadRecipes(unittest.TestCase):
             "name": "Structural",
             "description": "",
             "structural": True,
-            "steps": [],
+            "steps": [{"transform": "passthrough", "params": {}}],
         })
         result = load_user_transforms(recipes_dir=self.tmp, plugins_dir=self.tmp)
         self.assertTrue(result["test_structural"].structural)
@@ -202,6 +202,11 @@ class TestLoadPlugins(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        # Python plugins require explicit opt-in; enable for these tests.
+        os.environ["FUNSCRIPT_PLUGINS_ENABLED"] = "1"
+
+    def tearDown(self):
+        os.environ.pop("FUNSCRIPT_PLUGINS_ENABLED", None)
 
     def _write_plugin(self, filename, code):
         path = os.path.join(self.tmp, filename)

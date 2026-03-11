@@ -384,9 +384,9 @@ class TestCliListTransforms(unittest.TestCase):
             self.assertIn(key, stdout)
 
     def test_user_only_shows_user_transforms(self):
-        """example_clamp_center is loaded from plugins/example_plugin.py."""
+        """example_center_lift is loaded from user_transforms/example_recipe.json."""
         _, stdout, _ = run("list-transforms", "--user-only")
-        self.assertIn("example_clamp_center", stdout)
+        self.assertIn("example_center_lift", stdout)
         self.assertNotIn("amplitude_scale", stdout)
 
     def test_user_only_empty_when_no_user_transforms(self):
@@ -415,7 +415,7 @@ class TestCliListTransforms(unittest.TestCase):
         _, stdout, _ = run("list-transforms", "--format", "json")
         data = json.loads(stdout)
         self.assertEqual(data["amplitude_scale"]["source"], "builtin")
-        self.assertEqual(data["example_clamp_center"]["source"], "user")
+        self.assertEqual(data["example_center_lift"]["source"], "user")
 
     def test_format_json_verbose_includes_params(self):
         _, stdout, _ = run("list-transforms", "--format", "json", "--verbose")
