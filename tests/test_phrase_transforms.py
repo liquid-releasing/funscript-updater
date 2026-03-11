@@ -65,6 +65,7 @@ _EXPECTED_KEYS = {
     "stroke",
     "drift",
     "tide",
+    "funnel",
 }
 
 _PHRASE_HIGH_BPM = {"bpm": 150.0, "pattern_label": "regular", "amplitude_span": 80}
