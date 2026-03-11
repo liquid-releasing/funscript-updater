@@ -1,8 +1,44 @@
 # plugins
 
-Drop Python files here to add custom transforms that require logic beyond
-what JSON recipes can express.  Each file is imported automatically when the
-app starts.
+> **Python plugins are a planned SaaS / cloud tier feature.**
+>
+> The code infrastructure exists and is tested, but Python plugins are
+> **disabled by default** on the local app because they run with full system
+> access (file system, network, subprocesses) and cannot be safely sandboxed
+> on a user's machine.
+>
+> **For local use: add JSON recipe files to `user_transforms/` instead.**
+> JSON recipes can chain any built-in transform and cover the vast majority
+> of real-world use cases with no security exposure.
+>
+> See `internal/SECURITY.md` → *Python Plugin Roadmap Decision* for the full
+> rationale, and `pattern_catalog/EXTENDING_TRANSFORMS.md` for the security
+> model and troubleshooting guide.
+
+---
+
+## Enabling plugins locally (advanced / developer use only)
+
+If you are developing or testing plugins on your own machine and understand
+the risk, set the environment variable before starting the app:
+
+```bash
+FUNSCRIPT_PLUGINS_ENABLED=1 streamlit run ui/streamlit/app.py
+# or
+FUNSCRIPT_PLUGINS_ENABLED=1 python cli.py list-transforms --user-only
+```
+
+Verify your plugin loaded:
+
+```bash
+python cli.py validate-plugins --verbose
+```
+
+**Only enable this flag for plugins you wrote yourself or have reviewed.**
+A malicious `.py` file in this directory would execute with your full user
+permissions at app startup.
+
+---
 
 ## Interface
 
@@ -53,12 +89,15 @@ TRANSFORM = _MyTransform(
   decide whether to do an in-place position update or a full slice replacement.
 - A broken plugin (import error, exception during load) is skipped with a
   stderr message; it does not abort the app.
-- Files named `example_*.py` are committed as templates; your own files are
+- Files named `example_*.py` are committed as templates and are **always
+  skipped**, even when `FUNSCRIPT_PLUGINS_ENABLED=1`.  Your own files are
   gitignored.
 
 ## See also
 
-`user_transforms/README.md` — for simpler, no-code JSON recipe transforms.
+- `user_transforms/README.md` — JSON recipe transforms (safe, no flag needed)
+- `pattern_catalog/EXTENDING_TRANSFORMS.md` — full security model and troubleshooting
+- `internal/SECURITY.md` — threat analysis and Python plugin roadmap decision
 
 ---
 

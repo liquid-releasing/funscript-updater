@@ -77,8 +77,6 @@ recipe, and only load your own code.
 
 ---
 
----
-
 ## Method 1 — JSON Recipe
 
 A recipe composes existing built-in transforms into a named pipeline.
@@ -179,6 +177,16 @@ Individual step parameters can be overridden when calling
 ---
 
 ## Method 2 — Python Plugin
+
+> **Planned for the SaaS / cloud paid tier — not a supported local feature.**
+>
+> Python plugins run with full system access and cannot be safely sandboxed on
+> a local machine.  The infrastructure exists and is tested, but plugins are
+> disabled by default.  See the [Security Model](#security-model) above for
+> the full rationale and the opt-in flag for developer use.
+>
+> **For local use, write a JSON recipe (Method 1) instead.**  JSON recipes
+> cover the vast majority of real-world cases with zero security exposure.
 
 A plugin is a plain Python file that registers one or more `PhraseTransform` instances.
 Use this when you need custom math, conditionals, or parameters that callers can tune.
