@@ -120,7 +120,9 @@ def _detail_fragment(
         st.error(f"Could not parse funscript: {_e}")
         return
 
-    split_mode = st.session_state.get(f"split_mode_{phrase_idx}", False)
+    split_mode     = st.session_state.get(f"split_mode_{phrase_idx}", False)
+    concat_preview = st.session_state.get(f"concat_preview_{phrase_idx}", False)
+    next_phrase    = phrases[phrase_idx + 1] if phrase_idx < len(phrases) - 1 else None
 
     # Derive split_ms from the cycle slider before the chart renders
     split_ms = None
@@ -154,10 +156,14 @@ def _detail_fragment(
     else:
         baseline_actions = original_actions
 
+    # When previewing a concat, extend win_end to cover the next phrase too
+    if concat_preview and next_phrase:
+        win_end = min(duration_ms, max(win_end, next_phrase["end_ms"] + 5_000))
+
     # ------------------------------------------------------------------
-    # Resolve pending transform (only needed when not in split mode)
+    # Resolve pending transform (only needed when not in split/concat mode)
     # ------------------------------------------------------------------
-    if not split_mode:
+    if not split_mode and not concat_preview:
         from ui.streamlit.transform_picker import get_picker_key
         transform_key = get_picker_key(f"txpick_{phrase_idx}")
 
@@ -207,8 +213,18 @@ def _detail_fragment(
 
     with col_content:
         _chain_label = f" ({len(_chain)} accepted)" if _chain else ""
-        st.subheader(f"P{phrase_idx + 1} — Baseline{_chain_label}")
-        st.caption(_phrase_description(phrase))
+        if concat_preview and next_phrase:
+            combined_end_ms = next_phrase["end_ms"]
+            st.subheader(f"P{phrase_idx + 1} + P{phrase_idx + 2} — Combined preview")
+            st.caption(
+                f"Combined span: {_mts(phrase['start_ms'])} → {_mts(combined_end_ms)} "
+                f"({(combined_end_ms - phrase['start_ms']) / 1000:.1f} s)"
+            )
+        else:
+            combined_end_ms = None
+            st.subheader(f"P{phrase_idx + 1} — Baseline{_chain_label}")
+            st.caption(_phrase_description(phrase))
+
         _render_chart(
             actions=baseline_actions,
             phrases=phrases,
@@ -218,9 +234,10 @@ def _detail_fragment(
             view_state=view_state,
             chart_key=f"detail_orig_{phrase_idx}_{win_start}",
             split_ms=split_ms,
+            extra_phrase_end_ms=combined_end_ms,
         )
 
-        if not split_mode:
+        if not split_mode and not concat_preview:
             st.subheader(f"Preview — {spec.name}")
             st.caption(_phrase_description(phrase))
             _render_chart(
@@ -239,7 +256,9 @@ def _detail_fragment(
         # Nav always at the top — matches Pattern Editor layout
         _render_nav_buttons(phrases, phrase_idx, view_state, duration_ms)
         st.write("")
-        if split_mode:
+        if concat_preview and next_phrase:
+            _render_concat_preview_controls(phrase_idx, phrase, next_phrase, view_state, duration_ms)
+        elif split_mode:
             confirmed_split_ms = _render_split_controls(
                 phrase_idx, phrase, original_actions, view_state, duration_ms
             )
@@ -328,6 +347,7 @@ def _render_chart(
     view_state,
     chart_key: str,
     split_ms: Optional[int] = None,
+    extra_phrase_end_ms: Optional[int] = None,
 ) -> None:
     from visualizations.chart_data import (
         compute_chart_data, compute_annotation_bands, slice_bands,
@@ -362,16 +382,21 @@ def _render_chart(
 
     fig = chart._build_figure(_LocalVS(), height=260)
 
-    # Phrase highlight vrect (replaces the band-driven vrect)
+    # Highlighted region — either single phrase or combined (concat preview)
+    highlight_end = extra_phrase_end_ms if extra_phrase_end_ms else sel_phrase["end_ms"]
     fig.add_vrect(
-        x0=sel_phrase["start_ms"], x1=sel_phrase["end_ms"],
+        x0=sel_phrase["start_ms"], x1=highlight_end,
         fillcolor="rgba(255,220,50,0.15)",
         line_width=2, line_color="rgba(255,220,50,1.0)",
         layer="below",
     )
+    label_text = (
+        f"P{phrase_idx + 1} + P{phrase_idx + 2}" if extra_phrase_end_ms
+        else f"P{phrase_idx + 1}"
+    )
     fig.add_annotation(
         x=sel_phrase["start_ms"], y=97,
-        text=f"P{phrase_idx + 1}",
+        text=label_text,
         showarrow=False,
         xanchor="left", yanchor="top",
         font=dict(size=11, color="rgba(255,220,50,1.0)"),
@@ -415,16 +440,17 @@ def _render_chart(
     # Lock x-axis to the fixed window (no autorange)
     fig.update_xaxes(range=[win_start, win_end], autorange=False)
 
-    # Dim areas outside the selected phrase
+    # Dim areas outside the highlighted region
     _DIM = "rgba(15,15,20,0.65)"
+    _highlight_end = extra_phrase_end_ms if extra_phrase_end_ms else sel_phrase["end_ms"]
     if win_start < sel_phrase["start_ms"]:
         fig.add_vrect(
             x0=win_start, x1=sel_phrase["start_ms"],
             fillcolor=_DIM, layer="above", line_width=0,
         )
-    if sel_phrase["end_ms"] < win_end:
+    if _highlight_end < win_end:
         fig.add_vrect(
-            x0=sel_phrase["end_ms"], x1=win_end,
+            x0=_highlight_end, x1=win_end,
             fillcolor=_DIM, layer="above", line_width=0,
         )
 
@@ -820,8 +846,12 @@ def _render_edit_phrase(
     view_state,
     duration_ms: int,
 ) -> None:
-    """Render the Edit Phrase section: Split and Concat with Next Phrase."""
-    phrase = phrases[phrase_idx]
+    """Render the Edit Phrase section: Split and Concat with Next Phrase.
+
+    Concat is a two-step flow:
+      1. Click "Concat with next phrase" → accepts pending transform, enters preview mode.
+      2. Chart shows combined bounding box; user clicks Confirm or Cancel.
+    """
     n = len(phrases)
 
     st.write("")
@@ -838,22 +868,64 @@ def _render_edit_phrase(
         _clear_split_state(phrase_idx)
         st.rerun()
 
-    # Concat with the next phrase
-    concat_disabled = (phrase_idx >= n - 1)
+    # Concat with the next phrase — not shown on the last phrase
+    if phrase_idx < n - 1:
+        if st.button(
+            "⊕ Concat with next phrase",
+            key=f"concat_next_{phrase_idx}",
+            help=(
+                "Preview the combined bounding box of this phrase and the next. "
+                "Useful for applying long-form transforms (e.g. Tide) across a bigger window."
+            ),
+            width="stretch",
+        ):
+            # Step 1: accept any pending transform, enter preview mode
+            _accept_pending(phrase_idx)
+            st.session_state[f"concat_preview_{phrase_idx}"] = True
+            st.rerun()
+
+
+def _render_concat_preview_controls(
+    phrase_idx: int,
+    phrase: dict,
+    next_phrase: dict,
+    view_state,
+    duration_ms: int,
+) -> None:
+    """Controls shown during concat preview: combined info + Confirm / Cancel."""
+    from utils import ms_to_timestamp as _mts
+
+    combined_dur = (next_phrase["end_ms"] - phrase["start_ms"]) / 1000
+
+    st.markdown("**Concat preview**")
+    st.caption(
+        f"P{phrase_idx + 1}: {_mts(phrase['start_ms'])} → {_mts(phrase['end_ms'])}\n\n"
+        f"P{phrase_idx + 2}: {_mts(next_phrase['start_ms'])} → {_mts(next_phrase['end_ms'])}\n\n"
+        f"Combined: **{combined_dur:.1f} s**"
+    )
+
+    st.write("")
+
     if st.button(
-        "⊕ Concat with next phrase",
-        key=f"concat_next_{phrase_idx}",
-        disabled=concat_disabled,
-        help=(
-            "Join this phrase with the following phrase into one larger phrase. "
-            "Useful for applying long-form transforms (e.g. Tide) across a bigger window."
-        ),
+        "✓ Confirm concat",
+        key=f"concat_confirm_{phrase_idx}",
+        type="primary",
         width="stretch",
+        help="Merge these two phrases into one",
     ):
-        _concat_phrases(phrase_idx, view_state, duration_ms)
+        _do_concat_phrases(phrase_idx, view_state, duration_ms)
+
+    if st.button(
+        "✕ Cancel",
+        key=f"concat_cancel_{phrase_idx}",
+        width="stretch",
+        help="Cancel — keep the phrases separate",
+    ):
+        st.session_state.pop(f"concat_preview_{phrase_idx}", None)
+        st.rerun()
 
 
-def _concat_phrases(phrase_idx: int, view_state, duration_ms: int) -> None:
+def _do_concat_phrases(phrase_idx: int, view_state, duration_ms: int) -> None:
     """Merge phrase_idx and phrase_idx+1 into a single phrase in the assessment."""
     from models import Phrase as PhraseModel
 
@@ -883,6 +955,9 @@ def _concat_phrases(phrase_idx: int, view_state, duration_ms: int) -> None:
     phrases[phrase_idx : phrase_idx + 2] = [merged]
 
     _clear_all_split_state()
+    # Clear all concat preview state — indices shift after merge
+    for k in [k for k in st.session_state if k.startswith("concat_preview_")]:
+        st.session_state.pop(k, None)
     view_state.set_selection(merged.start_ms, merged.end_ms)
     st.session_state["phrase_table_ver"] = st.session_state.get("phrase_table_ver", 0) + 1
     st.rerun()
