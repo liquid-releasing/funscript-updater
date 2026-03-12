@@ -141,6 +141,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          repository: liquid-releasing/funscriptforge-releases
+          token: ${{ secrets.RELEASES_PAT }}
           files: |
             artifacts/FunscriptForge-windows.zip
             artifacts/FunscriptForge-macos.zip

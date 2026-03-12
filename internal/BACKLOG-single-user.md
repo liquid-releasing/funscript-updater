@@ -9,23 +9,23 @@ Items are drawn from the main backlog, open GitHub issues, and fresh assessment.
 
 All four blockers fixed in commits `db8b335` and `6dbfeb6` on `single_user_implementation`.
 
-### ~~1.1 Validate position boundaries after transforms~~ · [#9](https://github.com/liquid-releasing/funscript-forge/issues/9) ✅
+### ~~1.1 Validate position boundaries after transforms~~ · [#9](https://github.com/liquid-releasing/funscriptforge/issues/9) ✅
 
 `_clamp_sort_dedup()` in `export_panel.py` clamps every `pos` to [0, 100] and shows a
 warning banner if any action was clamped.  15 unit tests added in `tests/test_export_integrity.py`.
 
-### ~~1.2 Validate timestamp ordering and deduplicate before export~~ · [#10](https://github.com/liquid-releasing/funscript-forge/issues/10) ✅
+### ~~1.2 Validate timestamp ordering and deduplicate before export~~ · [#10](https://github.com/liquid-releasing/funscriptforge/issues/10) ✅
 
 Same `_clamp_sort_dedup()` call sorts by `at` and deduplicates (last-write wins) before
 every download.  Covered by the same 15 unit tests.
 
-### ~~1.3 Record exact transform parameters in export log~~ · [#12](https://github.com/liquid-releasing/funscript-forge/issues/12) ✅
+### ~~1.3 Record exact transform parameters in export log~~ · [#12](https://github.com/liquid-releasing/funscriptforge/issues/12) ✅
 
 `_build_export_log()` constructs a `_forge_log` dict embedded in every downloaded funscript.
 Records transform name, parameters, source (Phrase/Pattern Editor or Recommended), and export
 timestamp for each change.
 
-### ~~1.4 Wire transformer and customizer into the Streamlit UI~~ · [#4](https://github.com/liquid-releasing/funscript-forge/issues/4) ✅
+### ~~1.4 Wire transformer and customizer into the Streamlit UI~~ · [#4](https://github.com/liquid-releasing/funscriptforge/issues/4) ✅
 
 `run_pipeline_in_memory()` added to `ui/common/pipeline.py`.  `_render_pipeline_section()`
 added to `export_panel.py` — collapsible expander with BPM threshold + amplitude scale sliders,
@@ -36,20 +36,20 @@ Stage 2 toggle, ▶ Run Pipeline button, and a separate ⬇ Download pipeline re
 
 ## Priority 2 — Friction Reduction ✅ COMPLETE
 
-### ~~2.1 Upload funscripts via browser~~ · [#5](https://github.com/liquid-releasing/funscript-forge/issues/5) ✅
+### ~~2.1 Upload funscripts via browser~~ · [#5](https://github.com/liquid-releasing/funscriptforge/issues/5) ✅
 
 `st.file_uploader` added to the sidebar. Uploaded files are saved to `output/uploads/` and
 appear at the top of the selectbox with a `[↑]` prefix. Auto-selects the most recently
 uploaded file. 3 unit tests in `tests/test_priority2.py`.
 
-### ~~2.2 Automated quality gate~~ · [#13](https://github.com/liquid-releasing/funscript-forge/issues/13) ✅
+### ~~2.2 Automated quality gate~~ · [#13](https://github.com/liquid-releasing/funscriptforge/issues/13) ✅
 
 `_check_quality()` added to `export_panel.py`. Checks velocity (warn > 200 pos/s, error > 300)
 and short intervals (warn < 50 ms) on the proposed export output. Exposed as a collapsible
 "Quality check" expander with a **Run quality check** button; results show a pass/fail badge and
 a table of issues (capped at 50 rows). 10 unit tests in `tests/test_priority2.py`.
 
-### ~~2.3 Progress indicator for long assessments~~ · [#14](https://github.com/liquid-releasing/funscript-forge/issues/14) ✅
+### ~~2.3 Progress indicator for long assessments~~ · [#14](https://github.com/liquid-releasing/funscriptforge/issues/14) ✅
 
 `FunscriptAnalyzer.analyze()` now accepts a `progress_callback: Callable[[str], None]` arg.
 Called at the start of each pipeline stage (Detecting phases → cycles → patterns → phrases →
@@ -86,7 +86,7 @@ Deferred: video thumbnail strip (later sprint).
 
 ## Priority 3 — Usability Polish ✅ COMPLETE
 
-### ~~3.1 Clean up UI tabs~~ · [#7](https://github.com/liquid-releasing/funscript-forge/issues/7) ✅
+### ~~3.1 Clean up UI tabs~~ · [#7](https://github.com/liquid-releasing/funscriptforge/issues/7) ✅
 
 Reduced from 6 tabs to 4: Phrase Selector, Pattern Editor, Transform Catalog, Export.
 Assessment details moved into collapsible expander inside Phrase Selector.
@@ -97,7 +97,7 @@ Brand art added (`forge-social-banner.png`, `anvil.png`, `worktable.png`, `oven.
 Tab icon row (anvil / worktable / oven / spark) added above the tab bar.
 Favicon wired to `anvil.png` via `st.set_page_config`.
 
-### ~~3.2 Undo / redo for accepted phrase transforms~~ · [#15](https://github.com/liquid-releasing/funscript-forge/issues/15) ✅
+### ~~3.2 Undo / redo for accepted phrase transforms~~ · [#15](https://github.com/liquid-releasing/funscriptforge/issues/15) ✅
 
 50-level undo/redo stack in `ui/common/undo_stack.py` (framework-agnostic).
 `push_undo()` / `apply_snapshot()` helpers in `ui/streamlit/undo_helpers.py`.
@@ -107,7 +107,7 @@ Push points: `_commit_actions`, `_add_split_point`, `_remove_split_boundary`, Ap
 37 tests: 20 in `tests/test_undo_stack.py` + 17 in `tests/test_undo_helpers.py`.
 Documented in `ui/streamlit/UNDO.md`.
 
-### ~~3.3 Onboarding flow and guided first-run experience~~ · [#16](https://github.com/liquid-releasing/funscript-forge/issues/16) ✅
+### ~~3.3 Onboarding flow and guided first-run experience~~ · [#16](https://github.com/liquid-releasing/funscriptforge/issues/16) ✅
 
 `_render_welcome()` shown before any funscript is loaded: wide wordmark logo,
 cinematic banner, workflow icon row, "How to get started" steps,
@@ -164,12 +164,12 @@ Requires manual keyboard-only test pass to confirm severity. Deferred until user
 
 ## Priority 5 — Documentation & Support
 
-### 5.1 MkDocs user documentation site · [#17](https://github.com/liquid-releasing/funscript-forge/issues/17) `enhancement documentation`
+### 5.1 MkDocs user documentation site · [#17](https://github.com/liquid-releasing/funscriptforge/issues/17) `enhancement documentation`
 
 MkDocs + Material theme covering: Getting Started, Assessment, Behavioral Tags (all 8), Transforms
 reference, Pattern Editor, Export, CLI reference.
 
-### 5.2 In-app AI assistant · [#18](https://github.com/liquid-releasing/funscript-forge/issues/18) `enhancement ui`
+### 5.2 In-app AI assistant · [#18](https://github.com/liquid-releasing/funscriptforge/issues/18) `enhancement ui`
 
 Claude API-backed assistant in the sidebar. Context-aware (current phrase tags/BPM/span sent as
 system context). Explains tags, recommends transforms, answers parameter questions.
@@ -179,12 +179,12 @@ Gracefully disabled when no API key is configured.
 
 ## Priority 6 — Quality & Reliability
 
-### 6.1 Smoke-test Streamlit app against all three test funscripts · [#1](https://github.com/liquid-releasing/funscript-forge/issues/1) `testing ui`
+### 6.1 Smoke-test Streamlit app against all three test funscripts · [#1](https://github.com/liquid-releasing/funscriptforge/issues/1) `testing ui`
 
 Formal smoke test: load each of the three test funscripts, verify assessment completes without
 error, verify export produces a valid JSON funscript.
 
-### 6.2 Fix uniform-tempo funscript segmentation · [#2](https://github.com/liquid-releasing/funscript-forge/issues/2) `assessment improvement`
+### 6.2 Fix uniform-tempo funscript segmentation · [#2](https://github.com/liquid-releasing/funscriptforge/issues/2) `assessment improvement`
 
 VictoriaOaks (1:33:12) produces a single phrase because the uniform BPM never triggers a
 transition. Add duration-based phrase splitting as a fallback.
@@ -242,9 +242,9 @@ newer build is available (no silent auto-install required for v1).
 
 These items are explicitly deferred until the SaaS / multi-user phase:
 
-+ **REST API** ([#8](https://github.com/liquid-releasing/funscript-forge/issues/8)) — needed for SaaS, not local use
-+ **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscript-forge/issues/3)) — SaaS only
-+ **Upload and sync media/audio** ([#6](https://github.com/liquid-releasing/funscript-forge/issues/6)) — nice-to-have, not blocking
++ **REST API** ([#8](https://github.com/liquid-releasing/funscriptforge/issues/8)) — needed for SaaS, not local use
++ **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscriptforge/issues/3)) — SaaS only
++ **Upload and sync media/audio** ([#6](https://github.com/liquid-releasing/funscriptforge/issues/6)) — nice-to-have, not blocking
 + **Large-file web media streaming** — files above 500 MB cannot be base64-encoded into a
   browser session without OOM risk.  Local desktop mode already handles files of any size
   (16 GB 4K video streams via the local HTTP media server with no memory overhead).
