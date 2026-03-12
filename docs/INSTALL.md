@@ -1,5 +1,7 @@
 # Installing FunscriptForge
 
+> **Pre-release software.** Provided as-is, without warranty of any kind. Use at your own risk.
+
 **FunscriptForge™** is a trademark of Liquid Releasing.
 
 ---
@@ -8,7 +10,7 @@
 
 | | Minimum | Recommended |
 | --- | --- | --- |
-| OS | Windows 10 (64-bit), macOS 10.15 Catalina, or Linux (x86-64) | Windows 10/11 · macOS 12+ · Ubuntu 22.04+ |
+| OS | Windows 10 (64-bit), macOS 10.15 Catalina, or Linux (x86-64) | Windows 10/11 · macOS 12+ · Ubuntu 24.04 LTS |
 | RAM | 4 GB | 8 GB or more |
 | Display | 1920 × 1080 (some panels require scrolling) | 2560 × 1440 QHD |
 | Browser | Any modern browser (Chrome, Edge, Firefox, Safari) | Chrome or Edge |
