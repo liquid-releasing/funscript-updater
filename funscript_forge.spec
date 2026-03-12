@@ -4,7 +4,7 @@
 #
 # Build with:
 #   pyinstaller funscript_forge.spec
-# Or use build.bat (Windows) / build.sh (macOS) for a clean build.
+# Or use build.bat (Windows) / build.sh (macOS) / build_linux.sh (Linux) for a clean build.
 
 import os
 import sys
@@ -133,10 +133,14 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # Platform-specific icon
+_IS_WINDOWS = sys.platform == "win32"
 if _IS_MAC:
     _icon = "media/funscriptforge.icns" if os.path.isfile("media/funscriptforge.icns") else None
-else:
+elif _IS_WINDOWS:
     _icon = "media/funscriptforge.ico" if os.path.isfile("media/funscriptforge.ico") else None
+else:
+    # Linux: PyInstaller accepts PNG directly
+    _icon = "media/anvil.png" if os.path.isfile("media/anvil.png") else None
 
 exe = EXE(
     pyz,

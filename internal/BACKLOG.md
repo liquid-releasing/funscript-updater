@@ -196,7 +196,7 @@ animated playhead, action interpolation, phrase undo stack.
 
 ## Done
 
-### Input validation and graceful error messages for malformed funscripts · [#11](https://github.com/liquid-releasing/funscript-forge/issues/11)
+### Input validation and graceful error messages for malformed funscripts · [#11](https://github.com/liquid-releasing/funscriptforge/issues/11)
 
 All pipeline file I/O now raises descriptive `FileNotFoundError` / `ValueError` with
 user-friendly messages instead of crashing with bare `KeyError` or `IndexError`.
