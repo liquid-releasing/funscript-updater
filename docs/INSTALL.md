@@ -8,7 +8,7 @@
 
 | | Minimum | Recommended |
 | --- | --- | --- |
-| OS | Windows 10 (64-bit) or macOS 10.15 Catalina | Windows 10/11 · macOS 12+ |
+| OS | Windows 10 (64-bit), macOS 10.15 Catalina, or Linux (x86-64) | Windows 10/11 · macOS 12+ · Ubuntu 22.04+ |
 | RAM | 4 GB | 8 GB or more |
 | Display | 1920 × 1080 (some panels require scrolling) | 2560 × 1440 QHD |
 | Browser | Any modern browser (Chrome, Edge, Firefox, Safari) | Chrome or Edge |
@@ -28,7 +28,7 @@ Download **FunscriptForge-windows.zip** from the link above.
 
 Right-click the zip → **Extract All…** → choose a destination folder, e.g.:
 
-```
+```text
 C:\Program Files\FunscriptForge\
 ```
 
@@ -55,13 +55,13 @@ Delete the extracted folder. FunscriptForge writes no files outside that folder 
 
 ## macOS — Quick install
 
-### 1. Download
+### 1. Download the macOS build
 
 > **TODO: insert download link / GitHub Releases URL here**
 
 Download **FunscriptForge-macos.zip** from the link above.
 
-### 2. Extract
+### 2. Extract the app
 
 Double-click the zip to expand it. You will get **FunscriptForge.app**.
 
@@ -97,6 +97,59 @@ Click **📂 Open folder** in the sidebar at any time to open the file's folder 
 ### Uninstall (macOS)
 
 Drag **FunscriptForge.app** to the Trash.
+
+---
+
+## Linux — Quick install
+
+### 1. Download the Linux build
+
+> **TODO: insert download link / GitHub Releases URL here**
+
+Download **FunscriptForge-linux.tar.gz** from the link above.
+
+### 2. Extract the archive
+
+```bash
+tar -xzf FunscriptForge-linux.tar.gz
+cd FunscriptForge
+```
+
+### 3. Run the app
+
+```bash
+./FunscriptForge
+```
+
+- Your default browser opens automatically to the app (usually within 5 seconds).
+- If the browser does not open, navigate to `http://localhost:6789` manually.
+- The app runs locally — no internet connection is required after install.
+
+### 4. Load a funscript file
+
+Paste or type the full path to a `.funscript` file in the sidebar, or select a recent file.
+
+### Uninstall (Linux)
+
+Delete the extracted `FunscriptForge/` folder. No files are written outside it.
+
+### Running in WSL2 (Windows Subsystem for Linux)
+
+FunscriptForge can be tested and run inside WSL2 on Windows 11 with WSLg.
+
+```bash
+# In your WSL2 terminal — extract and run exactly as above
+tar -xzf FunscriptForge-linux.tar.gz
+cd FunscriptForge
+./FunscriptForge
+```
+
+- On Windows 11 with WSLg, `xdg-open` routes to the Windows browser automatically.
+- If the browser does not open, go to `http://localhost:6789` in any Windows browser.
+- WSL2 on Windows 10 does not include WSLg — open the URL manually.
+
+> **Note:** For everyday use on Windows, the native Windows build is recommended.
+> WSL2 is primarily useful for development and testing the Linux build.
 
 ---
 

@@ -334,7 +334,7 @@ so you can use, modify, and share it freely as long as you credit the creators.
 ## Project structure
 
 ```text
-funscript-forge/
+funscriptforge/
 ├── assessment/               # Step 1: structural analysis + behavioral classification
 │   ├── analyzer.py           #   FunscriptAnalyzer
 │   ├── classifier.py         #   BehavioralTag, TAGS registry, annotate_phrases

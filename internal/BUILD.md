@@ -17,8 +17,8 @@ without installing Python.
 Clone the repository and enter it:
 
 ```bash
-git clone https://github.com/liquid-releasing/funscript-forge.git
-cd funscript-forge
+git clone https://github.com/liquid-releasing/funscriptforge.git
+cd funscriptforge
 ```
 
 ---
