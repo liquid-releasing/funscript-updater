@@ -128,6 +128,7 @@ downloaded — equivalent to running `python cli.py finalize` on the result.
 | `blend_seams` | Blend Seams | Velocity-adaptive bilateral LPF: concentrates smoothing at high-velocity jumps (seams between differently-styled phrases), leaves normal strokes untouched | Applied globally via `finalize` to smooth inter-phrase boundaries; can also be applied phrase-by-phrase for intra-phrase spikes |
 | `final_smooth` | Final Smooth | Light global LPF finishing pass (default strength 0.10, matching `LPF_DEFAULT` from six_task_transformer) — removes residual harsh edges after all phrase transforms | Last step before saving; automatically run by `finalize` command |
 | `halve_tempo` | Halve Tempo | Keeps every other stroke cycle (temporal decimation), retimed evenly over the same phrase duration — *structural* transform, returns fewer actions | Very fast phrases where you want half the BPM with the same amplitude and duration |
+| `nudge` | Nudge | Shifts all action timestamps forward or backward by `nudge_ms` ms to align the phrase with video or audio. Leading gap is filled with a `transition_ms` linear blend; tail is truncated at the original phrase boundary — *structural* transform | Sync a phrase to a beat drop, cut, or audio cue; use the video player to find the target timestamp, then nudge until the beat lands |
 
 ### CLI usage (`phrase-transform` command)
 

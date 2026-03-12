@@ -246,6 +246,8 @@ mindmap
       three_one
     Structural tempo
       halve_tempo
+    Timing / Sync
+      nudge
 ```
 
 ---

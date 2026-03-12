@@ -116,7 +116,7 @@ Phrases with no tag are considered well-formed and receive auto-suggested transf
 
 ### Transform
 
-A named operation applied to the actions within a phrase window to change their shape or dynamics. The **transform catalog** contains 17 built-in transforms (e.g. `amplitude_scale`, `recenter`, `smooth`, `halve_tempo`, `beat_accent`, `normalize`, `passthrough`). Users can add their own via JSON recipe files (`user_transforms/`) or Python plugins (`plugins/`).
+A named operation applied to the actions within a phrase window to change their shape or dynamics. The **transform catalog** contains 18 built-in transforms (e.g. `amplitude_scale`, `recenter`, `smooth`, `halve_tempo`, `nudge`, `beat_accent`, `normalize`, `passthrough`). Users can add their own via JSON recipe files (`user_transforms/`) or Python plugins (`plugins/`).
 
 ---
 
