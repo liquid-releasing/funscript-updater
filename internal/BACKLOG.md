@@ -6,6 +6,19 @@ Items are loosely ordered by dependency and value. Move to DONE when shipped.
 
 ## Open
 
+### Test FunscriptForge on Linux
+
+Build and run the Linux PyInstaller package end-to-end to verify the Linux release works before shipping to users.
+
+- Build using `build_linux.sh` in WSL2 (Ubuntu) or a native Linux machine
+- Verify the app launches, browser opens, and a funscript loads correctly
+- Check `xdg-open` browser behaviour in both WSL2 (Windows 11) and native Linux
+- Confirm ffprobe/media player gracefully handles missing ffmpeg (guide user to `apt install ffmpeg`)
+- Add any Linux-specific troubleshooting rows to `docs/INSTALL.md`
+- Update CI if any spec or dependency changes are needed
+
+---
+
 ### Zoom and pan on main editor charts · [#14]
 
 The waveform chart in the media player supports Plotly's built-in zoom and pan
