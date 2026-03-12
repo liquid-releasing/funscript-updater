@@ -889,6 +889,102 @@ class _Ramp(PhraseTransform):
         return result
 
 
+class _Nudge(PhraseTransform):
+    """Advance (or delay) a phrase in time to sync with video or audio.
+
+    Shifts every action timestamp forward by ``nudge_ms`` milliseconds.
+    The phrase window (start / end) is preserved:
+
+    * **Gap fill** — the leading gap created by a positive nudge is bridged
+      with a linear interpolation from the phrase's original start position
+      to the first shifted action.  This keeps the seam smooth without
+      requiring a separate blend step.
+    * **Tail truncation** — any shifted actions that fall past the original
+      phrase end are dropped.  The phrase boundary does not grow.
+
+    A negative ``nudge_ms`` shifts the phrase earlier: the first action
+    is pulled back (clamped to the phrase start if it would go before it),
+    and the trailing gap is filled with a hold at the last action's position.
+
+    ``transition_ms`` controls how long the gap-fill interpolation runs.
+    Set it to 0 to use a hard cut instead of a linear blend.
+    """
+
+    def _transform(self, actions: list, p: dict) -> list:
+        if not actions:
+            return actions
+
+        nudge_ms      = int(p.get("nudge_ms", 0))
+        transition_ms = int(p.get("transition_ms", 0))
+
+        if nudge_ms == 0:
+            return actions
+
+        phrase_start = actions[0]["at"]
+        phrase_end   = actions[-1]["at"]
+
+        if nudge_ms > 0:
+            # ── Shift forward ─────────────────────────────────────────────
+            # 1. Shift all timestamps
+            shifted = [{"at": a["at"] + nudge_ms, "pos": a["pos"]} for a in actions]
+
+            # 2. Drop anything past the original phrase end
+            shifted = [a for a in shifted if a["at"] <= phrase_end]
+
+            if not shifted:
+                # Entire phrase shifted out of window — return passthrough
+                return actions
+
+            # 3. Build gap-fill transition from phrase_start to first shifted action
+            gap_end_ms  = shifted[0]["at"]
+            start_pos   = actions[0]["pos"]          # position before the nudge
+            first_pos   = shifted[0]["pos"]
+
+            fill: list = []
+            if transition_ms > 0 and gap_end_ms > phrase_start:
+                # Linear interpolation anchor at phrase_start
+                fill.append({"at": phrase_start, "pos": start_pos})
+                # Mid-point of transition if there is room
+                blend_end = min(phrase_start + transition_ms, gap_end_ms)
+                if blend_end < gap_end_ms:
+                    t = (blend_end - phrase_start) / max(1, gap_end_ms - phrase_start)
+                    mid_pos = int(round(start_pos + t * (first_pos - start_pos)))
+                    fill.append({"at": blend_end, "pos": mid_pos})
+            else:
+                # Hard cut: hold start_pos then jump
+                if phrase_start < gap_end_ms:
+                    fill.append({"at": phrase_start, "pos": start_pos})
+                    fill.append({"at": gap_end_ms - 1, "pos": start_pos})
+
+            return fill + shifted
+
+        else:
+            # ── Shift backward ────────────────────────────────────────────
+            nudge_abs = abs(nudge_ms)
+
+            # 1. Shift timestamps back, clamp first action to phrase_start
+            shifted = []
+            for a in actions:
+                new_at = max(phrase_start, a["at"] - nudge_abs)
+                shifted.append({"at": new_at, "pos": a["pos"]})
+
+            # 2. De-duplicate timestamps (clamp can cause collisions)
+            seen: set = set()
+            deduped = []
+            for a in shifted:
+                if a["at"] not in seen:
+                    deduped.append(a)
+                    seen.add(a["at"])
+            shifted = deduped
+
+            # 3. Fill tail: hold last action's position to original phrase end
+            last = shifted[-1]
+            if last["at"] < phrase_end:
+                shifted.append({"at": phrase_end, "pos": last["pos"]})
+
+            return shifted
+
+
 # ------------------------------------------------------------------
 # Catalog
 # ------------------------------------------------------------------
@@ -1176,6 +1272,26 @@ TRANSFORM_CATALOG: Dict[str, PhraseTransform] = {
                 ),
             },
         ),
+        # Timing / Sync
+        _Nudge(
+            key="nudge",
+            name="Nudge",
+            category="Timing",
+            description="Advance or delay a phrase to sync with video or audio. Fills the leading gap with a transition and truncates the tail.",
+            structural=True,
+            params={
+                "nudge_ms": TransformParam(
+                    label="Nudge (ms)", type="int", default=0,
+                    min_val=-2000, max_val=2000, step=10,
+                    help="Milliseconds to shift the phrase. Positive = later (advance to match video). Negative = earlier.",
+                ),
+                "transition_ms": TransformParam(
+                    label="Transition (ms)", type="int", default=100,
+                    min_val=0, max_val=500, step=10,
+                    help="Length of the gap-fill blend at the seam. 0 = hard cut.",
+                ),
+            },
+        ),
         # Replacement
         _Stroke(
             key         = "stroke",
@@ -1337,6 +1453,8 @@ TRANSFORM_ORDER: List[str] = [
     "beat_accent", "three_one",
     # Structural — Tempo
     "halve_tempo",
+    # Timing / Sync
+    "nudge",
     # Replacement
     "stroke", "drift", "tide",
 ]

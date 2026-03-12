@@ -61,6 +61,8 @@ _EXPECTED_KEYS = {
     "final_smooth",
     "beat_accent",
     "halve_tempo",
+    # Timing / Sync
+    "nudge",
     # Replacement transforms (moved from plugins/ to built-ins)
     "stroke",
     "drift",
