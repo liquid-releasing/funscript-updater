@@ -101,7 +101,7 @@ When analysis finishes the main area shows:
 - **Phrase bounding boxes** — colored rectangles overlaid on the chart, one per phrase
 - **Assessment summary** — total phrases, phrase durations, BPM range, behavioral tags found
 
-> **TODO: insert screenshot — full chart with phrase boxes and assessment panel visible**
+![Phrase overview chart for Timeline1.funscript — 34 phrases color-coded by BPM](../media/your-first-funscript--phrase-overview.png)
 
 The color of each phrase box indicates its dominant behavior:
 
@@ -111,8 +111,8 @@ The color of each phrase box indicates its dominant behavior:
 | Orange / warm | Energetic, frantic, or ramp |
 | Muted / grey | Ambient, break, or low activity |
 
-> **Note:** The exact color scheme may vary — this table will be updated once the
-> final UI color coding is confirmed. TODO.
+> The chart above uses the same color scheme — orange phrases are the energetic peak
+> from 1:26–2:10, purple phrases are the rhythmic sections at either end.
 
 ---
 
