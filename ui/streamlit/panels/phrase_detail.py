@@ -44,6 +44,70 @@ from utils import ms_to_timestamp
 
 
 # ------------------------------------------------------------------
+# Device safety helpers
+# ------------------------------------------------------------------
+
+def _check_quality_phrase(actions: list, phrase: dict) -> list:
+    """Run device-safety checks on the phrase window only.
+
+    Returns a list of ``{level, message, at}`` dicts (same format as the
+    export-panel quality gate).  Levels: ``"error"`` (velocity > 300 pos/s)
+    or ``"warning"`` (velocity 200–300 pos/s or interval < 50 ms).
+    """
+    start_ms = phrase["start_ms"]
+    end_ms   = phrase["end_ms"]
+    window   = [a for a in actions if start_ms <= a["at"] <= end_ms]
+    issues: list = []
+    for i in range(1, len(window)):
+        a0, a1 = window[i - 1], window[i]
+        dt_ms = a1["at"] - a0["at"]
+        if dt_ms <= 0:
+            continue
+        vel = abs(a1["pos"] - a0["pos"]) / dt_ms * 1000
+        if vel > 300:
+            issues.append({"level": "error",   "message": f"{vel:.0f} pos/s", "at": a0["at"]})
+        elif vel > 200:
+            issues.append({"level": "warning", "message": f"{vel:.0f} pos/s", "at": a0["at"]})
+        if dt_ms < 50:
+            issues.append({"level": "warning", "message": f"interval {dt_ms} ms", "at": a0["at"]})
+    return issues
+
+
+def _render_device_safety(phrase_idx: int) -> None:
+    """Device-safety status badge + 3-state control above Accept.
+
+    Reads pre-computed issue counts from session state (set in _detail_fragment
+    before the chart renders).  The select_slider choice is stored in session
+    state and read back by the fragment on the next rerun to decide whether to
+    apply Performance to the preview.
+    """
+    n_errors   = st.session_state.get(f"_ds_errors_{phrase_idx}",   0)
+    n_warnings = st.session_state.get(f"_ds_warnings_{phrase_idx}", 0)
+
+    if n_errors:
+        st.error(
+            f"⚠ {n_errors} error{'s' if n_errors != 1 else ''}"
+            + (f", {n_warnings} warning{'s' if n_warnings != 1 else ''}" if n_warnings else "")
+        )
+    elif n_warnings:
+        st.warning(f"⚠ {n_warnings} warning{'s' if n_warnings != 1 else ''}")
+    else:
+        st.success("✅ Device safe")
+
+    st.select_slider(
+        "Device safety",
+        options=["Off", "Fix errors", "Fix all"],
+        value=st.session_state.get(f"device_safety_{phrase_idx}", "Fix all"),
+        key=f"device_safety_{phrase_idx}",
+        help=(
+            "Off: no fix · "
+            "Fix errors: cap velocity > 300 pos/s · "
+            "Fix all: cap > 200 pos/s and short intervals"
+        ),
+    )
+
+
+# ------------------------------------------------------------------
 # Public entry point
 # ------------------------------------------------------------------
 
@@ -177,6 +241,31 @@ def _detail_fragment(
         # Preview applies pending transform on top of the accepted baseline
         preview_actions = _apply_transform_to_window(baseline_actions, phrase, spec, param_values)
 
+        # --- Device safety: check preview quality, optionally apply Performance ---
+        _safety_mode = st.session_state.get(f"device_safety_{phrase_idx}", "Fix all")
+        _issues      = _check_quality_phrase(preview_actions, phrase)
+        _n_errors    = sum(1 for i in _issues if i["level"] == "error")
+        _n_warnings  = sum(1 for i in _issues if i["level"] == "warning")
+
+        _safety_fix = (
+            (_safety_mode == "Fix errors" and _n_errors > 0)
+            or (_safety_mode == "Fix all"  and (_n_errors > 0 or _n_warnings > 0))
+        )
+        _ds_vel = 0.28 if _safety_mode == "Fix errors" else 0.20
+        if _safety_fix:
+            _perf_spec   = TRANSFORM_CATALOG["performance"]
+            _perf_params = {pk: p.default for pk, p in _perf_spec.params.items()}
+            _perf_params["max_velocity"] = _ds_vel
+            preview_actions = _apply_transform_to_window(
+                preview_actions, phrase, _perf_spec, _perf_params
+            )
+
+        # Persist for _render_device_safety() and Accept handler
+        st.session_state[f"_ds_fix_{phrase_idx}"]     = _safety_fix
+        st.session_state[f"_ds_vel_{phrase_idx}"]     = _ds_vel
+        st.session_state[f"_ds_errors_{phrase_idx}"]  = _n_errors
+        st.session_state[f"_ds_warnings_{phrase_idx}"] = _n_warnings
+
     # ------------------------------------------------------------------
     # Layout:
     #   Row 1: [stats table] [show/hide player toggle]
@@ -257,7 +346,8 @@ def _detail_fragment(
         )
 
         if not split_mode and not concat_preview:
-            st.subheader(f"Preview — {spec.name}")
+            _badge = "  🛡 Device Safe" if st.session_state.get(f"_ds_fix_{phrase_idx}") else ""
+            st.subheader(f"Preview — {spec.name}{_badge}")
             st.caption(_phrase_description(phrase))
             _render_chart(
                 actions=preview_actions,
@@ -285,6 +375,8 @@ def _detail_fragment(
                 _split_phrase(phrase_idx, confirmed_split_ms, view_state, duration_ms)
         else:
             _render_transform_controls(phrase, bpm_threshold, phrase_idx)
+            st.write("")
+            _render_device_safety(phrase_idx)
             st.write("")
             _render_save_cancel(phrase_idx, view_state)
             _render_edit_phrase(phrases, phrase_idx, view_state, duration_ms)
@@ -845,17 +937,29 @@ def _render_save_cancel(phrase_idx: int, view_state) -> None:
         type="primary",
         help="Accept this transform — it becomes the new baseline for further editing",
     ):
-        # Append pending transform to the accepted chain (skip passthrough)
+        _chain_key = f"phrase_transform_chain_{phrase_idx}"
+        _cur_chain = st.session_state.get(_chain_key, [])
+        _new_chain = list(_cur_chain)
+
+        # Append pending transform (skip passthrough)
         if _pending_key != "passthrough":
             _pv = {
                 pk: st.session_state.get(f"param_{phrase_idx}_{pk}", p.default)
                 for pk, p in TRANSFORM_CATALOG[_pending_key].params.items()
             }
-            _chain_key = f"phrase_transform_chain_{phrase_idx}"
-            _cur_chain = st.session_state.get(_chain_key, [])
-            st.session_state[_chain_key] = _cur_chain + [
-                {"transform_key": _pending_key, "param_values": _pv}
-            ]
+            _new_chain.append({"transform_key": _pending_key, "param_values": _pv})
+
+        # Append Performance if device safety fix is active for this phrase
+        if st.session_state.get(f"_ds_fix_{phrase_idx}", False):
+            _ds_vel = st.session_state.get(f"_ds_vel_{phrase_idx}", 0.20)
+            from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG as _TC
+            _perf_defaults = {pk: p.default for pk, p in _TC["performance"].params.items()}
+            _perf_defaults["max_velocity"] = round(_ds_vel, 4)
+            _new_chain.append({"transform_key": "performance", "param_values": _perf_defaults})
+
+        if _new_chain != list(_cur_chain):
+            st.session_state[_chain_key] = _new_chain
+
         # Reset picker to passthrough
         _clear_picker_state(phrase_idx)
         st.rerun()  # rebuild charts with the updated baseline

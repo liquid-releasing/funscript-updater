@@ -1445,14 +1445,14 @@ TRANSFORM_ORDER: List[str] = [
     "shift", "recenter", "clamp_upper", "clamp_lower", "invert", "funnel",
     # Smoothing & Filtering
     "smooth", "blend_seams", "final_smooth",
+    # Structural — Tempo
+    "halve_tempo",
     # Break / Recovery
     "break", "waiting",
     # Performance / Device Realism
     "performance",
     # Rhythmic Patterns
     "beat_accent", "three_one",
-    # Structural — Tempo
-    "halve_tempo",
     # Timing / Sync
     "nudge",
     # Replacement

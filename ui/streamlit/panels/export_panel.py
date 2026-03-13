@@ -163,6 +163,10 @@ def _render_quality_gate(project, plan: List[dict]) -> None:
                     _row[2].caption(issue["message"])
                 if len(issues) > 50:
                     st.caption(f"… and {len(issues) - 50} more issues not shown")
+                st.caption(
+                    "To fix device issues, use the Device Safety control in the Phrase Editor, "
+                    "or use the Device-aware fix in the Run Full Pipeline section below."
+                )
 
 
 # ------------------------------------------------------------------
@@ -219,7 +223,6 @@ def render(project: "Project") -> None:
             value=True,
             key="export_final_smooth",
         )
-
     with col_dl:
         _rej = st.session_state.export_rejected
         _acc = st.session_state.export_accepted
@@ -567,11 +570,7 @@ def _render_recommended(plan: List[dict]) -> None:
 # ------------------------------------------------------------------
 
 def _render_export_preview(project, assessment_dict: dict, plan: List[dict]) -> None:
-    """Render a static (non-interactive) chart of the proposed export actions.
-
-    F3: a Before/After toggle overlays the original actions in grey so the
-    user can see exactly what the transforms changed.
-    """
+    """Render a static (non-interactive) chart of the proposed export actions."""
     from visualizations.chart_data import compute_chart_data, compute_annotation_bands
     from visualizations.funscript_chart import FunscriptChart
 
@@ -582,14 +581,6 @@ def _render_export_preview(project, assessment_dict: dict, plan: List[dict]) -> 
     rejected: set = st.session_state.get("export_rejected", set())
     accepted: set = st.session_state.get("export_accepted", set())
     preview_actions = _apply_plan_transforms(original_actions, plan, rejected, accepted)
-
-    # F3: Before/After toggle
-    show_original = st.checkbox(
-        "Show original (Before) overlay",
-        value=False,
-        key="export_preview_show_original",
-        help="Overlay the unmodified funscript in grey so you can compare Before vs After.",
-    )
 
     duration_ms = project.assessment.duration_ms
     bands  = compute_annotation_bands(assessment_dict)
@@ -604,22 +595,7 @@ def _render_export_preview(project, assessment_dict: dict, plan: List[dict]) -> 
         def has_zoom(self):      return False
         def has_selection(self): return False
 
-    import plotly.graph_objects as go
-
     fig = chart._build_figure(_StaticVS(), height=260)
-
-    if show_original:
-        # Overlay original positions as a semi-transparent grey line.
-        orig_ts  = [a["at"]  for a in original_actions]
-        orig_pos = [a["pos"] for a in original_actions]
-        fig.add_trace(go.Scatter(
-            x=orig_ts, y=orig_pos,
-            mode="lines",
-            line={"color": "rgba(180,180,180,0.45)", "width": 1},
-            name="Before",
-            showlegend=True,
-            hoverinfo="skip",
-        ))
 
     st.plotly_chart(
         fig,
@@ -627,13 +603,10 @@ def _render_export_preview(project, assessment_dict: dict, plan: List[dict]) -> 
         key="export_preview_chart",
     )
     n_actions = len(preview_actions)
-    caption = (
+    st.caption(
         f"Export preview: {n_actions:,} actions after applying selected transforms. "
         "Colour represents stroke velocity (blue = slow, red = fast)."
     )
-    if show_original:
-        caption += " Grey overlay = original (Before)."
-    st.caption(caption)
 
     n_active = sum(
         1 for e in plan
@@ -794,6 +767,7 @@ def _render_pipeline_section(project) -> None:
             "The result is independent of the phrase-editor transforms above."
         )
 
+        st.caption("**Stage 1 — BPM Transformer**")
         col_a, col_b = st.columns(2)
         with col_a:
             bpm_threshold = st.slider(
@@ -802,23 +776,41 @@ def _render_pipeline_section(project) -> None:
                 step=5.0, key="pipeline_bpm_threshold",
                 help="Phrases at or above this BPM receive the amplitude transform.",
             )
+        with col_b:
             amplitude_scale = st.slider(
                 "Amplitude scale", min_value=0.1, max_value=3.0,
                 value=2.0, step=0.1, key="pipeline_amplitude_scale",
                 help="Positions are scaled around the midpoint (50) by this factor.",
             )
-        with col_b:
-            run_customizer = st.checkbox(
-                "Apply Work Item windows (Stage 2)",
-                value=True, key="pipeline_run_customizer",
-                help="Uses performance / break / raw windows defined in the Work Items tab.",
+
+        st.caption("**Stage 2 — Window Customizer**")
+        n_perf = len(project.performance_windows())
+        n_brk  = len(project.break_windows())
+        n_raw  = len(project.raw_windows())
+        run_customizer = st.checkbox(
+            f"Apply Work Item windows  ·  {n_perf} performance · {n_brk} break · {n_raw} raw",
+            value=True, key="pipeline_run_customizer",
+            help="Uses performance / break / raw windows defined in the Work Items tab.",
+        )
+
+        st.caption("**Device-aware fix**")
+        pl_fix_device = st.checkbox(
+            "Apply Performance transform to phrases with quality issues",
+            value=True, key="pipeline_fix_device",
+            help="After all transforms, applies the Performance transform to any phrase that still has velocity spikes or short intervals.",
+        )
+        if pl_fix_device:
+            _pfc1, _pfc2 = st.columns(2)
+            pl_fix_errors   = _pfc1.checkbox("Fix errors (> 300 pos/s)",   value=True, key="pipeline_fix_errors")
+            pl_fix_warnings = _pfc2.checkbox("Fix warnings (> 200 pos/s)", value=True, key="pipeline_fix_warnings")
+            pl_max_vel = st.slider(
+                "Max velocity (pos/s)", min_value=50, max_value=300, value=200, step=10,
+                key="pipeline_fix_max_vel",
+                help="200 = clears all warnings & errors · 280 = errors only",
             )
-            n_perf = len(project.performance_windows())
-            n_brk  = len(project.break_windows())
-            n_raw  = len(project.raw_windows())
-            st.caption(
-                f"Work items: {n_perf} performance · {n_brk} break · {n_raw} raw"
-            )
+        else:
+            pl_fix_errors = pl_fix_warnings = False
+            pl_max_vel = 200
 
         if st.button("▶ Run Pipeline", key="pipeline_run_btn", type="primary"):
             from ui.common.pipeline import run_pipeline_in_memory
@@ -835,6 +827,38 @@ def _render_pipeline_section(project) -> None:
                     break_windows=project.break_windows()             if run_customizer else None,
                     raw_windows=project.raw_windows()                 if run_customizer else None,
                 )
+                # Device-aware fix
+                if pl_fix_device and (pl_fix_errors or pl_fix_warnings):
+                    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG as _TC
+                    _perf_spec = _TC.get("performance")
+                    if _perf_spec:
+                        _perf_params = {pk: p.default for pk, p in _perf_spec.params.items()}
+                        _perf_params["max_velocity"] = round(pl_max_vel / 1000, 4)
+                        _issues = _check_quality(actions)
+                        _fix_ats: set = set()
+                        for _iss in _issues:
+                            if _iss["level"] == "error" and pl_fix_errors:
+                                _fix_ats.add(_iss["at"])
+                            elif _iss["level"] == "warning" and pl_fix_warnings:
+                                _fix_ats.add(_iss["at"])
+                        if _fix_ats:
+                            _ph_list = project.assessment.to_dict().get("phrases", [])
+                            _affected: set = set()
+                            for _at in _fix_ats:
+                                for _pi, _ph in enumerate(_ph_list):
+                                    if _ph["start_ms"] <= _at <= _ph["end_ms"]:
+                                        _affected.add(_pi)
+                                        break
+                            for _pi in _affected:
+                                _ph = _ph_list[_pi]
+                                _slice = [a for a in actions if _ph["start_ms"] <= a["at"] <= _ph["end_ms"]]
+                                _fixed = _perf_spec.apply(_slice, _perf_params)
+                                if _fixed:
+                                    _t2p = {a["at"]: a["pos"] for a in _fixed}
+                                    for a in actions:
+                                        if a["at"] in _t2p:
+                                            a["pos"] = _t2p[a["at"]]
+                            _clamp_sort_dedup(actions)
                 # Clean up result
                 clamp_count = _clamp_sort_dedup(actions)
                 st.session_state["pipeline_result"] = {
