@@ -124,6 +124,12 @@ def render(
     # Ensure phrases are always shown even if view_state has them toggled off.
     view_state.show_phrases = True
 
+    # Heatmap: compact motion-intensity strip above the main chart.
+    # Always shows the full timeline regardless of zoom state.
+    st.markdown("**Funscript Heatmap**")
+    _render_heatmap(project.funscript_path, phrases, duration_ms)
+
+    st.markdown("**Funscript Visualization**")
     # Full-funscript chart always visible (fragment keeps scroll/zoom cheap).
     _selector_fragment(
         funscript_path=project.funscript_path,
@@ -223,12 +229,26 @@ def _render_controls(view_state, duration_ms: int, phrases: list) -> None:
 # ------------------------------------------------------------------
 
 def _handle_chart_event(event, view_state, phrases: list) -> None:
-    """Box-drag on the chart zooms the viewport. Use the table below to select a phrase."""
+    """Point click → select the enclosing phrase (full app rerun to open editor).
+    Box-drag → zoom the viewport (fragment rerun)."""
     if not event:
         return
     sel = getattr(event, "selection", None)
     if not sel:
         return
+
+    # Point click → find enclosing phrase and select it
+    points = getattr(sel, "points", None) or []
+    if points:
+        try:
+            x_ms = int(points[0].get("x", -1))
+            phrase = _find_phrase_at(x_ms, phrases)
+            if phrase:
+                view_state.set_selection(phrase["start_ms"], phrase["end_ms"])
+                st.rerun(scope="app")   # full rerun — switches Phrases tab to Editor view
+        except Exception:
+            pass
+        return   # don't process box on same event
 
     # Box drag → zoom the chart to the selected time range
     box = getattr(sel, "box", None) or []
@@ -254,6 +274,7 @@ def _render_phrase_table(phrases: list, view_state) -> None:
     import pandas as pd
     from assessment.classifier import TAGS
 
+    st.markdown("**Funscript Selection Details**")
     st.caption(
         f"{len(phrases)} phrase{'s' if len(phrases) != 1 else ''} — "
         "click a row or a phrase on the chart above to open the editor"
@@ -337,6 +358,85 @@ def _render_phrase_info(view_state, phrases: list) -> None:
         if st.button("✕", key="clear_sel", help="Clear selection"):
             view_state.clear_selection()
             st.rerun()
+
+
+# ------------------------------------------------------------------
+# Motion-intensity heatmap
+# ------------------------------------------------------------------
+
+def _render_heatmap(funscript_path: str, phrases: list, duration_ms: int) -> None:
+    """Compact motion-intensity strip above the main chart.
+
+    Bins action velocity (sum of |pos_diff|) into N_BINS buckets across the
+    full timeline and renders a single-row Plotly heatmap.  White vertical
+    lines mark phrase boundaries so the strip doubles as a phrase map.
+    """
+    import json
+    import plotly.graph_objects as go
+
+    _BG = "rgba(14,14,18,1)"
+
+    if duration_ms <= 0 or not phrases:
+        return
+    try:
+        with open(funscript_path) as f:
+            actions = json.load(f)["actions"]
+    except Exception:
+        return
+    if len(actions) < 2:
+        return
+
+    N_BINS    = 400
+    bin_width = max(duration_ms / N_BINS, 1.0)
+    activity  = [0.0] * N_BINS
+
+    for i in range(1, len(actions)):
+        a0, a1   = actions[i - 1], actions[i]
+        mid_ms   = (a0["at"] + a1["at"]) / 2.0
+        b        = min(N_BINS - 1, int(mid_ms / bin_width))
+        activity[b] += abs(a1["pos"] - a0["pos"])
+
+    max_val  = max(activity) if any(v > 0 for v in activity) else 1.0
+    activity = [v / max_val for v in activity]
+
+    bin_centers = [(i + 0.5) * bin_width for i in range(N_BINS)]
+
+    # White vertical lines at every phrase boundary except the timeline start.
+    shapes = [
+        dict(
+            type="line",
+            x0=ph["start_ms"], x1=ph["start_ms"],
+            y0=0, y1=1,
+            xref="x", yref="paper",
+            line=dict(color="rgba(255,255,255,0.85)", width=1),
+        )
+        for ph in phrases
+        if ph["start_ms"] > 0
+    ]
+
+    fig = go.Figure(go.Heatmap(
+        z=[activity],
+        x=bin_centers,
+        colorscale="Turbo",
+        showscale=False,
+        zmin=0,
+        zmax=1,
+        hovertemplate="activity: %{z:.2f}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=52,
+        margin=dict(l=45, r=10, t=2, b=2),  # match FunscriptChart margins
+        paper_bgcolor=_BG,
+        plot_bgcolor=_BG,
+        shapes=shapes,
+        xaxis=dict(
+            showgrid=False, zeroline=False, showticklabels=False,
+            range=[0, duration_ms],
+        ),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+    )
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.caption("Motion intensity · white lines = phrase boundaries")
 
 
 # ------------------------------------------------------------------
