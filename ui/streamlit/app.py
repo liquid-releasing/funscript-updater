@@ -11,7 +11,6 @@ Layout
 Sidebar
   • File picker (local path / recent files) or upload (web mode)
   • Optional media file for context playback
-  • Phrase detection settings + Re-analyse
 
 Main area  (tabs)
   1. Phrase Selector   — full-funscript chart; click a phrase to edit it
@@ -133,6 +132,12 @@ if "last_assessment_elapsed" not in st.session_state:
 
 if "bpm_threshold" not in st.session_state:
     st.session_state.bpm_threshold = 120.0
+
+if "min_phrase_s" not in st.session_state:
+    st.session_state.min_phrase_s = 20
+
+if "amp_sensitivity" not in st.session_state:
+    st.session_state.amp_sensitivity = "Medium (0.30)"
 
 if "last_loaded_cfg" not in st.session_state:
     st.session_state.last_loaded_cfg = None
@@ -386,18 +391,9 @@ def _sidebar() -> None:
 
     selected_file = os.path.basename(funscript_path)
 
-    # --- Phrase detection parameters ---
-    with st.sidebar.expander("Phrase detection settings", expanded=True):
-        min_phrase_s = st.slider(
-            "Min phrase length (s)", min_value=5, max_value=120, value=20, step=5,
-            help="Phrases shorter than this are merged into a neighbour.",
-        )
-        amp_sensitivity = st.select_slider(
-            "Amplitude sensitivity",
-            options=["Low (0.35)", "Medium (0.30)", "High (0.25)"],
-            value="Medium (0.30)",
-            help="How much stroke-depth change triggers a new phrase.",
-        )
+    # Detection settings live in the Phrase Selector tab; read from session state here.
+    min_phrase_s    = st.session_state.get("min_phrase_s", 20)
+    amp_sensitivity = st.session_state.get("amp_sensitivity", "Medium (0.30)")
 
     # --- Chart / transform settings ---
     with st.sidebar.expander("Chart settings"):
@@ -443,10 +439,9 @@ def _sidebar() -> None:
     file_changed     = _last_cfg is None or cfg_key[0] != _last_cfg[0]
     settings_changed = not file_changed and cfg_key != _last_cfg
 
-    if settings_changed:
-        st.sidebar.info("Settings changed — click **Re-analyse** to apply.")
+    _reanalyse_requested = st.session_state.pop("reanalyse_requested", False)
 
-    if file_changed or st.sidebar.button("Re-analyse", type="primary"):
+    if file_changed or _reanalyse_requested or st.sidebar.button("Re-analyse", type="primary"):
         import time
 
         # Progress indicator: sidebar placeholder shows current stage.
@@ -732,9 +727,9 @@ def _render_welcome() -> None:
 
     st.divider()
     st.caption(
-        "Tip: the sidebar **Phrase detection settings** control how aggressively "
-        "short phrases are merged and how sensitive the amplitude-change detector is. "
-        "Re-analyse any time after adjusting them."
+        "Tip: **Phrase detection settings** in the Phrase Selector tab control how "
+        "aggressively short phrases are merged and how sensitive the amplitude-change "
+        "detector is. Re-analyse any time after adjusting them."
     )
 
 
@@ -776,10 +771,39 @@ def _render_phrase_tab(project: Project) -> None:
 def _render_phrase_selector_tab(project: Project) -> None:
     """Phrase Selector view — full chart + phrase table."""
     view_state = st.session_state.view_state
+
+    with st.expander("Phrase detection settings", expanded=False):
+        _dc1, _dc2 = st.columns(2)
+        _min_phrase_s = _dc1.slider(
+            "Min phrase length (s)", min_value=5, max_value=120,
+            value=st.session_state.get("min_phrase_s", 20), step=5,
+            key="min_phrase_s",
+            help="Phrases shorter than this are merged into a neighbour.",
+        )
+        _amp_sensitivity = _dc2.select_slider(
+            "Amplitude sensitivity",
+            options=["Low (0.35)", "Medium (0.30)", "High (0.25)"],
+            value=st.session_state.get("amp_sensitivity", "Medium (0.30)"),
+            key="amp_sensitivity",
+            help="How much stroke-depth change triggers a new phrase.",
+        )
+        _last_cfg = st.session_state.get("last_loaded_cfg")
+        _loaded_file = st.session_state.get("last_loaded_file", "")
+        _settings_changed = (
+            _last_cfg is not None
+            and (_min_phrase_s, _amp_sensitivity) != (_last_cfg[1], _last_cfg[2])
+        )
+        if _settings_changed:
+            st.info("Settings changed — click **Re-analyse** to apply.")
+        if st.button("Re-analyse", type="primary", key="reanalyse_btn"):
+            st.session_state.reanalyse_requested = True
+            st.rerun()
+
     viewer_panel.render(
         project, view_state,
         large_funscript_threshold=st.session_state.large_funscript_threshold,
     )
+
     with st.expander("Assessment details", expanded=False):
         assessment_panel.render(project)
 
