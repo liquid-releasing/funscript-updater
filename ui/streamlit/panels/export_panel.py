@@ -760,14 +760,13 @@ def _render_pipeline_section(project) -> None:
     """Expander section: run the full backend pipeline and offer a download."""
     from pattern_catalog.config import TransformerConfig
 
-    with st.expander("Run full pipeline — BPM Transformer + Window Customizer", expanded=False):
+    with st.expander("Run full pipeline — BPM Transformer", expanded=False):
         st.caption(
-            "Stage 1 applies a BPM-threshold amplitude transform to every phrase. "
-            "Stage 2 applies your Work Item windows (performance / break / raw) on top. "
+            "Applies a BPM-threshold amplitude transform to every phrase. "
             "The result is independent of the phrase-editor transforms above."
         )
 
-        st.caption("**Stage 1 — BPM Transformer**")
+        st.caption("**BPM Transformer**")
         col_a, col_b = st.columns(2)
         with col_a:
             bpm_threshold = st.slider(
@@ -783,34 +782,12 @@ def _render_pipeline_section(project) -> None:
                 help="Positions are scaled around the midpoint (50) by this factor.",
             )
 
-        st.caption("**Stage 2 — Window Customizer**")
-        n_perf = len(project.performance_windows())
-        n_brk  = len(project.break_windows())
-        n_raw  = len(project.raw_windows())
-        run_customizer = st.checkbox(
-            f"Apply Work Item windows  ·  {n_perf} performance · {n_brk} break · {n_raw} raw",
-            value=True, key="pipeline_run_customizer",
-            help="Uses performance / break / raw windows defined in the Work Items tab.",
-        )
-
         st.caption("**Device-aware fix**")
-        pl_fix_device = st.checkbox(
-            "Apply Performance transform to phrases with quality issues",
-            value=True, key="pipeline_fix_device",
-            help="After all transforms, applies the Performance transform to any phrase that still has velocity spikes or short intervals.",
-        )
-        if pl_fix_device:
-            _pfc1, _pfc2 = st.columns(2)
-            pl_fix_errors   = _pfc1.checkbox("Fix errors (> 300 pos/s)",   value=True, key="pipeline_fix_errors")
-            pl_fix_warnings = _pfc2.checkbox("Fix warnings (> 200 pos/s)", value=True, key="pipeline_fix_warnings")
-            pl_max_vel = st.slider(
-                "Max velocity (pos/s)", min_value=50, max_value=300, value=200, step=10,
-                key="pipeline_fix_max_vel",
-                help="200 = clears all warnings & errors · 280 = errors only",
-            )
-        else:
-            pl_fix_errors = pl_fix_warnings = False
-            pl_max_vel = 200
+        _pfc1, _pfc2 = st.columns(2)
+        pl_fix_errors   = _pfc1.checkbox("Fix errors (> 300 pos/s)",   value=True, key="pipeline_fix_errors")
+        pl_fix_warnings = _pfc2.checkbox("Fix warnings (> 200 pos/s)", value=True, key="pipeline_fix_warnings")
+        # velocity cap: 0.20 clears everything; 0.28 clears errors only
+        pl_max_vel = 200 if pl_fix_warnings else 280
 
         if st.button("▶ Run Pipeline", key="pipeline_run_btn", type="primary"):
             from ui.common.pipeline import run_pipeline_in_memory
@@ -823,12 +800,9 @@ def _render_pipeline_section(project) -> None:
                     funscript_path=project.funscript_path,
                     assessment=project.assessment,
                     transformer_config=tcfg,
-                    performance_windows=project.performance_windows() if run_customizer else None,
-                    break_windows=project.break_windows()             if run_customizer else None,
-                    raw_windows=project.raw_windows()                 if run_customizer else None,
                 )
                 # Device-aware fix
-                if pl_fix_device and (pl_fix_errors or pl_fix_warnings):
+                if pl_fix_errors or pl_fix_warnings:
                     from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG as _TC
                     _perf_spec = _TC.get("performance")
                     if _perf_spec:
