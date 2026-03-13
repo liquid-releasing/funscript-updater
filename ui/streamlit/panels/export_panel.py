@@ -232,32 +232,75 @@ def render(project: "Project") -> None:
             e for e in recommended_plan
             if e["phrase_idx"] in _acc and e["phrase_idx"] not in _rej
         ]
-        # UX1: require explicit confirmation before download to prevent accidental clicks
-        _confirmed = st.checkbox(
-            "I've reviewed the transforms and am ready to download",
-            key="export_confirmed",
-            help="Check this box to enable the download button.",
-        )
-        if (active_entries or blend_seams or final_smooth) and _confirmed:
-            dl_bytes = _build_download_bytes(
-                project, phrases, full_plan,
-                blend_seams=blend_seams,
-                final_smooth=final_smooth,
+        _has_content = bool(active_entries or blend_seams or final_smooth)
+
+        tab_dev, tab_estim = st.tabs(["🔧 Device", "⚡ Estim"])
+
+        with tab_dev:
+            apply_safety = st.checkbox(
+                "Apply device safety",
+                value=True,
+                key="export_device_safety",
+                help="Caps velocity at 200 pos/s to protect mechanical devices (Handy, OSR2).",
             )
-            st.download_button(
-                "⬇ Download edited funscript",
-                data=dl_bytes,
-                file_name=f"{project.name}_edited.funscript",
-                mime="application/json",
-                type="primary",
+            _confirmed_dev = st.checkbox(
+                "Ready to download",
+                key="export_confirmed_device",
             )
-        else:
-            st.button(
-                "⬇ Download edited funscript",
-                disabled=True,
-                type="primary",
-                help="Review transforms above and check the confirmation box to enable." if not _confirmed else "Add transforms or enable post-processing to download.",
+            if _has_content and _confirmed_dev:
+                dl_dev = _build_download_bytes_device(
+                    project, phrases, full_plan,
+                    blend_seams=blend_seams,
+                    final_smooth=final_smooth,
+                    apply_safety=apply_safety,
+                )
+                st.download_button(
+                    "⬇ Download device funscript",
+                    data=dl_dev,
+                    file_name=f"{project.name}.device.funscript",
+                    mime="application/json",
+                    type="primary",
+                    key="dl_device",
+                )
+            else:
+                st.button(
+                    "⬇ Download device funscript",
+                    disabled=True,
+                    type="primary",
+                    key="dl_device_dis",
+                )
+
+        with tab_estim:
+            st.caption(
+                "Clean funscript for estim devices (Mk312, 2B, ET312). "
+                "Load into [funscript-tools](https://github.com/edger477/funscript-tools) "
+                "to generate multi-channel alpha/beta/pulse/volume files for restim."
             )
+            _confirmed_estim = st.checkbox(
+                "Ready to download",
+                key="export_confirmed_estim",
+            )
+            if _has_content and _confirmed_estim:
+                dl_estim = _build_download_bytes(
+                    project, phrases, full_plan,
+                    blend_seams=blend_seams,
+                    final_smooth=final_smooth,
+                )
+                st.download_button(
+                    "⬇ Download estim funscript",
+                    data=dl_estim,
+                    file_name=f"{project.name}.estim.funscript",
+                    mime="application/json",
+                    type="primary",
+                    key="dl_estim",
+                )
+            else:
+                st.button(
+                    "⬇ Download estim funscript",
+                    disabled=True,
+                    type="primary",
+                    key="dl_estim_dis",
+                )
 
     st.divider()
 
@@ -742,6 +785,73 @@ def _build_download_bytes(
         _clamp_sort_dedup(result)
 
     # #12 embed export log so the file is self-documenting
+    log = _build_export_log(
+        project, plan, rejected, accepted, blend_seams, final_smooth,
+        st.session_state.get("export_clamp_count", 0),
+    )
+    out = dict(fs_data)
+    out["actions"]    = result
+    out["_forge_log"] = log
+    return json.dumps(out, indent=2).encode()
+
+
+def _build_download_bytes_device(
+    project,
+    phrases: List[dict],
+    plan: List[dict],
+    *,
+    blend_seams: bool = False,
+    final_smooth: bool = False,
+    apply_safety: bool = True,
+) -> bytes:
+    """Apply transforms and optionally cap velocity for mechanical device safety."""
+    from pattern_catalog.phrase_transforms import TRANSFORM_CATALOG
+
+    with open(project.funscript_path, encoding="utf-8") as f:
+        fs_data = json.load(f)
+
+    rejected: set = st.session_state.get("export_rejected", set())
+    accepted: set = st.session_state.get("export_accepted", set())
+    result = _apply_plan_transforms(fs_data.get("actions", []), plan, rejected, accepted)
+
+    if blend_seams:
+        spec = TRANSFORM_CATALOG.get("blend_seams")
+        if spec:
+            result = spec.apply(result, None) or result
+
+    if final_smooth:
+        spec = TRANSFORM_CATALOG.get("final_smooth")
+        if spec:
+            result = spec.apply(result, None) or result
+
+    if blend_seams or final_smooth:
+        _clamp_sort_dedup(result)
+
+    if apply_safety:
+        issues = _check_quality(result)
+        if issues:
+            perf_spec = TRANSFORM_CATALOG.get("performance")
+            if perf_spec:
+                perf_params = {pk: p.default for pk, p in perf_spec.params.items()}
+                perf_params["max_velocity"] = 0.20
+                fix_ats = {i["at"] for i in issues}
+                affected: set = set()
+                for at in fix_ats:
+                    for pi, ph in enumerate(phrases):
+                        if ph["start_ms"] <= at <= ph["end_ms"]:
+                            affected.add(pi)
+                            break
+                for pi in affected:
+                    ph = phrases[pi]
+                    _slice = [a for a in result if ph["start_ms"] <= a["at"] <= ph["end_ms"]]
+                    _fixed = perf_spec.apply(_slice, perf_params)
+                    if _fixed:
+                        t2p = {a["at"]: a["pos"] for a in _fixed}
+                        for a in result:
+                            if a["at"] in t2p:
+                                a["pos"] = t2p[a["at"]]
+                _clamp_sort_dedup(result)
+
     log = _build_export_log(
         project, plan, rejected, accepted, blend_seams, final_smooth,
         st.session_state.get("export_clamp_count", 0),
