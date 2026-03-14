@@ -460,8 +460,8 @@ def cmd_validate_plugins(args):
 def _coerce(v: str):
     """Parse a string value as int, float, or str."""
     try:
-        i = int(v); f = float(v)
-        return i if i == f else f
+        f = float(v)
+        return int(f) if f == int(f) else f
     except ValueError:
         return v
 

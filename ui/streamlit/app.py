@@ -182,6 +182,17 @@ def _save_recents(output_dir: str, file_path: str) -> None:
 
 
 _BROWSE_SENTINEL = "— enter a path below —"
+_DEMO_SENTINEL   = "── demo files ──"
+
+_DEMO_FILES = [
+    os.path.join(_ROOT, "demo", "examples", "big_buck_bunny.raw.funscript"),
+    os.path.join(_ROOT, "demo", "examples", "big_buck_bunny.forged.funscript"),
+]
+
+
+def _demo_funscripts() -> list[str]:
+    """Return demo funscript paths that exist on disk."""
+    return [p for p in _DEMO_FILES if os.path.isfile(p)]
 
 
 def _funscript_picker_local(output_dir: str) -> str | None:
@@ -197,16 +208,24 @@ def _funscript_picker_local(output_dir: str) -> str | None:
         if _desc:
             st.sidebar.caption(_desc)
     recents = _load_recents(output_dir)
-    options = recents + [_BROWSE_SENTINEL]
+    demos   = [p for p in _demo_funscripts() if p not in recents]
+    options = recents + ([_DEMO_SENTINEL] + demos if demos else []) + [_BROWSE_SENTINEL]
+
+    def _fmt(p: str) -> str:
+        if p in (_BROWSE_SENTINEL, _DEMO_SENTINEL):
+            return p
+        name = os.path.basename(p)
+        return f"📋 {name}" if p in demos else name
+
     sel = st.sidebar.selectbox(
         "Recent files",
         options=options,
-        format_func=lambda p: os.path.basename(p) if p != _BROWSE_SENTINEL else p,
+        format_func=_fmt,
         key="local_funscript_sel",
         label_visibility="collapsed",
     )
 
-    if sel == _BROWSE_SENTINEL:
+    if sel in (_BROWSE_SENTINEL, _DEMO_SENTINEL):
         typed = st.sidebar.text_input(
             "Path to .funscript",
             key="local_funscript_typed",
