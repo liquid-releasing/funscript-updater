@@ -269,6 +269,9 @@ ml_video_examples/**/*.wmv
 test_videos/
 *.wmv
 
+# Draft / work-in-progress docs — not ready to publish
+docs/_drafts/
+
 # Confidential internal documents — stored outside repo
 docs/marketing-plan-internal.md
 docs/cost-estimates.md
