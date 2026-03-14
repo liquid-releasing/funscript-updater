@@ -217,7 +217,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # code workspace settings
-.code-workspace
+*.code-workspace
 
 # Claude Code project data (AI session state, personal memory)
 .claude/
