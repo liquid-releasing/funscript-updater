@@ -28,7 +28,7 @@ Items marked ✅ are resolved in the current codebase.
 | G08 | Browser file upload | ✅ `st.file_uploader` in web mode; saved to `output/uploads/` | [#5] |
 | G09 | Audio/video sync playback | ✅ Phrase-restricted HTML5 player; local streaming + web base64 modes | [#6] |
 | G10 | UI tab cleanup | ✅ Reduced from 6 to 4 tabs; brand art and favicon added | [#7] |
-| G11 | REST API | Deferred — planned for SaaS phase | [#8] |
+| G11 | REST API | Deferred | [#8] |
 | G12 | Onboarding flow / guided start | ✅ Welcome screen with workflow icons, steps, detection table | [#16] |
 | G13 | Uniform-tempo segmentation | ✅ `max_phrase_duration_ms` cap forces phrase breaks regardless of structural uniformity | [#2] |
 
@@ -147,4 +147,4 @@ Items marked ✅ are resolved in the current codebase.
 - **G30–G35** are distribution gaps added during the packaging sprint (P7).
 - **T1–T9, UX1–UX7, F1–F10** are new gaps identified in the post-P6 codebase review (2026-03-10).
 - Security gaps (input validation, output validation) overlap with the original security analysis — G01–G03 covered the primary risks.
-- SaaS multi-user items (G11, G25) are explicitly out of scope for the single-user phase.
+- Multi-user items (G11, G25) are deferred — not in scope for the current single-user release.

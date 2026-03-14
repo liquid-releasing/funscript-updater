@@ -121,13 +121,13 @@ def render_player(
                 key=f"player_{key_suffix}",
             )
 
-        # Web mode: base64-encode the file.
-        # Refuse files over the size cap to prevent OOM on the server.
+        # No local media server: base64-encode the file for the browser.
+        # Refuse files over the size cap to prevent OOM.
         file_bytes = os.path.getsize(media_path)
         if file_bytes > _WEB_MODE_MAX_BYTES:
             size_mb = file_bytes / 1_000_000
             st.warning(
-                f"Media file is {size_mb:.0f} MB — too large to load in web mode "
+                f"Media file is {size_mb:.0f} MB — too large to encode for the browser "
                 f"(limit {_WEB_MODE_MAX_BYTES // 1_000_000} MB).  "
                 "Use the desktop launcher to stream large files without size limits."
             )
@@ -172,8 +172,8 @@ def render_player(
 _VALIDATION_CACHE: dict[tuple, str | None] = {}
 _VALIDATION_CACHE_MAX = 64   # trim when it grows too large
 
-# Hard cap for base64 web-mode uploads (bytes).  Files larger than this are
-# refused in web mode to prevent OOM; local mode streams from disk instead.
+# Hard cap for base64-encoded uploads (bytes).  Files larger than this are
+# refused to prevent OOM; the desktop launcher streams large files from disk.
 _WEB_MODE_MAX_BYTES = 500 * 1024 * 1024  # 500 MB
 
 # ffprobe subprocess time-out (seconds).  Short enough that a corrupt or
@@ -317,10 +317,10 @@ def validate_media_file(path: str) -> str | None:
         return "Not a valid AAC file (missing ADTS sync bytes)."
 
     # Reject everything else — unknown extensions are not allowed.
-    # Note: .avi is not supported in local mode because most browsers cannot
-    # decode it natively.  Convert to MP4 first:
+    # Note: .avi is not supported because most browsers cannot decode it
+    # natively.  Convert to MP4 first:
     #   ffmpeg -i input.avi -c:v libx264 -c:a aac output.mp4
-    # AVI transcoding is planned for the paid SaaS tier.
+    # AVI transcoding is not yet supported.
     if ext == ".avi":
         return (
             ".avi files are not supported — browsers cannot play AVI natively.\n"

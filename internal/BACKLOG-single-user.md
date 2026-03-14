@@ -66,13 +66,13 @@ red playhead line.  Playback is phrase-restricted (enforced on both the Python a
 A 📌 "Set split here" button sends the current playback position back to Python as `split_ms`,
 wired to `_add_split_point()` in the Pattern Editor.
 
-**Local desktop mode** — `launcher.py` sets `FUNSCRIPT_FORGE_LOCAL=1` and starts a Range-capable
+**Desktop launcher** — `launcher.py` sets `FUNSCRIPT_FORGE_LOCAL=1` and starts a Range-capable
 HTTP media server on a second port.  The sidebar shows a recents dropdown + path text input
 instead of `st.file_uploader`.  Auto-detects matching media by stem in the same folder as the
 funscript.  Media streams directly from disk — no base64 encoding, no large file in Python memory.
 
-**Web mode** — `st.file_uploader` widgets (funscript + media) saved to `output/uploads/`.  Audio
-encoded as base64 and embedded in the component.  Upload code preserved for web deployment.
+**Browser upload path** — `st.file_uploader` widgets (funscript + media) saved to `output/uploads/`.
+Audio encoded as base64 and embedded in the component.
 
 **Security** — `validate_media_file()` checks magic bytes for all 10 supported types (MP3, MP4,
 M4A, MOV, WAV, OGG, WebM, MKV, AAC, AVI).  Unknown extensions are rejected rather than passed
@@ -238,25 +238,22 @@ newer build is available (no silent auto-install required for v1).
 
 ---
 
-## Out of Scope for Single-User Phase
+## Deferred Items
 
-These items are explicitly deferred until the SaaS / multi-user phase:
+These items are out of scope for the current single-user release:
 
-+ **REST API** ([#8](https://github.com/liquid-releasing/funscriptforge/issues/8)) — needed for SaaS, not local use
-+ **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscriptforge/issues/3)) — SaaS only
++ **REST API** ([#8](https://github.com/liquid-releasing/funscriptforge/issues/8)) — useful for programmatic access; deferred
++ **FastAPI + frontend scaffold** ([#3](https://github.com/liquid-releasing/funscriptforge/issues/3)) — deferred
 + **Upload and sync media/audio** ([#6](https://github.com/liquid-releasing/funscriptforge/issues/6)) — nice-to-have, not blocking
 + **Large-file web media streaming** — files above 500 MB cannot be base64-encoded into a
-  browser session without OOM risk.  Local desktop mode already handles files of any size
+  browser session without OOM risk.  The desktop launcher already handles files of any size
   (16 GB 4K video streams via the local HTTP media server with no memory overhead).
-  Web/SaaS tier will need chunked upload, server-side storage, or signed CDN URLs.
-  **Planned as a paid SaaS tier feature** — large production files are a professional workflow.
+  A server-hosted deployment would need chunked upload, server-side storage, or signed CDN URLs.
 + **Python plugins as a supported feature** — the code infrastructure exists and is tested,
   but Python plugins cannot be safely sandboxed on a local machine without OS-level container
-  isolation.  **Planned for the SaaS paid tier only**, where each plugin runs in a
-  short-lived container with no access to other tenants' data or the host file system.
-  This is a genuine differentiator for the paid tier: "bring your own transform logic."
-  See `internal/SECURITY.md` → *Python Plugin Roadmap Decision* for the full rationale
-  and tier comparison table.
+  isolation.  Each plugin would need to run in a short-lived container with no access to the
+  host file system.  See `internal/SECURITY.md` → *Python Plugin Roadmap Decision* for the
+  full rationale.
 
 ---
 

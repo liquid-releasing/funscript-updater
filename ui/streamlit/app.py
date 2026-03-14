@@ -9,7 +9,7 @@ Launch with:
 Layout
 ------
 Sidebar
-  • File picker (local path / recent files) or upload (web mode)
+  • File picker (local path / recent files) or browser upload
   • Optional media file for context playback
 
 Main area  (tabs)

@@ -97,8 +97,8 @@ def phrase_audio_player(
 ) -> dict | None:
     """Render the phrase-restricted media player component.
 
-    Pass exactly one of *media_url* (local/desktop mode) or
-    *media_b64* + *media_mime* (web mode).  The legacy ``audio_*``
+    Pass exactly one of *media_url* (desktop launcher / local media server) or
+    *media_b64* + *media_mime* (base64-encoded for the browser).  The legacy ``audio_*``
     parameters are accepted for backward compatibility and are used
     when the corresponding ``media_*`` params are not provided.
 
@@ -119,7 +119,7 @@ def phrase_audio_player(
     media_url / audio_url:
         HTTP URL from the local media server.
     media_b64 / audio_b64:
-        Base64-encoded file bytes (web mode).
+        Base64-encoded file bytes (browser upload path).
     media_mime / audio_mime:
         MIME type string.
     key:
