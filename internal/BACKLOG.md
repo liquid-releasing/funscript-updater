@@ -6,6 +6,19 @@ Items are loosely ordered by dependency and value. Move to DONE when shipped.
 
 ## Open
 
+### Walkthrough demo video
+
+Screen-record a complete forge session using `demo/examples/big_buck_bunny.raw.funscript`.
+The script covers all 8 behavioral tags in order — a natural 10-minute product demo in one take.
+
+- AI-generated voiceover (ElevenLabs or similar) — write script first, generate audio, sync to recording
+- Load raw BBB funscript → walk every phrase tag → accept transforms → export device funscript
+- Show before/after charts for at least one phrase of each tag type
+- Publish to GitHub README and docs home page
+- Consider: OBS for capture, ffmpeg for edit, DaVinci Resolve for polish
+
+---
+
 ### Test FunscriptForge on Linux
 
 Build and run the Linux PyInstaller package end-to-end to verify the Linux release works before shipping to users.
