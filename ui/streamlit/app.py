@@ -103,6 +103,14 @@ if "output_dir" not in st.session_state:
         from utils import writable_base_dir as _writable_base_dir
         st.session_state.output_dir = os.path.join(_writable_base_dir(), "output")
 
+if "demo_generated" not in st.session_state:
+    try:
+        from demo.generate_demo import ensure_demo_files
+        ensure_demo_files()
+    except Exception:
+        pass  # never block startup over demo generation
+    st.session_state.demo_generated = True
+
 if "pattern_catalog" not in st.session_state:
     from catalog.pattern_catalog import PatternCatalog
     _catalog_path = os.path.join(st.session_state.output_dir, "pattern_catalog.json")
